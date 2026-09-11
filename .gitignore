@@ -1,0 +1,18 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# --- Experiment artifacts ---
+wandb/
+runs/
+checkpoints/
+*.pt
+*.pth
+
+# --- OS / editor ---
+.vscode/
+.DS_Store

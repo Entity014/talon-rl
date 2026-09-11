@@ -1,0 +1,19 @@
+[project]
+name = "talon-rl"
+version = "0.0.1"
+description = "Training code for TALON (Terrain-Adaptive Locomotion via Objective Negotiation) — prelim scope only."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["talon_rl*"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
