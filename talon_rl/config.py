@@ -78,3 +78,13 @@ class PreferenceCfg:
 
     dirichlet_alpha: float = 1.0
     max_delta_per_step: float = 0.05  # rate-limiter cap on ||w_t - w_{t-1}||
+
+
+@dataclass(frozen=True)
+class ObservationStackCfg:
+    """num_policy_stacks / num_critic_stacks, after Flamingo
+    (jaykorea/Isaac-RL-Two-wheel-Legged-Bot) — see obs_stack.py. Defaults to 1/1
+    (no stacking) so existing single-timestep code paths are unaffected."""
+
+    num_policy_stacks: int = 1
+    num_critic_stacks: int = 1
