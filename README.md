@@ -18,15 +18,21 @@ dummy env" is meaningful; only "the pipeline runs without breaking" is.
 [`BaseTalonEnv`](talon_rl/envs/base_env.py) — same `reset()`/`step()` contract
 — and `training/moppo.py` doesn't need to change at all.
 
+See [docs/mdp.md](docs/mdp.md) for the field-by-field rationale behind every
+observation/action/reward-vector entry, and [CLAUDE.md](CLAUDE.md) for the
+invariants this code depends on before you change anything.
+
 ## Scope of this prelim (see chapter3.tex for the full pipeline)
 
 **In scope:**
+
 - Multi-Objective Module: MOPPO, Dirichlet-sampled preference vector $w$,
   rate-limiter + floor-clip, vector critic $V(s,c,w)$ (table in §3.2.3)
 - All 5 reward-vector terms from table 3.3: Progress, Clearance, Energy,
   Impact, Smoothness
 
 **Out of scope (separate milestones, after the proposal defense):**
+
 - Adaptation Module ($\hat z_t, \sigma_t$ — payload/morphology awareness)
 - Exteroception Module (depth-camera terrain/obstacle perception)
 - Full terrain curriculum (§3.3.1) — the qualitative gap/chasm test scenario
@@ -47,7 +53,7 @@ dummy env" is meaningful; only "the pipeline runs without breaking" is.
 
 ## Layout
 
-```
+```text
 talon_rl/
   config.py          # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg / PreferenceCfg
                       # — mirrors chapter3.tex tables 3.1-3.3
