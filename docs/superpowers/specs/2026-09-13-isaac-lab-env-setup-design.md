@@ -21,6 +21,29 @@ Target machine (checked directly, 2026-09-13):
 - Existing `talon-rl/.venv` is Python 3.12, used for the current dummy-env
   pytest suite
 
+## Relationship to the D³PO/AMOR Main decision (2026-09-13, same day)
+
+Separately, `chapter3.tex` §3.2.3/§3.10 now names **Main** as AMOR's architecture
+with D³PO's Late-Stage Weighting loss (not AMOR's original early-scalarization,
+which moved to `Baseline C`) — see `talon-thesis/03_Daily_Notes/2026-09-13.md`.
+That decision is **orthogonal to this design**: `IsaacLabTalonEnv` only has to
+satisfy `BaseTalonEnv`'s `reset()`/`step()` contract, and `training/moppo.py`
+already doesn't need to change to swap envs (see §2 below) — the same holds in
+reverse, swapping *which loss `moppo.py` runs* doesn't touch the env. Concretely:
+
+- This design's smoke-test bar ("a handful of PPO updates run headless without
+  crashing," §3) is satisfied by whichever `moppo.py` is checked in at the
+  time — today that's still the AMOR-style scalarizer. There is no need to
+  block Isaac Lab env work on D³PO's Late-Stage Weighting landing first.
+- The env work here and the D³PO implementation in `moppo.py` (tracked as an
+  open item in `talon-thesis/03_Daily_Notes/PROGRESS.md`, Stage 3) can proceed
+  in either order or in parallel.
+- What *does* depend on order: before the Isaac Lab smoke run is reported as
+  testing §3.10's `Main` condition specifically (as opposed to just "the
+  pipeline doesn't crash on a real sim"), `moppo.py` needs D³PO's Late-Stage
+  Weighting implemented — otherwise the run is exercising `Baseline C`'s loss
+  (AMOR early-scalarization), not `Main`, regardless of what the env is.
+
 ## Goal
 
 Get a real Isaac Lab environment (`IsaacLabTalonEnv`) running the same
