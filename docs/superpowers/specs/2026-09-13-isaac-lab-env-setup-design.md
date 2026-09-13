@@ -153,9 +153,19 @@ existing dummy-env CI path has or should require.
   wiring smoke test this milestone targets. Not solved here — flagged in
   README's existing "known gaps" list if it turns out to matter sooner than
   expected.
-- **Actuator $K_p$/$K_d$ mismatch.** Unverified until the A1 actuator config
-  is actually read — flagged above, resolved during implementation, not a
-  design fork.
+- **Actuator $K_p$/$K_d$ mismatch.** Checked 2026-09-13: Unitree A1's official
+  hardware manual (`talon-thesis/04_Hardware_Docs/Unitree_A1_User_Manual_v1.0.pdf`)
+  is operator-level (remote control, charging, safety) — no PD gains in it at
+  all (also worth noting: its PDF metadata title is "Laikago产品用户手册," a
+  different/older Unitree robot — flag if this manual is ever cited as an A1
+  source). The commonly-used reference value instead comes from
+  `leggedrobotics/legged_gym`'s `a1_config.py` (the same group behind the
+  "Learning to Walk in Minutes" paper this repo already cites for the
+  vectorized-env work): $K_p = 20\text{ N·m/rad}$, $K_d = 0.5\text{
+  N·m·s/rad}$, uniform across all 12 joints. Still unverified against (a)
+  Isaac Lab's shipped A1 actuator config specifically (may differ from
+  legged_gym/Isaac Gym's), and (b) chapter3.tex's own assumed values — both
+  checks happen during implementation, not a design fork.
 - **`isaacsim` import inside the 3.12 `.venv`.** The structural test above
   assumes `isaacsim` is at least importable somewhere pytest can reach. If
   it turns out Python-version-pinning makes that impractical, the
