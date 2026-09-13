@@ -13,6 +13,12 @@ checkpoints/
 *.pt
 *.pth
 
+# --- graphify (generated, rebuild with `graphify extract .`) ---
+graphify-out/
+
+# --- git worktrees (scratch, per subagent-driven-development plans) ---
+.worktrees/
+
 # --- OS / editor ---
 .vscode/
 .DS_Store
