@@ -158,14 +158,29 @@ existing dummy-env CI path has or should require.
   is operator-level (remote control, charging, safety) — no PD gains in it at
   all (also worth noting: its PDF metadata title is "Laikago产品用户手册," a
   different/older Unitree robot — flag if this manual is ever cited as an A1
-  source). The commonly-used reference value instead comes from
-  `leggedrobotics/legged_gym`'s `a1_config.py` (the same group behind the
-  "Learning to Walk in Minutes" paper this repo already cites for the
-  vectorized-env work): $K_p = 20\text{ N·m/rad}$, $K_d = 0.5\text{
-  N·m·s/rad}$, uniform across all 12 joints. Still unverified against (a)
-  Isaac Lab's shipped A1 actuator config specifically (may differ from
-  legged_gym/Isaac Gym's), and (b) chapter3.tex's own assumed values — both
-  checks happen during implementation, not a design fork.
+  source). Two real values found instead, both on the same A1 platform but
+  from different sources:
+  - **RMA (Kumar et al., 2021)** — the paper this repo's Adaptation Module is
+    already built on (`kumar2021`) — states its own A1 controller uses
+    **$K_p = 55$, $K_d = 0.8$** (see the paper's PDF in
+    `talon-thesis/01_Literature_Review/01.1_Sim_to_Real_Adaptation/Kumar et
+    al. - 2021 .../`, around "controller with fixed gains"). This is the more
+    relevant reference for this thesis specifically, since it's the same
+    source the rest of the Adaptation Module design already follows.
+  - `leggedrobotics/legged_gym`'s `a1_config.py` (the group behind "Learning
+    to Walk in Minutes," also already cited) instead ships
+    $K_p = 20\text{ N·m/rad}$, $K_d = 0.5\text{ N·m·s/rad}$, uniform across
+    all 12 joints — a different, lower-gain default, presumably tuned for
+    Isaac Gym's specific simulation/training setup rather than matched to
+    RMA's hardware controller.
+  - The two don't agree, which itself is useful signal: **default gains are
+    per-codebase, not a fixed hardware constant** — Isaac Lab's shipped A1
+    actuator config is yet a third value and is the one that actually
+    matters once training starts. Use RMA's ($K_p{=}55$, $K_d{=}0.8$) as the
+    working assumption when writing `IsaacLabTalonEnv` (matches this
+    thesis's own reference paper), but still confirm against Isaac Lab's
+    default and override explicitly if it differs — do not assume either
+    community default is "the" A1 value without checking.
 - **`isaacsim` import inside the 3.12 `.venv`.** The structural test above
   assumes `isaacsim` is at least importable somewhere pytest can reach. If
   it turns out Python-version-pinning makes that impractical, the
