@@ -18,6 +18,7 @@ graphify-out/
 
 # --- git worktrees (scratch, per subagent-driven-development plans) ---
 .worktrees/
+.claude/worktrees/
 
 # --- OS / editor ---
 .vscode/
