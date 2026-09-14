@@ -34,7 +34,7 @@ invariants" shape as this one.)
   construct or mutate a preference vector by hand anywhere else — it's the
   one invariant the Multi-Objective Module depends on.
 - **`BaseTalonEnv.obs_dim` excludes $w$.** The preference vector is appended
-  to the observation inside `training/moppo.py`, not by the environment. Any
+  to the observation inside `scripts/moppo/moppo.py`, not by the environment. Any
   new env (including the eventual Isaac Lab one) must NOT put $w$ into its
   own `obs` array — it'll get double-appended and silently break the
   policy's input shape.
