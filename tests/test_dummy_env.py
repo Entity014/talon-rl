@@ -2,7 +2,8 @@ import numpy as np
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 from talon_rl.envs.base_env import BaseTalonEnv
-from talon_rl.envs.dummy_env import DummyTalonEnv
+
+from moppo.dummy_env import DummyTalonEnv
 
 
 def _make_env(num_envs=4, horizon=5, seed=0):

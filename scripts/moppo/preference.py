@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import PreferenceCfg, RewardVectorCfg
+from talon_rl.config import PreferenceCfg, RewardVectorCfg
 
 
 def sample_preference_vector(

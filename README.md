@@ -18,8 +18,8 @@ on either env is meaningful; only "the pipeline runs without breaking" is.
 
 **Isaac Sim is the target simulator, and it's now wired up.** `IsaacLabTalonEnv`
 implements the same `reset()`/`step()` contract as `DummyTalonEnv` —
-`training/moppo.py` doesn't need to change at all to switch between them; see
-`--env dummy` vs `--env isaac_lab` below.
+`scripts/moppo/moppo.py` doesn't need to change at all to switch between them;
+see `--env dummy` vs `--env isaac_lab` below.
 
 See [docs/mdp.md](docs/mdp.md) for the field-by-field rationale behind every
 observation/action/reward-vector entry, and [CLAUDE.md](CLAUDE.md) for the
@@ -65,27 +65,32 @@ invariants this code depends on before you change anything.
 
 ## Layout
 
+Split the same way as [jaykorea/Isaac-RL-Two-wheel-Legged-Bot](https://github.com/jaykorea/Isaac-RL-Two-wheel-Legged-Bot):
+`talon_rl/` is the portable, pip-installable task package (env/asset/MDP
+definitions only — swappable to any training algorithm); the RL algorithm
+itself is driver code under `scripts/`, not part of the installed package.
+
 ```text
 talon_rl/
   config.py          # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg / PreferenceCfg
                       # — mirrors chapter3.tex tables 3.1-3.3
   reward.py          # the 5 reward-vector terms + compute_reward_vector()
-  preference.py       # Dirichlet sampling, rate-limiter, floor-clip
-  obs_stack.py         # batched (N, stacks, obs_dim) actor/critic observation history
   envs/
-    base_env.py        # interface a real Isaac Lab env must implement
-    dummy_env.py        # physics-free smoke-test env
+    base_env.py        # interface any env (real or dummy) must implement
   assets/
     a1.py               # Unitree A1 Isaac Lab asset config
   tasks/locomotion/a1_env/
     a1_env.py            # IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv), registered Isaac-Talon-A1-v0
     a1_env_cfg.py         # scene/observations/actions/terminations/events manager configs
     mdp/                   # scripted MDP term functions (observations.py, terminations.py)
-  training/
-    moppo.py           # preference-conditioned PPO (vector critic, w . advantage)
 tests/                # pytest — reward terms, preference math, end-to-end smoke tests
 scripts/
   train_prelim.py      # entry point
+  moppo/
+    moppo.py            # preference-conditioned PPO (vector critic, w . advantage)
+    preference.py        # Dirichlet sampling, rate-limiter, floor-clip
+    obs_stack.py          # batched (N, stacks, obs_dim) actor/critic observation history
+    dummy_env.py           # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
 ```
 
 ## Running it

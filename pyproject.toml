@@ -15,6 +15,13 @@ dev = ["pytest>=7.0"]
 [tool.setuptools.packages.find]
 include = ["talon_rl*"]
 
+[tool.pytest.ini_options]
+# scripts/moppo/ isn't part of the installed talon_rl package (matches
+# jaykorea/Isaac-RL-Two-wheel-Legged-Bot's own scripts/co_rl/ convention —
+# the RL algorithm is driver code, not part of the portable task package)
+# — this lets tests/ import it the same way scripts/train_prelim.py does.
+pythonpath = ["scripts"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

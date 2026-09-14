@@ -20,8 +20,8 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from ..config import ActionSpaceCfg, ObservationSpaceCfg
-from .base_env import BaseTalonEnv
+from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
+from talon_rl.envs.base_env import BaseTalonEnv
 
 
 class DummyEnv(gym.Env):

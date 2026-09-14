@@ -10,8 +10,9 @@ rollout collection across update() calls.
 import numpy as np
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
-from talon_rl.envs.dummy_env import DummyTalonEnv
-from talon_rl.training.moppo import MOPPOConfig, MOPPOTrainer
+
+from moppo.dummy_env import DummyTalonEnv
+from moppo.moppo import MOPPOConfig, MOPPOTrainer
 
 
 def test_moppo_runs_a_few_updates_without_nans():

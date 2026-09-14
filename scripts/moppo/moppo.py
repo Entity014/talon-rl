@@ -32,11 +32,12 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-from ..config import ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
-from ..envs.base_env import BaseTalonEnv
-from ..obs_stack import ObservationStack
-from ..preference import floor_clip, rate_limit, sample_preference_vector
-from ..reward import compute_reward_vector
+from talon_rl.config import ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
+from talon_rl.envs.base_env import BaseTalonEnv
+from talon_rl.reward import compute_reward_vector
+
+from .obs_stack import ObservationStack
+from .preference import floor_clip, rate_limit, sample_preference_vector
 
 
 @dataclass

@@ -14,8 +14,9 @@ from __future__ import annotations
 import argparse
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, PreferenceCfg, RewardVectorCfg
-from talon_rl.envs.dummy_env import DummyTalonEnv
-from talon_rl.training.moppo import MOPPOConfig, MOPPOTrainer
+
+from moppo.dummy_env import DummyTalonEnv
+from moppo.moppo import MOPPOConfig, MOPPOTrainer
 
 
 def main() -> None:
