@@ -1177,7 +1177,10 @@ from . import mdp
 
 # Set by Task 1's empirical VRAM sizing (2026-09-14) — replace this literal
 # if Task 1 found a different value fits the RTX 3070 Ti's 8GB better.
-_DEFAULT_NUM_ENVS = 2048
+_DEFAULT_NUM_ENVS = 4096  # Task 1's empirical result (2026-09-14): 4096 fits the
+# RTX 3070 Ti's 8GB with ~1.64GB free at peak (6513/8192 MiB used); 8192 was
+# not attempted (outside the tested decision tree, and the headroom trend
+# argued against it) — see task-1-report.md in this plan's SDD workspace.
 
 
 @configclass
@@ -1876,7 +1879,7 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
-    parser.add_argument("--num_envs", type=int, default=2048)  # Task 1's empirically-sized default
+    parser.add_argument("--num_envs", type=int, default=4096)  # Task 1's empirically-sized default
     args = parser.parse_args()
 
     obs_cfg = ObservationSpaceCfg()
