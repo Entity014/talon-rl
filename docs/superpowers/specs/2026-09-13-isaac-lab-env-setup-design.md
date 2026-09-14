@@ -186,3 +186,25 @@ existing dummy-env CI path has or should require.
   it turns out Python-version-pinning makes that impractical, the
   structural test may need to move to a separate, GPU-venv-only pytest
   invocation instead — small implementation detail, not a design change.
+
+## Installed versions (2026-09-14)
+
+- `isaacsim`: 5.0.0.0
+- `isaaclab`: 0.48.0 (repo tag `release/2.3.0`)
+- Python: 3.11.15 (`~/isaac-lab-env`)
+- `torch`: 2.7.0+cu128, `torchvision`: 0.22.0+cu128, `torchaudio`: 2.7.0+cu128
+
+Deviations from Task 1's expected steps, for reproducibility:
+
+- `./isaaclab.sh --install` did not install the core `isaaclab` package
+  itself (only `isaaclab_assets`/`isaaclab_mimic`/`isaaclab_rl`/`isaaclab_tasks`)
+  — had to `uv pip install -e ~/IsaacLab/source/isaaclab` manually.
+- That install failed under `setuptools>=81` (which dropped `pkg_resources`,
+  needed by the `flatdict` build dependency) — pinned `setuptools<81` first.
+- `isaaclab.sh --install`'s torch reinstall step pulled `torch`/`torchvision`
+  but not `torchaudio`, leaving `isaacsim-core`'s pinned `torchaudio==2.7.0`
+  requirement unmet — installed it manually to match.
+- `import isaaclab_assets` (and `isaaclab.sim`) only succeeds *after* a
+  `SimulationApp` instance has booted the Kit runtime (`carb`/`omni.client`
+  are injected at that point) — a bare `import isaaclab`/`import isaacsim`
+  first is not enough, contrary to Task 1 Step 4's plain import expectation.
