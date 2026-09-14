@@ -4,6 +4,23 @@ This is a prelim/smoke-test scaffold, not a trained system — read
 [README.md](README.md) and [docs/mdp.md](docs/mdp.md) first for scope and
 known gaps before changing anything below.
 
+## Conventions
+
+(Borrowed from [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck)'s
+CONTRIBUTING.md — a robotics codebase with the same "small research/control repo, non-obvious
+invariants" shape as this one.)
+
+- **Comments say why, not what.** The reason a thing is the way it is outlives the code — see the
+  invariants below for the standard this repo already holds itself to.
+- **Commit messages are terse and why-focused.** State the reason for the change, not a restated
+  diff; a scope prefix (`moppo:`, `reward:`, `preference:`) is welcome when it disambiguates, but
+  isn't mandatory.
+- **Every non-obvious decision gets a test, and the test's comment says which failure it exists to
+  prevent.** Especially true here since there's no oracle to check RL correctness against yet —
+  the test suite is what stands in for one.
+- **Reach for an existing library before writing it yourself.** Dependency count is not what's
+  being optimized; maintenance is.
+
 ## Rules learned so far
 
 - **`RewardVectorCfg.term_names` is the single source of truth for reward
