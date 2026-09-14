@@ -50,7 +50,7 @@ machine and `~/isaac-lab-env`.
   importable, and `talon_rl` installed editable into it — everything later
   tasks run inside.
 
-- [ ] **Step 1: Create the venv**
+- [x] **Step 1: Create the venv**
 
 Run:
 ```bash
@@ -58,7 +58,7 @@ uv venv ~/isaac-lab-env --python 3.11
 ```
 Expected: creates `~/isaac-lab-env` with a `bin/python` reporting Python 3.11.x.
 
-- [ ] **Step 2: Install Isaac Sim**
+- [x] **Step 2: Install Isaac Sim**
 
 Run:
 ```bash
@@ -71,7 +71,7 @@ compatible in the design doc's Context section, so an error here means
 something changed and needs investigation, not a silent fallback to the
 binary installer.
 
-- [ ] **Step 3: Verify Isaac Sim launches headless**
+- [x] **Step 3: Verify Isaac Sim launches headless**
 
 Run (inside the activated venv):
 ```bash
@@ -88,7 +88,7 @@ stop here — do not proceed to Isaac Lab install until this passes, per the
 design doc's explicit isolation of "Isaac Sim installed correctly" from
 "our env code is correct."
 
-- [ ] **Step 4: Clone and install Isaac Lab**
+- [x] **Step 4: Clone and install Isaac Lab**
 
 Run:
 ```bash
@@ -107,7 +107,7 @@ creating its own, activate `~/isaac-lab-env` again afterward and
 Expected: completes without error; `python -c "import isaaclab"` and
 `python -c "import isaaclab_assets"` both succeed afterward.
 
-- [ ] **Step 5: Install talon-rl into the same venv**
+- [x] **Step 5: Install talon-rl into the same venv**
 
 Run:
 ```bash
@@ -116,7 +116,7 @@ uv pip install -e "/home/xero/Master's Degree/Thesis/talon-rl"
 Expected: `python -c "import talon_rl; print(talon_rl.__file__)"` prints a
 path inside the repo (editable install).
 
-- [ ] **Step 6: Record the exact installed versions**
+- [x] **Step 6: Record the exact installed versions**
 
 Run:
 ```bash
@@ -131,7 +131,7 @@ under a new `## Installed versions (YYYY-MM-DD)` heading — the design doc
 named target versions before install; this closes the loop with what
 actually landed, since patch versions can shift what's available.
 
-- [ ] **Step 7: Commit the version record**
+- [x] **Step 7: Commit the version record**
 
 ```bash
 cd "/home/xero/Master's Degree/Thesis/talon-rl"
@@ -155,7 +155,7 @@ verified facts instead of guesses baked into Task 3's code.
   single actuator group) and `joint_names: list[str]` (order of the 12
   actuated joints as Isaac Lab enumerates them) — Task 3 uses both.
 
-- [ ] **Step 1: Write and run the inspection script**
+- [x] **Step 1: Write and run the inspection script**
 
 ```python
 # /tmp/inspect_a1.py
@@ -180,7 +180,7 @@ single `DCMotorCfg` group covering all `.*_hip_joint`, `.*_thigh_joint`,
 `.*_calf_joint` — but confirm the exact printed dict key name here, don't
 assume it's literally `"legs"` or `"base_legs"`).
 
-- [ ] **Step 2: Write down the actual joint order**
+- [x] **Step 2: Write down the actual joint order**
 
 Isaac Lab's `Articulation.data.joint_pos` orders joints by USD-file
 discovery order, not necessarily `[FL, FR, RL, RR] x [hip, thigh, calf]`.
@@ -212,7 +212,7 @@ sums/norms over the full 12-vector — but it must be **consistent** between
 `joint_pos` and `joint_vel` and `action`, which Step 2 confirms by
 construction: all three come from the same `robot.joint_names` ordering).
 
-- [ ] **Step 3: No commit for this task** — the findings feed directly into
+- [x] **Step 3: No commit for this task** — the findings feed directly into
   Task 3's code as literal values/comments; the throwaway script itself is
   not part of the repo.
 
@@ -235,7 +235,7 @@ construction: all three come from the same `robot.joint_names` ordering).
   `scripts/train_prelim.py` (Task 5) can construct either with a near-
   identical call site.
 
-- [ ] **Step 1: Write the structural test first (fails on any 3.12 venv without isaacsim)**
+- [x] **Step 1: Write the structural test first (fails on any 3.12 venv without isaacsim)**
 
 ```python
 # tests/test_isaac_lab_env.py
@@ -279,7 +279,7 @@ def test_isaac_lab_env_implements_base_contract():
     assert isinstance(done, bool)
 ```
 
-- [ ] **Step 2: Run it on the 3.12 `.venv` to confirm it skips cleanly**
+- [x] **Step 2: Run it on the 3.12 `.venv` to confirm it skips cleanly**
 
 Run:
 ```bash
@@ -289,7 +289,7 @@ cd "/home/xero/Master's Degree/Thesis/talon-rl"
 Expected: `SKIPPED (could not import 'isaacsim')` — proves the no-GPU dev
 path stays unaffected before any real implementation exists.
 
-- [ ] **Step 3: Implement `IsaacLabTalonEnv`**
+- [x] **Step 3: Implement `IsaacLabTalonEnv`**
 
 ```python
 # talon_rl/envs/isaac_lab_env.py
@@ -470,7 +470,7 @@ here:**
   exercise a live sim, so it can't catch a wrong key/regex; only the manual
   GPU smoke run does.
 
-- [ ] **Step 4: Run the structural test on the Isaac Lab venv**
+- [x] **Step 4: Run the structural test on the Isaac Lab venv**
 
 Run:
 ```bash
@@ -482,7 +482,7 @@ Expected: PASS. If it fails with an attribute/key error from the constants
 noted above, fix them against Task 2's actual recorded output and rerun —
 do not guess a second time, re-run Task 2's inspection script if unsure.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add talon_rl/envs/isaac_lab_env.py tests/test_isaac_lab_env.py
@@ -500,7 +500,7 @@ git commit -m "feat: add IsaacLabTalonEnv implementing BaseTalonEnv contract"
 - Consumes: `DummyTalonEnv(obs_cfg, action_cfg, horizon, seed)` (existing);
   `IsaacLabTalonEnv(obs_cfg, action_cfg, horizon, headless)` (Task 3).
 
-- [ ] **Step 1: Add the flag and lazy branch**
+- [x] **Step 1: Add the flag and lazy branch**
 
 ```python
 # scripts/train_prelim.py — replace the body of main()
@@ -540,7 +540,7 @@ def main() -> None:
         env.close()
 ```
 
-- [ ] **Step 2: Confirm the dummy path still works unchanged**
+- [x] **Step 2: Confirm the dummy path still works unchanged**
 
 Run:
 ```bash
@@ -551,7 +551,7 @@ Expected: identical output to before this change (3 update lines, no
 errors) — proves the default `--env dummy` path (and machines without Isaac
 Sim) are unaffected.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add scripts/train_prelim.py
@@ -568,7 +568,7 @@ git commit -m "feat: add --env isaac_lab flag to train_prelim.py"
 **Interfaces:** none (this task's deliverable is a verified manual run plus
 a documented command, not new code).
 
-- [ ] **Step 1: Run the real smoke test**
+- [x] **Step 1: Run the real smoke test**
 
 ```bash
 source ~/isaac-lab-env/bin/activate
@@ -580,7 +580,7 @@ env's output, no crash. This is the actual proof this milestone's goal is
 met — per the spec's Non-goals, do **not** interpret the printed reward
 values as a locomotion result of any kind, only as "the loop completed."
 
-- [ ] **Step 2: Document the manual step in README**
+- [x] **Step 2: Document the manual step in README**
 
 Add to `README.md`'s "Running it" section (after the existing
 `pytest tests/` / `python scripts/train_prelim.py --updates 50` lines):
@@ -599,7 +599,7 @@ Proves the pipeline runs against a real Isaac Lab environment instead of
 details and known limitations (VRAM ceiling, actuator gain provenance).
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
