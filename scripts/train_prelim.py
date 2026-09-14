@@ -23,6 +23,7 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
+    parser.add_argument("--num_envs", type=int, default=4096)  # Task 1's empirically-sized default
     args = parser.parse_args()
 
     obs_cfg = ObservationSpaceCfg()
@@ -31,13 +32,17 @@ def main() -> None:
     pref_cfg = PreferenceCfg()
 
     if args.env == "dummy":
-        env = DummyTalonEnv(obs_cfg, action_cfg, horizon=200, seed=args.seed)
+        env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=args.num_envs, horizon=200, seed=args.seed)
     else:
-        # Imported lazily so `--env dummy` keeps working on machines without
+        # Imported lazily so --env dummy keeps working on machines without
         # Isaac Sim installed (this repo's default 3.12 .venv included).
-        from talon_rl.envs.isaac_lab_env import IsaacLabTalonEnv
+        import gymnasium as gym
+        import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
+        from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import IsaacLabTalonEnvCfg
 
-        env = IsaacLabTalonEnv(obs_cfg, action_cfg, horizon=200, headless=True)
+        cfg = IsaacLabTalonEnvCfg()
+        cfg.scene.num_envs = args.num_envs
+        env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
     trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=args.seed)
 
@@ -51,7 +56,12 @@ def main() -> None:
         )
 
     if args.env == "isaac_lab":
+        import threading
+        watchdog = threading.Timer(15.0, lambda: __import__("os")._exit(0))
+        watchdog.daemon = True
+        watchdog.start()
         env.close()
+        watchdog.cancel()
 
 
 if __name__ == "__main__":
