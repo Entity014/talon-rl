@@ -4,41 +4,47 @@ from talon_rl.config import PreferenceCfg, RewardVectorCfg
 from talon_rl.preference import floor_clip, rate_limit, sample_preference_vector
 
 
-def test_sample_preference_vector_sums_to_one_and_matches_dim():
+def test_sample_preference_vector_sums_to_one_and_matches_shape():
     rng = np.random.default_rng(0)
     reward_cfg = RewardVectorCfg()
     pref_cfg = PreferenceCfg()
-    w = sample_preference_vector(rng, reward_cfg, pref_cfg)
-    assert w.shape == (reward_cfg.dim,)
-    assert np.isclose(w.sum(), 1.0, atol=1e-5)
+    w = sample_preference_vector(rng, reward_cfg, pref_cfg, num_envs=5)
+    assert w.shape == (5, reward_cfg.dim)
+    assert np.allclose(w.sum(axis=-1), 1.0, atol=1e-5)
     assert np.all(w >= 0.0)
 
 
-def test_rate_limit_caps_step_size():
-    w_prev = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
-    w_target = np.array([1.0, 0.0, 0.0, 0.0, 0.0])
+def test_rate_limit_caps_step_size_per_row():
+    w_prev = np.tile([0.2, 0.2, 0.2, 0.2, 0.2], (3, 1))
+    w_target = np.tile([1.0, 0.0, 0.0, 0.0, 0.0], (3, 1))
     w_next = rate_limit(w_prev, w_target, max_delta=0.05)
-    assert np.linalg.norm(w_next - w_prev) <= 0.05 + 1e-6
+    norms = np.linalg.norm(w_next - w_prev, axis=-1)
+    assert np.all(norms <= 0.05 + 1e-6)
 
 
-def test_rate_limit_passes_through_when_within_cap():
-    w_prev = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
-    w_target = np.array([0.21, 0.2, 0.2, 0.2, 0.19])
+def test_rate_limit_passes_through_rows_within_cap():
+    w_prev = np.tile([0.2, 0.2, 0.2, 0.2, 0.2], (2, 1))
+    w_target = np.array([[0.21, 0.2, 0.2, 0.2, 0.19], [0.2, 0.2, 0.2, 0.2, 0.2]])
     w_next = rate_limit(w_prev, w_target, max_delta=1.0)
     assert np.allclose(w_next, w_target)
 
 
+def test_rate_limit_handles_mixed_rows_independently():
+    """One row needs capping, the other doesn't — each row's cap decision
+    must not affect the other (the original bug this guards: a naive
+    scalar-norm implementation applied uniformly across the whole batch)."""
+    w_prev = np.tile([0.2, 0.2, 0.2, 0.2, 0.2], (2, 1))
+    w_target = np.array([[1.0, 0.0, 0.0, 0.0, 0.0], [0.21, 0.2, 0.2, 0.2, 0.19]])
+    w_next = rate_limit(w_prev, w_target, max_delta=0.05)
+    assert np.linalg.norm(w_next[0] - w_prev[0]) <= 0.05 + 1e-6
+    assert np.allclose(w_next[1], w_target[1])  # row 1 was within cap, passes through
+
+
 def test_floor_clip_enforces_minimum_and_renormalizes():
     term_names = ("progress", "clearance", "energy", "impact", "smoothness")
-    w = np.array([0.5, 0.3, 0.2, 0.0, 0.0], dtype=np.float32)  # impact = 0, violates floor
+    w = np.array([[0.5, 0.3, 0.2, 0.0, 0.0], [0.2, 0.2, 0.2, 0.2, 0.2]], dtype=np.float32)
     w_clipped = floor_clip(w, term_names, floor_eps=0.05, floored_term="impact")
     idx = term_names.index("impact")
-    assert w_clipped[idx] >= 0.05 - 1e-6
-    assert np.isclose(w_clipped.sum(), 1.0, atol=1e-5)
-
-
-def test_floor_clip_noop_when_already_above_floor():
-    term_names = ("progress", "clearance", "energy", "impact", "smoothness")
-    w = np.array([0.2, 0.2, 0.2, 0.2, 0.2], dtype=np.float32)
-    w_clipped = floor_clip(w, term_names, floor_eps=0.05, floored_term="impact")
-    assert np.allclose(w_clipped, w, atol=1e-5)
+    assert np.all(w_clipped[:, idx] >= 0.05 - 1e-6)
+    assert np.allclose(w_clipped.sum(axis=-1), 1.0, atol=1e-5)
+    assert np.allclose(w_clipped[1], w[1], atol=1e-5)  # row already above floor: no-op
