@@ -23,11 +23,6 @@ from gymnasium import spaces
 from ..config import ActionSpaceCfg, ObservationSpaceCfg
 from .base_env import BaseTalonEnv
 
-_TRANSITION_KEYS = (
-    "v_actual", "v_command", "obstacle_dist", "joint_torque", "joint_vel",
-    "joint_acc", "foot_contact_force", "action", "prev_action_out",
-)
-
 
 class DummyEnv(gym.Env):
     """Single lane. action[0] drives forward accel, action[1] softens
@@ -114,7 +109,8 @@ class DummyTalonEnv(BaseTalonEnv):
         self.action_dim = action_cfg.dim
         self._seed = seed
         self._vec_env = gym.vector.SyncVectorEnv(
-            [(lambda: DummyEnv(obs_cfg, action_cfg, horizon=horizon, dt=dt)) for _ in range(num_envs)]
+            [(lambda: DummyEnv(obs_cfg, action_cfg, horizon=horizon, dt=dt)) for _ in range(num_envs)],
+            autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
         )
 
     def reset(self) -> dict:
