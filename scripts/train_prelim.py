@@ -22,6 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--updates", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
     args = parser.parse_args()
 
     obs_cfg = ObservationSpaceCfg()
@@ -29,7 +30,15 @@ def main() -> None:
     reward_cfg = RewardVectorCfg()
     pref_cfg = PreferenceCfg()
 
-    env = DummyTalonEnv(obs_cfg, action_cfg, horizon=200, seed=args.seed)
+    if args.env == "dummy":
+        env = DummyTalonEnv(obs_cfg, action_cfg, horizon=200, seed=args.seed)
+    else:
+        # Imported lazily so `--env dummy` keeps working on machines without
+        # Isaac Sim installed (this repo's default 3.12 .venv included).
+        from talon_rl.envs.isaac_lab_env import IsaacLabTalonEnv
+
+        env = IsaacLabTalonEnv(obs_cfg, action_cfg, horizon=200, headless=True)
+
     trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=args.seed)
 
     print(f"reward terms: {reward_cfg.term_names}")
@@ -40,6 +49,9 @@ def main() -> None:
             f"update {i:3d} | policy_loss={stats['policy_loss']:+.4f} "
             f"value_loss={stats['value_loss']:.4f} ep_len={stats['mean_episode_len']:.1f} | {r}"
         )
+
+    if args.env == "isaac_lab":
+        env.close()
 
 
 if __name__ == "__main__":
