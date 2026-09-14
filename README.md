@@ -81,20 +81,20 @@ python scripts/train_prelim.py --updates 50
 
 ```bash
 source ~/isaac-lab-env/bin/activate
-python scripts/train_prelim.py --env isaac_lab --updates 5
+python scripts/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
 ```
 
-Proves the pipeline runs against a real Isaac Lab environment instead of
-`DummyTalonEnv` — same "doesn't crash" bar, not a locomotion result. See
-`docs/superpowers/specs/2026-09-13-isaac-lab-env-setup-design.md` for setup
-details and known limitations (VRAM ceiling, actuator gain provenance,
-`SimulationContext.step()` must be called with `render=False` — this prelim
-has no visual observation, and the default `render=True` makes a 200-step
-rollout look hung rather than just very slow).
+Proves the pipeline runs against a real, vectorized Isaac Lab environment
+(`ManagerBasedRLEnv`, 4096 parallel A1 clones) — same "doesn't crash" bar as
+the single-env 2026-09-13 version, not a locomotion result. See
+`docs/superpowers/specs/2026-09-14-vectorized-isaac-lab-env-design.md` for
+the vectorization design and
+`docs/superpowers/specs/2026-09-13-isaac-lab-env-setup-design.md` for the
+original single-env setup and known limitations.
 
 ## Next milestones (after proposal defense)
 
-1. ~~Write `IsaacLabTalonEnv(BaseTalonEnv)` against the real Unitree A1 asset.~~ Done — see `talon_rl/envs/isaac_lab_env.py`.
+1. ~~Write `IsaacLabTalonEnv(BaseTalonEnv)` against the real Unitree A1 asset.~~ Done — see `talon_rl/tasks/locomotion/a1_env/`.
 2. Add running per-objective reward normalization.
 3. Reproduce the RMA (Kumar et al. 2021) two-phase teacher-student baseline —
    this is the Adaptation Module, currently entirely absent here.

@@ -36,6 +36,19 @@ def main() -> None:
     else:
         # Imported lazily so --env dummy keeps working on machines without
         # Isaac Sim installed (this repo's default 3.12 .venv included).
+        #
+        # `carb` (and everything else isaaclab imports transitively) is only
+        # importable once Isaac Sim's Kit runtime is actually running --
+        # SimulationApp must be constructed before the first isaaclab-touching
+        # import, same as tests/test_a1_env.py does. Found 2026-09-14 while
+        # running this branch for real for the first time (Task 9): without
+        # this, `import talon_rl.tasks.locomotion.a1_env` below raises
+        # ModuleNotFoundError: No module named 'carb'.
+        import os
+        os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
+        from isaacsim import SimulationApp
+        simulation_app = SimulationApp({"headless": True})  # noqa: F841 — kept alive for the process lifetime
+
         import gymnasium as gym
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
         from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import IsaacLabTalonEnvCfg
