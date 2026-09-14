@@ -126,7 +126,11 @@ class IsaacLabTalonEnv(BaseTalonEnv):
         self._robot.set_joint_position_target(joint_pos_target)
         self._robot.write_data_to_sim()
 
-        self._sim.step()
+        # render=False: nothing in this prelim's observation is visual (no
+        # camera/Exteroception module yet), so the RTX render pass every
+        # physics step is pure wasted GPU time — this is what made a
+        # 200-step rollout look hung rather than just slow.
+        self._sim.step(render=False)
         self._robot.update(self.dt)
         self._contact_sensor.update(self.dt)
 
