@@ -12,6 +12,21 @@ A transition dict must carry every key talon_rl.reward._TERM_FUNCS expects
 (v_actual, v_command, obstacle_dist, joint_torque, joint_vel,
 foot_contact_force, action, prev_action, joint_acc), plus "obs" — see
 reward.py for the exact shapes each key needs.
+
+Known limitation — terminal-step reward/action mispairing under auto-reset:
+because done[i]==True means lane i's fields are ALREADY the fresh
+post-reset values (not the terminal frame that actually caused
+termination), the reward vector computed from that step's transition dict
+is computed from the NEXT episode's first frame, not from the action that
+was actually taken to cause the termination — e.g. "action"/"prev_action"
+come back as zeros and "obstacle_dist" is the new episode's fresh
+randomized draw, instead of whatever the terminal frame actually was.
+Concretely: reset()'s fields, not the terminal frame's, get used for that
+step's reward. This happens consistently in both DummyTalonEnv and
+IsaacLabTalonEnv (so `--env dummy` -> `--env isaac_lab` stays a true
+drop-in swap), and is a known, deliberately-out-of-scope-for-this-prelim
+limitation — roughly 1-in-`horizon` steps gets slightly wrong credit
+assignment. Not fixed here; see README's Known gaps.
 """
 
 from __future__ import annotations

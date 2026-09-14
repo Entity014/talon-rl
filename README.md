@@ -4,19 +4,22 @@ Training code for **TALON** (*Terrain-Adaptive Locomotion via Objective
 Negotiation*) — the Multi-Objective Module prelim, split out of the
 [TALON-thesis](https://github.com/Entity014/TALON-thesis) proposal repo.
 
-## Status: prelim only, no Isaac Sim yet
+## Status: prelim only, not a trained/converged result
 
-This repo does **not** train on a real robot or simulator. There's no GPU in
-the environment it was scaffolded in, so everything here runs on a
-physics-free `DummyTalonEnv` — a smoke test proving the RL loop is wired
-correctly (`obs → policy(w) → action → reward vector → vector critic → PPO
-update`), not a locomotion result. Nothing about "the policy improved on the
-dummy env" is meaningful; only "the pipeline runs without breaking" is.
+This repo does **not** produce a trained policy or a locomotion result. It
+now has two envs implementing the same [`BaseTalonEnv`](talon_rl/envs/base_env.py)
+contract: a physics-free `DummyTalonEnv` for fast CPU iteration, and a real,
+vectorized Isaac Lab environment (`IsaacLabTalonEnv`, registered as
+`Isaac-Talon-A1-v0`) that runs thousands of parallel Unitree A1 clones on a
+GPU machine via `ManagerBasedRLEnv`. Both are smoke tests proving the RL loop
+is wired correctly (`obs → policy(w) → action → reward vector → vector critic
+→ PPO update`), not a locomotion result. Nothing about "the policy improved"
+on either env is meaningful; only "the pipeline runs without breaking" is.
 
-**Isaac Sim is the target simulator once this moves to a GPU machine.** Swap
-`DummyTalonEnv` for a real Isaac Lab environment that implements
-[`BaseTalonEnv`](talon_rl/envs/base_env.py) — same `reset()`/`step()` contract
-— and `training/moppo.py` doesn't need to change at all.
+**Isaac Sim is the target simulator, and it's now wired up.** `IsaacLabTalonEnv`
+implements the same `reset()`/`step()` contract as `DummyTalonEnv` —
+`training/moppo.py` doesn't need to change at all to switch between them; see
+`--env dummy` vs `--env isaac_lab` below.
 
 See [docs/mdp.md](docs/mdp.md) for the field-by-field rationale behind every
 observation/action/reward-vector entry, and [CLAUDE.md](CLAUDE.md) for the
@@ -37,7 +40,8 @@ invariants this code depends on before you change anything.
 - Exteroception Module (depth-camera terrain/obstacle perception)
 - Full terrain curriculum (§3.3.1) — the qualitative gap/chasm test scenario
   from §3.7.2 is the eventual target, not yet built here
-- The real Isaac Lab/Isaac Sim environment and Unitree A1 hardware
+- Real Unitree A1 hardware (the Isaac Lab/Isaac Sim *simulated* A1 environment
+  exists — see Status above — but nothing here has run on the physical robot)
 
 ## Known gaps vs. chapter3.tex (don't mistake this for the real thing)
 
@@ -48,8 +52,16 @@ invariants this code depends on before you change anything.
   will dominate the vector critic's loss until normalization is added.
 - No OOD monitor gating $w$ (depends on $\sigma_t$ from the Adaptation Module,
   which is out of scope).
-- Single dummy env, sequential rollout — not the vectorized multi-env
-  collection a real Isaac Lab training run needs for throughput.
+- **Terminal-step reward/action mispairing under auto-reset.** For a lane
+  that terminates on a given step, the reward vector for that step is
+  computed from the *next* episode's first frame (reset()'s fresh values —
+  e.g. zeroed `action`/`prev_action`, a freshly-randomized `obstacle_dist`),
+  not from the actual terminal frame/action that caused the termination.
+  This is consistent across both envs (so `--env dummy`/`--env isaac_lab`
+  stay a true drop-in swap) and gives roughly 1-in-`horizon` steps slightly
+  wrong credit assignment. Deliberately out of scope for this prelim — see
+  [`talon_rl/envs/base_env.py`](talon_rl/envs/base_env.py) for the exact
+  mechanism.
 
 ## Layout
 
@@ -59,12 +71,19 @@ talon_rl/
                       # — mirrors chapter3.tex tables 3.1-3.3
   reward.py          # the 5 reward-vector terms + compute_reward_vector()
   preference.py       # Dirichlet sampling, rate-limiter, floor-clip
+  obs_stack.py         # batched (N, stacks, obs_dim) actor/critic observation history
   envs/
     base_env.py        # interface a real Isaac Lab env must implement
     dummy_env.py        # physics-free smoke-test env
+  assets/
+    a1.py               # Unitree A1 Isaac Lab asset config
+  tasks/locomotion/a1_env/
+    a1_env.py            # IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv), registered Isaac-Talon-A1-v0
+    a1_env_cfg.py         # scene/observations/actions/terminations/events manager configs
+    mdp/                   # scripted MDP term functions (observations.py, terminations.py)
   training/
     moppo.py           # preference-conditioned PPO (vector critic, w . advantage)
-tests/                # pytest — reward terms, preference math, end-to-end smoke test
+tests/                # pytest — reward terms, preference math, end-to-end smoke tests
 scripts/
   train_prelim.py      # entry point
 ```
@@ -73,9 +92,13 @@ scripts/
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/
 python scripts/train_prelim.py --updates 50
 ```
+
+(`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` works around an unrelated ROS
+`launch_testing` pytest plugin conflict on some machines — harmless to
+include everywhere.)
 
 ### Isaac Lab smoke test (requires the separate `~/isaac-lab-env` venv, GPU machine only)
 

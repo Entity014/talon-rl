@@ -15,8 +15,9 @@ pytest.importorskip("isaacsim")
 
 import numpy as np
 
-from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
+from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, RewardVectorCfg
 from talon_rl.envs.base_env import BaseTalonEnv
+from talon_rl.reward import compute_reward_vector
 
 
 def test_isaac_lab_env_implements_base_contract():
@@ -53,8 +54,11 @@ def test_isaac_lab_env_implements_base_contract():
         transition, done = env.step(action)
         assert transition["obs"].shape == (4, env.obs_dim)
         assert done.shape == (4,)
+        assert done.dtype == bool
         assert np.all(np.isfinite(transition["obs"]))
-        assert np.all(np.isfinite(transition["reward_vec"]))
+        reward_vec = compute_reward_vector(transition, RewardVectorCfg())
+        assert reward_vec.shape == (4, RewardVectorCfg().dim)
+        assert np.all(np.isfinite(reward_vec))
     finally:
         import threading
         watchdog = threading.Timer(15.0, lambda: os._exit(0))

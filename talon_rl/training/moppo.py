@@ -136,11 +136,18 @@ class MOPPOTrainer:
         self.w = floor_clip(self.w, self.reward_cfg.term_names, self.reward_cfg.impact_floor_eps)
         self._prev_done = np.zeros(self.n, dtype=bool)
         self._t = 0
+        # Persistent per-lane steps-since-last-reset counter, for
+        # mean_episode_len — must be instance state (not reset per update()
+        # call) because the true episode horizon (e.g. 200) is much longer
+        # than a single rollout window (num_steps, default 24), so a window-
+        # local measurement can never see a full episode.
+        self._lane_step_count = np.zeros(self.n, dtype=np.int64)
 
     def _collect_rollout(self) -> dict:
         actor_obs_list, critic_obs_list, act_list, logp_list, rew_list, val_list, done_list = (
             [], [], [], [], [], [], []
         )
+        finished_lengths = []  # lane episode lengths completed within this window
 
         for _ in range(self.cfg.num_steps):
             # Lanes that just auto-reset (done from the PREVIOUS step) get a
@@ -162,6 +169,11 @@ class MOPPOTrainer:
             transition, done = self.env.step(action)
             self.stack.push(transition["obs"], done_mask=done)
             reward_vec = compute_reward_vector(transition, self.reward_cfg)
+
+            self._lane_step_count += 1
+            if done.any():
+                finished_lengths.extend(self._lane_step_count[done].tolist())
+                self._lane_step_count[done] = 0
 
             actor_obs_list.append(actor_obs_w)
             critic_obs_list.append(critic_obs_w)
@@ -187,6 +199,7 @@ class MOPPOTrainer:
             "values": np.stack(val_list),                 # (T, N, K)
             "dones": np.stack(done_list),                  # (T, N)
             "final_value": final_value,                     # (N, K)
+            "finished_lengths": finished_lengths,           # episode lengths completed this window
         }
 
     def update(self) -> dict:
@@ -231,15 +244,21 @@ class MOPPOTrainer:
             last_policy_loss, last_value_loss = float(policy_loss.item()), float(value_loss.item())
 
         mean_reward_vec = r["rewards"].reshape(T * N, -1).mean(axis=0)
-        # mean episode length across lanes that actually finished an episode
-        # during this rollout window; falls back to num_steps if none did
-        # (a short num_steps relative to horizon).
-        finished_lengths = []
-        for lane in range(N):
-            lane_dones = np.where(r["dones"][:, lane])[0]
-            if lane_dones.size:
-                finished_lengths.extend(np.diff(np.concatenate([[-1], lane_dones])))
-        mean_episode_len = float(np.mean(finished_lengths)) if finished_lengths else float(T)
+        # Mean episode length, from the persistent per-lane step counter
+        # (self._lane_step_count) rather than anything window-local — the
+        # true episode horizon (e.g. 200) is much longer than num_steps
+        # (default 24), so a window-local measurement could never report
+        # the real value (see _lane_step_count's docstring in __init__).
+        # Prefer lengths of episodes that actually finished this window; if
+        # none finished (common — most num_steps-long windows contain no
+        # boundary), fall back to the current in-progress counter averaged
+        # across all lanes as a reasonable proxy of how far into their
+        # episodes the lanes currently are.
+        finished_lengths = r["finished_lengths"]
+        if finished_lengths:
+            mean_episode_len = float(np.mean(finished_lengths))
+        else:
+            mean_episode_len = float(self._lane_step_count.mean())
 
         return {
             "policy_loss": last_policy_loss,

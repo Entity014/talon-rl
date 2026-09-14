@@ -35,10 +35,18 @@ known gaps before changing anything below.
   makes `train_prelim.py`'s printed rewards go up, that is not evidence the
   MOPPO implementation got better at anything real — it only means the loop
   still runs. Don't cite dummy-env results anywhere in the thesis.
+- **`BaseTalonEnv`'s contract is batch-native.** Every `reset()`/`step()`
+  value has a leading `(num_envs, ...)` axis, no exceptions — a new env
+  that returns a single-env-shaped value (or squeezes/broadcasts away the
+  leading axis) will silently break `moppo.py`'s vectorized rollout math
+  instead of raising. See `talon_rl/envs/base_env.py`'s docstring.
 
 ## Before claiming something works
 
-Run `pytest tests/` — 12 tests as of this writing (reward terms, preference
-math, one end-to-end smoke test on the dummy env). A green suite proves the
-wiring, not correctness of the RL algorithm's convergence behavior; there's
-no oracle to check against until there's a real terrain/env to train on.
+Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/` — 23 passed + 1 skipped
+as of this writing (reward terms, preference math, end-to-end smoke tests on
+both the dummy env and, when Isaac Sim is installed, the real Isaac Lab env;
+`test_a1_env.py` is GPU/Isaac-Sim-gated and skips on this repo's default
+3.12 .venv). A green suite proves the wiring, not correctness of the RL
+algorithm's convergence behavior; there's no oracle to check against until
+there's a real terrain/env to train on.

@@ -18,7 +18,6 @@ import torch
 from isaaclab.envs import ManagerBasedRLEnv
 
 from talon_rl.envs.base_env import BaseTalonEnv
-from talon_rl.reward import compute_reward_vector
 
 from .a1_env_cfg import IsaacLabTalonEnvCfg
 
@@ -26,7 +25,7 @@ from .a1_env_cfg import IsaacLabTalonEnvCfg
 class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
     cfg: IsaacLabTalonEnvCfg
 
-    def __init__(self, cfg: IsaacLabTalonEnvCfg, reward_cfg=None, **kwargs):
+    def __init__(self, cfg: IsaacLabTalonEnvCfg, **kwargs):
         super().__init__(cfg, **kwargs)
         # NOTE deviation from the brief's literal code (verified against the
         # installed isaaclab 0.48.0 source, not guessed): ManagerBasedEnv.num_envs
@@ -38,8 +37,6 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
         # load_managers() override below -- see its docstring for why.
         self.obs_dim = self.cfg.obs_dim
         self.action_dim = self.cfg.action_dim
-        from talon_rl.config import RewardVectorCfg
-        self._reward_cfg = reward_cfg or RewardVectorCfg()
 
     def load_managers(self) -> None:
         """Overridden (deviation from the brief's literal code, verified against
@@ -90,5 +87,4 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
             "action": action,
             "prev_action": prev_action,
         }
-        transition["reward_vec"] = compute_reward_vector(transition, self._reward_cfg)
         return transition

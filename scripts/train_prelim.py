@@ -23,7 +23,7 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
-    parser.add_argument("--num_envs", type=int, default=4096)  # Task 1's empirically-sized default
+    parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
     args = parser.parse_args()
 
     obs_cfg = ObservationSpaceCfg()
@@ -70,10 +70,14 @@ def main() -> None:
 
     if args.env == "isaac_lab":
         import threading
+        env.close()
+        # simulation_app.close() (raw Kit runtime teardown after a GPU-pipeline
+        # scene has been stepped) is the call known to hang on this machine —
+        # env.close() above is fast/lightweight and doesn't need the watchdog.
         watchdog = threading.Timer(15.0, lambda: __import__("os")._exit(0))
         watchdog.daemon = True
         watchdog.start()
-        env.close()
+        simulation_app.close()
         watchdog.cancel()
 
 
