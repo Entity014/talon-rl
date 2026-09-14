@@ -957,6 +957,8 @@ git commit -m "feat: batch obs_stack.py to (N, stacks, obs_dim), per-lane reset"
 **Files:**
 - Delete: `talon_rl/envs/isaac_lab_env.py` (the 2026-09-13 single-env version)
 - Delete: `tests/test_isaac_lab_env.py` (rewritten below at a new path)
+- Create: `talon_rl/assets/__init__.py`
+- Create: `talon_rl/assets/a1.py`
 - Create: `talon_rl/tasks/__init__.py`
 - Create: `talon_rl/tasks/locomotion/__init__.py`
 - Create: `talon_rl/tasks/locomotion/a1_env/__init__.py`
@@ -973,14 +975,15 @@ git commit -m "feat: batch obs_stack.py to (N, stacks, obs_dim), per-lane reset"
   `talon_rl.config.RewardVectorCfg` (for `progress_std`). Actuator group
   `"base_legs"`, `Kp=55.0`/`Kd=0.8`, `num_envs` from Task 1 — all Global
   Constraints values.
-- Produces: `Isaac-Talon-A1-v0` gym task. `gym.make("Isaac-Talon-A1-v0")`
+- Produces: `talon_rl.assets.a1.TALON_A1_CFG` (an `ArticulationCfg`),
+  `Isaac-Talon-A1-v0` gym task. `gym.make("Isaac-Talon-A1-v0")`
   returns an `IsaacLabTalonEnv` satisfying `BaseTalonEnv` directly (`reset() -> dict`,
   `step(action: (N, 12)) -> tuple[dict, (N,) bool]`) — consumed by Task 8
   (`train_prelim.py`).
 
 **No `mdp/rewards.py` or `mdp/events.py` files** (a deliberate deviation from
-a literal jaykorea 1:1 mirror, decided while writing this task — see Step 3's
-comment): `RewardsCfg` stays empty and `IsaacLabTalonEnv.step()` calls
+a literal jaykorea 1:1 mirror, decided while writing this task — see
+`a1_env_cfg.py`'s module docstring below): `RewardsCfg` stays empty and `IsaacLabTalonEnv.step()` calls
 `talon_rl.reward.compute_reward_vector()` directly on the transition dict it
 already has to build anyway, rather than a separate layer of
 manager-term-shaped functions that would just re-extract the same fields a
@@ -999,12 +1002,44 @@ git rm talon_rl/envs/isaac_lab_env.py tests/test_isaac_lab_env.py
 - [ ] **Step 2: Scaffold the package**
 
 ```bash
-mkdir -p talon_rl/tasks/locomotion/a1_env/mdp
+mkdir -p talon_rl/tasks/locomotion/a1_env/mdp talon_rl/assets
 touch talon_rl/tasks/__init__.py
 touch talon_rl/tasks/locomotion/__init__.py
+touch talon_rl/assets/__init__.py
 ```
 
-- [ ] **Step 3: Write `mdp/observations.py`**
+- [ ] **Step 3: Write `talon_rl/assets/a1.py`**
+
+Mirrors `jaykorea/Isaac-RL-Two-wheel-Legged-Bot`'s `assets/<robot>/*.py`
+convention (one named, reusable `ArticulationCfg` constant per file) —
+pulls the Kp/Kd override out of `a1_env_cfg.py`'s `__post_init__` so it has
+a name and can be imported/reused on its own, instead of being buried
+inline in the env cfg.
+
+```python
+# talon_rl/assets/a1.py
+"""Talon's Unitree A1 config — UNITREE_A1_CFG with the actuator gains
+overridden to RMA's (Kumar et al. 2021) Kp=55/Kd=0.8, confirmed against the
+real installed UNITREE_A1_CFG's actuator group key ("base_legs", not the
+first guess of "legs") on 2026-09-13/14. See
+docs/superpowers/specs/2026-09-13-isaac-lab-env-setup-design.md's Risks
+section for why RMA's value was chosen over legged_gym's.
+"""
+
+from __future__ import annotations
+
+from isaaclab_assets import UNITREE_A1_CFG
+
+_A1_ACTUATOR_GROUP = "base_legs"
+_A1_KP = 55.0
+_A1_KD = 0.8
+
+TALON_A1_CFG = UNITREE_A1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+TALON_A1_CFG.actuators[_A1_ACTUATOR_GROUP].stiffness = _A1_KP
+TALON_A1_CFG.actuators[_A1_ACTUATOR_GROUP].damping = _A1_KD
+```
+
+- [ ] **Step 4: Write `mdp/observations.py`**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/mdp/observations.py
@@ -1058,7 +1093,7 @@ def v_command(env: ManagerBasedRLEnv) -> torch.Tensor:
     return env.v_command_buf
 ```
 
-- [ ] **Step 4: Write `mdp/terminations.py`**
+- [ ] **Step 5: Write `mdp/terminations.py`**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/mdp/terminations.py
@@ -1086,7 +1121,7 @@ def obstacle_reached(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEn
     return asset.data.root_pos_w[:, 0] >= env.obstacle_ahead_buf
 ```
 
-- [ ] **Step 5: Write `mdp/__init__.py`**
+- [ ] **Step 6: Write `mdp/__init__.py`**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/mdp/__init__.py
@@ -1103,7 +1138,7 @@ from .observations import foot_contact_binary, roll_pitch, v_command  # noqa: F4
 from .terminations import obstacle_reached  # noqa: F401
 ```
 
-- [ ] **Step 6: Write `a1_env_cfg.py`**
+- [ ] **Step 7: Write `a1_env_cfg.py`**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py
@@ -1134,17 +1169,12 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
-from isaaclab_assets import UNITREE_A1_CFG
 
+from talon_rl.assets.a1 import TALON_A1_CFG
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 
 from . import mdp
 
-# Confirmed against the real installed UNITREE_A1_CFG (2026-09-13/14) — do
-# not reintroduce the wrong "legs" guess.
-_A1_ACTUATOR_GROUP = "base_legs"
-_A1_KP = 55.0  # RMA (Kumar et al. 2021)
-_A1_KD = 0.8
 # Set by Task 1's empirical VRAM sizing (2026-09-14) — replace this literal
 # if Task 1 found a different value fits the RTX 3070 Ti's 8GB better.
 _DEFAULT_NUM_ENVS = 2048
@@ -1213,9 +1243,12 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
 
     def __post_init__(self) -> None:
-        self.scene.robot = UNITREE_A1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-        self.scene.robot.actuators[_A1_ACTUATOR_GROUP].stiffness = _A1_KP
-        self.scene.robot.actuators[_A1_ACTUATOR_GROUP].damping = _A1_KD
+        # .replace() with no actual changes, not a direct assignment: TALON_A1_CFG
+        # is a shared module-level object, and every IsaacLabTalonEnvCfg()
+        # instance (e.g. Task 6's own structural test constructs more than
+        # one) needs its own copy, or mutating one instance's scene.robot
+        # would leak into every other instance sharing the same object.
+        self.scene.robot = TALON_A1_CFG.replace()
 
         self.decimation = 1
         self.episode_length_s = 200 * 0.02  # matches the 2026-09-13 single-env horizon=200, dt=0.02
@@ -1228,7 +1261,7 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
         self.action_dim = _action_cfg.dim
 ```
 
-- [ ] **Step 7: Write `a1_env.py`**
+- [ ] **Step 8: Write `a1_env.py`**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/a1_env.py
@@ -1310,7 +1343,7 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
 the observation manager) is already correctly zeroed on the first frame
 without any extra handling here.
 
-- [ ] **Step 8: Write `__init__.py` (gym registration)**
+- [ ] **Step 9: Write `__init__.py` (gym registration)**
 
 ```python
 # talon_rl/tasks/locomotion/a1_env/__init__.py
@@ -1330,7 +1363,7 @@ gym.register(
 )
 ```
 
-- [ ] **Step 9: Write the structural test**
+- [ ] **Step 10: Write the structural test**
 
 ```python
 # tests/test_a1_env.py
@@ -1399,7 +1432,7 @@ def test_isaac_lab_env_implements_base_contract():
         watchdog.cancel()
 ```
 
-- [ ] **Step 10: Run the structural test**
+- [ ] **Step 11: Run the structural test**
 
 Run:
 ```bash
@@ -1415,7 +1448,7 @@ means the real installed isaaclab 0.48.0 API differs from what
 (2026-09-14) — re-grep those files for the current attribute name and fix
 `a1_env.py`'s `_transition()` accordingly; do not guess a second time.
 
-- [ ] **Step 11: Run the 3.12 `.venv` to confirm it skips cleanly**
+- [ ] **Step 12: Run the 3.12 `.venv` to confirm it skips cleanly**
 
 Run:
 ```bash
@@ -1424,18 +1457,19 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/test_a1_env.py -v
 ```
 Expected: `SKIPPED (could not import 'isaacsim')`.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add talon_rl/tasks tests/test_a1_env.py
+git add talon_rl/assets talon_rl/tasks tests/test_a1_env.py
 git add -u talon_rl/envs tests/test_isaac_lab_env.py  # stages the deletions from Step 1
 git commit -m "feat: rewrite IsaacLabTalonEnv onto ManagerBasedRLEnv + gym.register
 
 Mirrors jaykorea/Isaac-RL-Two-wheel-Legged-Bot's tasks/manager_based/
-locomotion/velocity/<robot>_env/ + mdp/ layout. RewardsCfg stays empty —
-step() calls talon_rl.reward.compute_reward_vector() directly for the
-unsummed 5-term vector MOPPO needs, which RewardManager's scalar-sum
-contract can't produce."
+locomotion/velocity/<robot>_env/ + mdp/ + assets/<robot>.py layout.
+RewardsCfg stays empty — step() calls
+talon_rl.reward.compute_reward_vector() directly for the unsummed 5-term
+vector MOPPO needs, which RewardManager's scalar-sum contract can't
+produce."
 ```
 
 ---
