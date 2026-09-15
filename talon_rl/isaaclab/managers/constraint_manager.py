@@ -42,6 +42,7 @@ class ConstraintManager(ManagerBase):
         self,
         cfg: object,
         env: ManagerBasedRLEnv,
+        *,
         tau: float = 0.95,
         min_p: float = 0.0,
         num_transitions_per_env: int = 24,
@@ -73,8 +74,6 @@ class ConstraintManager(ManagerBase):
         self._class_term_cfgs: list[ConstraintTermCfg] = []
 
         super().__init__(cfg, env)  # _prepare_terms() called here
-
-        self.env = env
 
         self.tau = tau
         self.min_p = min_p
@@ -162,11 +161,19 @@ class ConstraintManager(ManagerBase):
         return extras
 
     def compute(self) -> torch.Tensor:
-        """Computes the stochastic termination signal based on constraint violations.
+        """Computes the termination mask based on constraint violations.
+
+        This method is deterministic: it returns a bool mask of envs whose
+        combined signal saturated at 1.0 (hard violations from truncate/terminate
+        terms, or a constraint term whose stochastic probability reached exactly
+        1.0). The soft, curriculum-scaled per-env termination probabilities for
+        'constraint' terms are exposed via the `constrained` property — sampling
+        them into an actual stochastic termination decision is the consuming
+        env's responsibility, not this method's.
 
         Returns:
-            A bool tensor of shape (num_envs,) — True where an env should
-            terminate this step.
+            A bool tensor of shape (num_envs,) — True where an env's signal
+            reached exactly 1.0 and should terminate this step.
         """
         self._truncated_buf.zero_()
         self._delta_buf.zero_()
@@ -194,7 +201,7 @@ class ConstraintManager(ManagerBase):
             elif term_cfg.time_out == "constraint":
                 p_max = term_cfg.p_max
                 if term_cfg.use_curriculum:
-                    if self.env.common_step_counter < self.static_curriculum_steps:
+                    if self._env.common_step_counter < self.static_curriculum_steps:
                         p_max = 0.0
                     else:
                         self.curriculum[name] = min(self.curriculum[name] + self.step_cur, 1.0)

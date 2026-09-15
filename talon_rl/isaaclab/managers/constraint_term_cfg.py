@@ -34,6 +34,12 @@ class ConstraintTermCfg(ManagerTermBaseCfg):
     reaches full strength, if any). Use a value below 1.0 for a soft
     constraint that still allows some exploration even at full curriculum
     strength.
+
+    Note: under `use_curriculum=True`, the *effective* cap starts at 1/20
+    (0.05) and interpolates toward this configured value as training
+    progresses — for a configured `p_max` below 0.05, enforcement is
+    briefly *stronger* than this value early in training, not capped by
+    it.
     """
 
     use_curriculum: bool = False
