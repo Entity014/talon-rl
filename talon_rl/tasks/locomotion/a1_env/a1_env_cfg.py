@@ -28,6 +28,7 @@ from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
@@ -68,6 +69,7 @@ class A1SceneCfg(InteractiveSceneCfg):
     robot: ArticulationCfg = MISSING  # set in IsaacLabTalonEnvCfg.__post_init__
 
     contact_sensor = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*_foot", history_length=1)
+    trunk_contact_sensor = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/trunk", history_length=1)
 
     dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",
@@ -102,6 +104,18 @@ class ObservationsCfg:
 class TerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     obstacle_reached = DoneTerm(func=mdp.obstacle_reached)
+    # Fall detection — without this, a fallen/tipped-over robot just keeps
+    # accumulating steps (and reward/obs noise) until time_out instead of
+    # ending the episode, diluting the training signal. Matches Isaac Lab's
+    # own reference velocity locomotion template exactly (base_contact,
+    # threshold=1.0) — verified against installed isaaclab 0.48.0
+    # (isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py),
+    # body name "trunk" swapped in for A1's own base link (vs. the
+    # template's generic "base").
+    base_contact = DoneTerm(
+        func=mdp.illegal_contact,
+        params={"sensor_cfg": SceneEntityCfg("trunk_contact_sensor", body_names="trunk"), "threshold": 1.0},
+    )
 
 
 @configclass
