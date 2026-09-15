@@ -18,9 +18,17 @@ import os
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
-from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
 from rl.core.dummy_env import DummyTalonEnv
 from rl.core.run_dir import dump_config, make_run_dir
+
+# MOPPOConfig/MOPPOTrainer (rl.core.algorithms.moppo) import torch at module
+# scope, and torch touching CUDA before Isaac Sim's SimulationApp owns its
+# own CUDA context causes PhysX's GPU pipeline to silently die ~15s into
+# scene setup (found 2026-09-15 running --env isaac_lab for real for the
+# first time: tests/test_a1_env.py never imports torch, which is why that
+# test didn't hit this). So for --env isaac_lab, SimulationApp must be
+# constructed before this import — deferred into main() below instead of a
+# module-scope import.
 
 
 def main() -> None:
@@ -32,11 +40,50 @@ def main() -> None:
     parser.add_argument("--num_policy_stacks", type=int, default=1, help="History frames the actor sees (Flamingo-style stacking, see obs_stack.py).")
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="History frames the critic sees — can differ from --num_policy_stacks.")
     parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes (ignored if --logs_root is set).")
+    parser.add_argument("--save_every", type=int, default=0, help="Also save a checkpoint every N updates (0 = only at the end) — cheap insurance for a long run that a mid-run OOM/crash doesn't lose everything. Requires --save_path or --logs_root.")
     parser.add_argument("--resume", type=str, default=None, help="Load a checkpoint from this path before training starts.")
     parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard (ignored if --logs_root is set).")
     parser.add_argument("--logs_root", type=str, default=None, help="Enable run-directory management: creates <logs_root>/<run_name or timestamp>/, dumps config.yaml, logs to its tensorboard/ subdir, and saves checkpoint.pt there — supersedes --log_dir/--save_path when set.")
     parser.add_argument("--run_name", type=str, default=None, help="Run directory name under --logs_root (default: a timestamp).")
+
+    # Peek at --env before the real parse: AppLauncher.add_app_launcher_args
+    # needs `isaaclab` importable, which isn't installed in this repo's
+    # default --env dummy venv, and it must register its own flags (e.g.
+    # --headless) on THIS parser before the real parse_args() below.
+    known_args, _ = parser.parse_known_args()
+    if known_args.env == "isaac_lab":
+        from isaaclab.app import AppLauncher
+        AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
+
+    simulation_app = None
+    if args.env == "isaac_lab":
+        # Must happen before the torch-importing `moppo` import right below
+        # (see module docstring comment above) — and before any other
+        # isaaclab-touching import, since `carb` etc. aren't importable
+        # until Kit's runtime is actually running.
+        #
+        # Uses the official AppLauncher (isaaclab.app), not a bare
+        # `SimulationApp({"headless": True})` — found 2026-09-15: bare
+        # SimulationApp deterministically fails scene construction (PhysX
+        # GPU pipeline dies silently, no traceback) when this script is run
+        # as `python train_prelim.py` directly, for reasons never fully
+        # root-caused despite systematic bisection (ruled out: num_envs
+        # scale, torch-import ordering, GPU resource leaks). AppLauncher is
+        # what every real Isaac Lab training script (including the
+        # jaykorea/Isaac-RL-Two-wheel-Legged-Bot reference project's own
+        # scripts/co_rl/train.py) actually uses — it does extra Kit
+        # extension/experience-file setup that bare SimulationApp skips,
+        # and switching to it fixed the same construction path (verified up
+        # to PhysX scene creation; a concurrent run's VRAM usage was the
+        # only failure seen after switching, not the earlier silent death).
+        os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
+        args.headless = True  # this repo always runs headless; don't require users to remember the flag
+        from isaaclab.app import AppLauncher
+        app_launcher = AppLauncher(args)
+        simulation_app = app_launcher.app
+
+    from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
@@ -63,24 +110,11 @@ def main() -> None:
     if args.env == "dummy":
         env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=args.num_envs, horizon=200, seed=args.seed)
     else:
-        # Imported lazily so --env dummy keeps working on machines without
-        # Isaac Sim installed (this repo's default 3.12 .venv included).
-        #
-        # `carb` (and everything else isaaclab imports transitively) is only
-        # importable once Isaac Sim's Kit runtime is actually running --
-        # SimulationApp must be constructed before the first isaaclab-touching
-        # import, same as tests/test_a1_env.py does. Found 2026-09-14 while
-        # running this branch for real for the first time (Task 9): without
-        # this, `import talon_rl.tasks.locomotion.a1_env` below raises
-        # ModuleNotFoundError: No module named 'carb'. (`os` itself is
-        # already imported at module scope — no local re-import here, since
-        # a local `import os` anywhere in this function would make `os` a
-        # local variable for the ENTIRE function body, breaking every
-        # earlier `os.path.join` call above with UnboundLocalError.)
-        os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
-        from isaacsim import SimulationApp
-        simulation_app = SimulationApp({"headless": True})  # noqa: F841 — kept alive for the process lifetime
-
+        # Imported lazily (not at module scope) so --env dummy keeps working
+        # on machines without Isaac Sim installed (this repo's default 3.12
+        # .venv included) — `carb` and everything isaaclab imports
+        # transitively are only importable once Isaac Sim's Kit runtime is
+        # actually running, i.e. after the SimulationApp() constructed above.
         import gymnasium as gym
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
         from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import IsaacLabTalonEnvCfg
@@ -114,6 +148,10 @@ def main() -> None:
             writer.add_scalar("Train/mean_episode_length", stats["mean_episode_len"], i)
             for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
                 writer.add_scalar(f"Reward/{name}", value, i)
+
+        if save_path and args.save_every and i % args.save_every == 0:
+            trainer.save(save_path)
+            print(f"checkpoint saved to {save_path} (update {i})")
 
     if writer is not None:
         writer.close()

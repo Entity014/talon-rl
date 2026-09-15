@@ -9,6 +9,7 @@ venv/
 # --- Experiment artifacts ---
 wandb/
 runs/
+logs/
 checkpoints/
 *.pt
 *.pth
