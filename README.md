@@ -113,9 +113,11 @@ scripts/
     core/
       algorithms/
         moppo.py            # MOPPOConfig + MOPPOTrainer — preference-conditioned PPO
-                            # (vector critic, w . advantage); rollout collection stays
-                            # here rather than a shared runner since the per-step
-                            # preference-vector resampling is MOPPO-specific, not generic
+                            # (vector critic, D3PO's Late-Stage Weighting — see losses.py);
+                            # rollout collection stays here rather than a shared runner
+                            # since the per-step preference-vector resampling is
+                            # MOPPO-specific, not generic
+      losses.py               # D3PO's per-objective clip + diversity regularizer (arXiv:2602.07764)
       modules/
         actor_critic.py      # ActorCritic network shape — reusable across algorithms
       storage/

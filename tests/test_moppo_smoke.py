@@ -118,6 +118,46 @@ def test_save_load_round_trips_model_and_optimizer_state():
         assert trainer.optim.state_dict()["param_groups"] == fresh_trainer.optim.state_dict()["param_groups"]
 
 
+def test_sample_diversity_w_respects_floor_clip_invariant():
+    # D3PO's diversity regularizer needs a second preference vector w' — it
+    # must go through the SAME floor_clip pipeline as the real w, or it
+    # silently violates the w_impact >= eps invariant the rest of the
+    # system depends on (flagged explicitly in the D3PO literature review).
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, seed=0)
+
+    w_prime = trainer._sample_diversity_w(100)
+    impact_idx = reward_cfg.term_names.index("impact")
+    assert np.all(w_prime[:, impact_idx] >= reward_cfg.impact_floor_eps - 1e-6)
+    assert np.allclose(w_prime.sum(axis=-1), 1.0, atol=1e-5)
+
+
+def test_d3po_update_produces_finite_losses():
+    """MOPPOTrainer.update() now runs D3PO's LSW + diversity regularizer
+    (not AMOR early-scalarization) — must still produce finite, sane loss
+    values end to end on the dummy env."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=8, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=10, epochs_per_update=2),
+        seed=0,
+    )
+    for _ in range(3):
+        stats = trainer.update()
+        assert np.isfinite(stats["policy_loss"])
+        assert np.isfinite(stats["value_loss"])
+
+
 def test_reward_normalization_bounds_reward_magnitude():
     """CLAUDE.md/docs/mdp.md document that smoothness sits around -300 while
     progress sits around 0-1 in raw scale — running per-objective

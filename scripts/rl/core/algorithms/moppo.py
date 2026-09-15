@@ -8,9 +8,15 @@ critic can see *different* amounts of temporal history via
 
 Critic: vector critic V(s, w) -> R^5, one head per reward-vector term
 (asymmetric actor-critic per AMOR \\cite{alegre2025}).
-Policy-gradient advantage: scalarized as w . advantage_vector, i.e. the
-preference vector arbitrates between objectives at the advantage level, not
-by pre-summing the reward into a scalar before GAE.
+Policy loss: D3PO's Late-Stage Weighting (Ambadkar et al. 2026,
+arXiv:2602.07764) — the reward vector's per-objective advantage is kept
+separate through GAE and the PPO clip, and only scalarized by w *after*
+clipping (scripts/rl/core/losses.py's d3po_actor_loss), not AMOR's early
+scalarization (clip(ratio, w . advantage)), which loses signal whenever
+objectives conflict. Paired with a diversity regularizer (same module)
+penalizing the policy for behaving too similarly under different w's,
+using a second preference vector w' routed through the same floor_clip
+pipeline as the real w (_sample_diversity_w).
 
 Rollout collection is fixed-horizon + auto-reset (Isaac Lab/rsl_rl/sb3-
 standard, 2026-09-14) — N env lanes step in lockstep for `num_steps` per
@@ -43,6 +49,7 @@ from talon_rl.config import ObservationSpaceCfg, ObservationStackCfg, Preference
 from talon_rl.envs.base_env import BaseTalonEnv
 from talon_rl.reward import compute_reward_vector
 
+from ..losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
 from ..modules.actor_critic import ActorCritic
 from ..obs_stack import ObservationStack
 from ..preference import floor_clip, rate_limit, sample_preference_vector
@@ -60,6 +67,12 @@ class MOPPOConfig:
     epochs_per_update: int = 4
     num_steps: int = 24  # rollout length per update() call, across all N lanes
     device: str = "cpu"
+    # D3PO's diversity regularizer (Ambadkar et al. 2026) — untuned starting
+    # points, not swept against this repo's reward vector (paper sweeps
+    # diversity_lambda in {0.01, 0.1, 0.5, 1.0} and diversity_alpha in
+    # {0, 0.1, 1, 10} on MO-Gymnasium only, not a legged-locomotion task).
+    diversity_lambda: float = 0.1
+    diversity_alpha: float = 1.0
 
 
 class MOPPOTrainer:
@@ -181,27 +194,42 @@ class MOPPOTrainer:
         returns = adv + r["values"]
 
         T, N = r["dones"].shape
-        # w . advantage_vector per (t, n) — the preference vector arbitrates
-        # between objectives at the advantage level (not a pre-summed scalar
-        # reward before GAE). w is the last reward_cfg.dim columns of the
-        # stored actor_obs (see the w-concatenation in _collect_rollout).
+        # w is the last reward_cfg.dim columns of the stored actor_obs (see
+        # the w-concatenation in _collect_rollout). D3PO's Late-Stage
+        # Weighting (arXiv:2602.07764) keeps the advantage per-objective
+        # through the PPO clip instead of scalarizing with w first (AMOR's
+        # early scalarization, which loses signal when objectives conflict
+        # — see scripts/rl/core/losses.py) — normalized per objective, not
+        # as one combined scalar stream.
         w_used = r["actor_obs"][:, :, -self.reward_cfg.dim :]
-        scalar_adv = np.einsum("tnk,tnk->tn", adv, w_used).reshape(T * N)
+        adv_t = torch.from_numpy(normalize_per_objective(adv.reshape(T * N, -1)))
+        w_t = torch.from_numpy(w_used.reshape(T * N, -1).astype(np.float32))
 
         actor_obs_t = torch.from_numpy(r["actor_obs"].reshape(T * N, -1))
         critic_obs_t = torch.from_numpy(r["critic_obs"].reshape(T * N, -1))
         actions_t = torch.from_numpy(r["actions"].reshape(T * N, -1))
         logp_old_t = torch.from_numpy(r["logp"].reshape(T * N))
-        adv_t = torch.from_numpy(scalar_adv.astype(np.float32))
-        adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
         returns_t = torch.from_numpy(returns.reshape(T * N, -1).astype(np.float32))
 
         last_policy_loss = last_value_loss = 0.0
         for _ in range(self.cfg.epochs_per_update):
             logp_new = self.model.logp(actor_obs_t, actions_t)
             ratio = torch.exp(logp_new - logp_old_t)
-            clipped = torch.clamp(ratio, 1 - self.cfg.clip_eps, 1 + self.cfg.clip_eps)
-            policy_loss = -torch.min(ratio * adv_t, clipped * adv_t).mean()
+            clip_loss = d3po_actor_loss(ratio, adv_t, w_t, self.cfg.clip_eps)
+
+            # Diversity regularizer — resampled each epoch (cheap, avoids
+            # overfitting to one w' draw). w' goes through the same
+            # floor_clip pipeline as the real w (_sample_diversity_w).
+            w_prime_t = torch.from_numpy(self._sample_diversity_w(T * N))
+            actor_obs_prime_t = actor_obs_t.clone()
+            actor_obs_prime_t[:, -self.reward_cfg.dim :] = w_prime_t
+            mean_w = self.model.act_inference(actor_obs_t)
+            mean_w_prime = self.model.act_inference(actor_obs_prime_t)
+            diversity_loss = diversity_regularizer_loss(
+                mean_w, mean_w_prime, w_t, w_prime_t, self.model.log_std.exp(), self.cfg.diversity_alpha
+            )
+
+            policy_loss = clip_loss + self.cfg.diversity_lambda * diversity_loss
 
             values_pred = self.model.value(critic_obs_t)
             value_loss = nn.functional.mse_loss(values_pred, returns_t)
@@ -235,6 +263,14 @@ class MOPPOTrainer:
             "mean_reward_vec": mean_reward_vec,
             "mean_episode_len": mean_episode_len,
         }
+
+    def _sample_diversity_w(self, batch_size: int) -> np.ndarray:
+        """A second preference vector w' for D3PO's diversity regularizer —
+        routed through the SAME floor_clip pipeline as the real w (not a
+        naive Dirichlet draw) or it would silently violate the
+        w_impact >= eps invariant the rest of the system depends on."""
+        w_prime = sample_preference_vector(self.rng, self.reward_cfg, self.pref_cfg, batch_size)
+        return floor_clip(w_prime, self.reward_cfg.term_names, self.reward_cfg.impact_floor_eps)
 
     def act_inference(self) -> np.ndarray:
         """Deterministic action (no sampling) from the trainer's current
