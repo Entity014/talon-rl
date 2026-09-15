@@ -10,6 +10,12 @@ design doc's Decision 2: this repo needs an unsummed 5-term reward vector,
 which RewardManager's scalar-sum contract can't produce, so reward
 computation happens directly in step() via
 talon_rl.reward.compute_reward_vector() instead of through this manager.
+
+The flat ground plane is replaced with A1_ROUGH_TERRAINS_CFG
+(terrain_config/rough_config.py) — climbable obstacles and a descendable
+pit, both present from the start per 00_Proposal §3.3.1's Terrain
+Curriculum requirement. See
+docs/superpowers/specs/2026-09-15-a1-terrain-curriculum-design.md.
 """
 
 from __future__ import annotations
@@ -25,12 +31,14 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
+from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
 from talon_rl.assets.unitree_a1.a1 import TALON_A1_CFG
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 
 from . import mdp
+from .terrain_config import A1_ROUGH_TERRAINS_CFG
 
 # Set by Task 1's empirical VRAM sizing (2026-09-14) — replace this literal
 # if Task 1 found a different value fits the RTX 3070 Ti's 8GB better.
@@ -42,7 +50,20 @@ _DEFAULT_NUM_ENVS = 4096  # Task 1's empirical result (2026-09-14): 4096 fits th
 
 @configclass
 class A1SceneCfg(InteractiveSceneCfg):
-    ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=A1_ROUGH_TERRAINS_CFG,
+        max_init_terrain_level=5,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        debug_vis=False,
+    )
 
     robot: ArticulationCfg = MISSING  # set in IsaacLabTalonEnvCfg.__post_init__
 

@@ -10,11 +10,13 @@ section for why RMA's value was chosen over legged_gym's.
 (data/Robots/unitree_a1/a1.usd, ~44MB, fetched from Nucleus 2026-09-15) instead
 of UNITREE_A1_CFG's stock Nucleus-hosted path — the robot itself no longer
 needs live Nucleus/CDN resolution at construction time. Note this does NOT
-remove IsaacLabTalonEnv's Nucleus dependency entirely: the ground plane
-(`sim_utils.GroundPlaneCfg()` in a1_env_cfg.py) still resolves its default
-grid texture from Nucleus, so the get_assets_root_path() + carb
-asset-root-cloud-setting workaround (2026-09-14) stays necessary regardless.
-Mirrors jaykorea/Isaac-RL-Two-wheel-Legged-Bot's assets/<robot>/ convention —
+necessarily remove IsaacLabTalonEnv's Nucleus dependency entirely — the
+ground plane has been replaced with a procedural TerrainGeneratorCfg (see
+a1_env_cfg.py and terrain_config/rough_config.py), so check whether the
+get_assets_root_path() + carb asset-root-cloud-setting workaround
+(2026-09-14) is still needed once the terrain generator no longer needs a
+Nucleus-hosted texture; unverified in this no-GPU environment. Mirrors
+jaykorea/Isaac-RL-Two-wheel-Legged-Bot's assets/<robot>/ convention —
 vendoring USD/mesh/texture files under a shared TALON_ASSETS_DATA_DIR rather
 than depending on a remote asset server, though our case is a stock asset
 vendored for reliability, not a custom robot with no other source.
