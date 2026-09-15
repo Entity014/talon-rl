@@ -66,6 +66,7 @@ class RewardVectorCfg:
     # Reward-shaping constants — rough starting points, not tuned (no
     # training has run yet), same posture as talon_rl/config.py's own.
     progress_std: float = 0.3  # exp-kernel std for box-height tracking (meters)
+    impact_floor_eps: float = 0.05  # w_impact >= eps, borrowed convention from the A1's own RewardVectorCfg (talon_rl/config.py) — no chapter3.tex citation here, this module isn't part of that thesis
 
     @property
     def dim(self) -> int:

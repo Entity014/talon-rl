@@ -63,6 +63,24 @@ invariants this code depends on before you change anything.
   [`talon_rl/envs/base_env.py`](talon_rl/envs/base_env.py) for the exact
   mechanism.
 
+## A separate module: TienKung bimanual box-carry (not part of this thesis)
+
+`talon_rl/tasks/manipulation/tienkung_env/` and `talon_rl/assets/tienkung2_lite/`
+are a **separate research application** — applying this thesis's
+Multi-Objective RMA methodology to a different robot (TienKung2 Lite, a
+bipedal humanoid) and a different task (bimanual box-carrying, not
+locomotion). This is explicitly **out of TALON's own defended scope**:
+`00_Proposal §3.6` disclaims cross-embodiment transfer across different
+joint topologies, and TienKung's joint topology is nothing like the A1's.
+
+It lives in this repo as a sibling module (not a separate repo) because it
+reuses this repo's generic infrastructure directly — `BaseTalonEnv`, the
+dim-agnostic preference-sampling functions in `scripts/moppo/preference.py`
+— rather than because it's part of the thesis's claimed contribution. See
+`docs/superpowers/specs/2026-09-15-tienkung-manipulation-design.md` for the
+full design rationale. Round 1 only: asset vendoring + MDP config/reward +
+a physics-free dummy env, no real Isaac Lab env yet.
+
 ## Layout
 
 Split the same way as [jaykorea/Isaac-RL-Two-wheel-Legged-Bot](https://github.com/jaykorea/Isaac-RL-Two-wheel-Legged-Bot):
@@ -95,6 +113,14 @@ scripts/
     preference.py        # Dirichlet sampling, rate-limiter, floor-clip
     obs_stack.py          # batched (N, stacks, obs_dim) actor/critic observation history
     dummy_env.py           # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
+```
+
+```text
+talon_rl/tasks/manipulation/tienkung_env/  # separate module, see the section above — not part of this thesis
+  config.py             # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg for this task
+  reward.py             # 5-term reward vector, retargeted from talon_rl/reward.py's shape
+  dummy_env.py           # physics-free smoke-test env, mirrors scripts/moppo/dummy_env.py's structure
+talon_rl/assets/tienkung2_lite/  # vendored TienKung2 Lite asset, mirrors assets/unitree_a1/'s pattern
 ```
 
 ## Running it

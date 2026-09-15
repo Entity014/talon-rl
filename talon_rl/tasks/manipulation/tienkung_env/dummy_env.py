@@ -53,7 +53,7 @@ class DummyEnv(gym.Env):
         self.t = 0
         self.height = 0.0
         self.prev_action = np.zeros(self.action_dim, dtype=np.float32)
-        self._obstacle_dist = float(self.np_random.uniform(3.0, 6.0))
+        self._obstacle_dist = float(self.np_random.uniform(0.1, 1.5))
         obs = self._compute_transition(np.zeros(self.action_dim, dtype=np.float32))
         return obs, {}
 
@@ -92,7 +92,7 @@ class DummyEnv(gym.Env):
             np.zeros(self.obs_cfg.joint_pos_dim, dtype=np.float32),
             np.full(self.obs_cfg.joint_vel_dim, self.height, dtype=np.float32),
             np.array([0.0, 0.0, self.height], dtype=np.float32)[: self.obs_cfg.box_relative_pos_dim],
-            np.ones(self.obs_cfg.arm_contact_dim, dtype=np.float32),
+            np.full(self.obs_cfg.arm_contact_dim, 1.0 if firmness > 0.0 else 0.0, dtype=np.float32),
             self.prev_action[: self.obs_cfg.prev_action_dim],
         ])
         return obs.astype(np.float32)

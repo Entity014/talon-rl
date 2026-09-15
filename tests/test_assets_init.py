@@ -4,7 +4,7 @@ import talon_rl.assets as assets
 
 
 def test_talon_assets_data_dir_points_at_assets_data_directory():
-    assert assets.TALON_ASSETS_EXT_DIR == Path("talon_rl/assets").resolve()
+    assert assets.TALON_ASSETS_EXT_DIR == Path(assets.__file__).resolve().parent
     assert assets.TALON_ASSETS_DATA_DIR == assets.TALON_ASSETS_EXT_DIR / "data"
     assert assets.TALON_ASSETS_DATA_DIR.is_dir()
 

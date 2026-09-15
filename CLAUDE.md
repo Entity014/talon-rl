@@ -42,7 +42,9 @@ invariants" shape as this one.)
   `v_actual`, `v_command`, `obstacle_dist`, `joint_torque`, `joint_vel`,
   `foot_contact_force`, `action`, `prev_action`, `joint_acc`, plus `obs`. If
   you write a new env, grep `reward.py` for the exact key names before
-  assuming the shape is obvious.
+  assuming the shape is obvious. (A second reward module now exists for the
+  TienKung sibling module, with its own key set — see README's "A separate
+  module" section.)
 - **Don't compare reward-term magnitudes across terms until running
   per-objective normalization is added** (see docs/mdp.md). `smoothness`
   currently dominates `progress` by ~1000x in raw scale — this is a known,
@@ -60,7 +62,7 @@ invariants" shape as this one.)
 
 ## Before claiming something works
 
-Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/` — 23 passed + 1 skipped
+Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/` — 47 passed + 1 skipped
 as of this writing (reward terms, preference math, end-to-end smoke tests on
 both the dummy env and, when Isaac Sim is installed, the real Isaac Lab env;
 `test_a1_env.py` is GPU/Isaac-Sim-gated and skips on this repo's default

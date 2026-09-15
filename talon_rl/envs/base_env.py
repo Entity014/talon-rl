@@ -8,8 +8,10 @@ auto-reset internally — that lane's "obs" row (and every other field) is
 already the fresh post-reset value, not the terminal one, matching gym
 VectorEnv / Isaac Lab ManagerBasedRLEnv auto-reset semantics.
 
-A transition dict must carry every key talon_rl.reward._TERM_FUNCS expects
-(v_actual, v_command, obstacle_dist, joint_torque, joint_vel,
+A transition dict must carry every key the task's own reward.py's
+_TERM_FUNCS expects (e.g. talon_rl.reward for the A1,
+talon_rl.tasks.manipulation.tienkung_env.reward for TienKung). For the A1's
+own reward.py that's (v_actual, v_command, obstacle_dist, joint_torque, joint_vel,
 foot_contact_force, action, prev_action, joint_acc), plus "obs" — see
 reward.py for the exact shapes each key needs.
 
