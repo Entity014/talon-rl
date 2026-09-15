@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
@@ -29,6 +30,44 @@ from rl.core.run_dir import dump_config, make_run_dir
 # test didn't hit this). So for --env isaac_lab, SimulationApp must be
 # constructed before this import — deferred into main() below instead of a
 # module-scope import.
+
+
+def _format_hms(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def _format_iteration_log(
+    i: int, total_updates: int, stats: dict, reward_cfg: RewardVectorCfg,
+    timesteps_per_iter: int, total_timesteps: int, iter_time: float, elapsed: float, eta: float,
+) -> str:
+    # Mirrors rsl_rl's OnPolicyRunner.log() console banner (the convention
+    # jaykorea/Isaac-RL-Two-wheel-Legged-Bot's own scripts/co_rl/train.py
+    # uses) — adapted to MOPPO's actual stats (policy/value loss, a 5-term
+    # reward vector) instead of rsl_rl's AMP-specific loss terms.
+    width, pad = 80, 34
+    lines = [
+        "#" * width,
+        f" Learning iteration {i}/{total_updates} ".center(width, " "),
+        "",
+        f"{'Computation:':>{pad}} {timesteps_per_iter / max(iter_time, 1e-9):.0f} steps/s (iteration {iter_time:.3f}s)",
+        f"{'Mean policy loss:':>{pad}} {stats['policy_loss']:.4f}",
+        f"{'Mean value loss:':>{pad}} {stats['value_loss']:.4f}",
+        f"{'Mean episode length:':>{pad}} {stats['mean_episode_len']:.2f}",
+        "",
+    ]
+    for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
+        lines.append(f"{f'Episode_Reward/{name}:':>{pad}} {value:.4f}")
+    lines += [
+        "-" * width,
+        f"{'Total timesteps:':>{pad}} {total_timesteps}",
+        f"{'Iteration time:':>{pad}} {iter_time:.2f}s",
+        f"{'Time elapsed:':>{pad}} {_format_hms(elapsed)}",
+        f"{'ETA:':>{pad}} {_format_hms(eta)}",
+    ]
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -130,13 +169,18 @@ def main() -> None:
         print(f"resumed from {args.resume} (t={trainer._t})")
 
     print(f"reward terms: {reward_cfg.term_names}")
+    timesteps_per_iter = moppo_cfg.num_steps * env.num_envs
+    start_time = time.time()
     for i in range(1, args.updates + 1):
+        iter_start = time.time()
         stats = trainer.update()
-        r = ", ".join(f"{n}={v:+.3f}" for n, v in zip(reward_cfg.term_names, stats["mean_reward_vec"]))
-        print(
-            f"update {i:3d} | policy_loss={stats['policy_loss']:+.4f} "
-            f"value_loss={stats['value_loss']:.4f} ep_len={stats['mean_episode_len']:.1f} | {r}"
-        )
+        iter_time = time.time() - iter_start
+        elapsed = time.time() - start_time
+        eta = (elapsed / i) * (args.updates - i)
+        print(_format_iteration_log(
+            i, args.updates, stats, reward_cfg,
+            timesteps_per_iter, i * timesteps_per_iter, iter_time, elapsed, eta,
+        ))
 
         if writer is not None:
             # Tags follow jaykorea/Isaac-RL-Two-wheel-Legged-Bot's
