@@ -225,3 +225,25 @@ def test_terminate_term_rejects_non_binary_values(constraint_manager_module):
 
     with pytest.raises(ValueError):
         manager.compute()
+
+
+def test_constraint_term_converts_plain_python_values_to_tensor(constraint_manager_module):
+    manager_module, term_cfg_module, _ = constraint_manager_module
+
+    # Test with plain Python list
+    def list_violation(env):
+        return [0.0, 0.5, 1.0]
+
+    env = FakeEnv(num_envs=3)
+    cfg = types.SimpleNamespace(
+        list_term=term_cfg_module.ConstraintTermCfg(
+            func=list_violation, time_out="constraint", p_max=0.5, use_curriculum=False
+        )
+    )
+    manager = manager_module.ConstraintManager(cfg, env)
+    manager.compute()
+
+    # Should have converted the list to tensor and computed probabilities
+    assert torch.is_tensor(manager.constrained)
+    assert manager.constrained.shape == torch.Size([3])
+    torch.testing.assert_close(manager.constrained, torch.tensor([0.0, 0.25, 0.5]))

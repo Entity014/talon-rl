@@ -172,10 +172,12 @@ class ConstraintManager(ManagerBase):
         self._delta_buf.zero_()
 
         for name, term_cfg in zip(self._term_names, self._term_cfgs):
-            value = term_cfg.func(self._env, **term_cfg.params).float()
+            value = term_cfg.func(self._env, **term_cfg.params)
 
             if not isinstance(value, torch.Tensor):
                 value = torch.tensor(value, device=self.device, dtype=torch.float32)
+
+            value = value.float()
 
             if term_cfg.time_out == "truncate":
                 value = torch.clamp(value, 0.0, 1.0)
