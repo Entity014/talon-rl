@@ -45,11 +45,14 @@ invariants" shape as this one.)
   assuming the shape is obvious. (A second reward module now exists for the
   TienKung sibling module, with its own key set — see README's "A separate
   module" section.)
-- **Don't compare reward-term magnitudes across terms until running
-  per-objective normalization is added** (see docs/mdp.md). `smoothness`
-  currently dominates `progress` by ~1000x in raw scale — this is a known,
-  documented gap, not a bug to "fix" by reweighting `RewardVectorCfg`'s
-  constants.
+- **Running per-objective reward normalization lives in
+  `RunningMeanStd` (`scripts/rl/core/running_norm.py`)**, wired into
+  `MOPPOTrainer._collect_rollout` — it divides each term by its own running
+  std (no mean-centering) before GAE, so `smoothness` no longer dominates
+  `progress`'s gradient despite ~1000x raw-scale gap (see docs/mdp.md). The
+  normalizer's stats round-trip through `save()`/`load()`'s checkpoint —
+  don't reset them on resume, that would shock the reward scale the value
+  function was trained against.
 - **`DummyTalonEnv` numbers mean nothing about locomotion.** If a change
   makes `train_prelim.py`'s printed rewards go up, that is not evidence the
   MOPPO implementation got better at anything real — it only means the loop

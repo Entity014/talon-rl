@@ -118,6 +118,57 @@ def test_save_load_round_trips_model_and_optimizer_state():
         assert trainer.optim.state_dict()["param_groups"] == fresh_trainer.optim.state_dict()["param_groups"]
 
 
+def test_reward_normalization_bounds_reward_magnitude():
+    """CLAUDE.md/docs/mdp.md document that smoothness sits around -300 while
+    progress sits around 0-1 in raw scale — running per-objective
+    normalization must bring every stored reward within the normalizer's
+    clip range regardless of that raw-scale gap."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=8, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=10, epochs_per_update=2),
+        seed=0,
+    )
+
+    for _ in range(3):
+        stats = trainer.update()
+        assert np.all(np.abs(stats["mean_reward_vec"]) <= 10.0)
+
+
+def test_reward_norm_state_round_trips_through_checkpoint():
+    """A resumed run must keep the same reward scale as the run it resumes
+    from — reloading fresh (unfit) normalizer stats would shock the reward
+    magnitude the value function was trained against."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    moppo_cfg = MOPPOConfig(num_steps=5, epochs_per_update=1)
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=0)
+    trainer.update()
+    trainer.update()  # accumulate non-trivial running stats
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "checkpoint.pt")
+        trainer.save(ckpt_path)
+
+        env2 = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=1)
+        fresh_trainer = MOPPOTrainer(env2, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=1)
+        assert not np.allclose(trainer.reward_norm.mean, fresh_trainer.reward_norm.mean)
+
+        fresh_trainer.load(ckpt_path)
+        assert np.allclose(trainer.reward_norm.mean, fresh_trainer.reward_norm.mean)
+        assert np.allclose(trainer.reward_norm.var, fresh_trainer.reward_norm.var)
+        assert trainer.reward_norm.count == fresh_trainer.reward_norm.count
+
+
 def test_save_creates_parent_directories():
     """train_prelim.py's --save_path may point at a directory that doesn't
     exist yet (e.g. a fresh logs/<run>/ dir) — save() must create it."""

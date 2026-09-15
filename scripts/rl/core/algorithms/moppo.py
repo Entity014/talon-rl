@@ -46,6 +46,7 @@ from talon_rl.reward import compute_reward_vector
 from ..modules.actor_critic import ActorCritic
 from ..obs_stack import ObservationStack
 from ..preference import floor_clip, rate_limit, sample_preference_vector
+from ..running_norm import RunningMeanStd
 from ..storage.rollout_storage import gae_per_objective
 
 
@@ -88,6 +89,10 @@ class MOPPOTrainer:
         critic_obs_w_dim = self.stack.critic_obs_dim + reward_cfg.dim
         self.model = ActorCritic(actor_obs_w_dim, critic_obs_w_dim, env.action_dim, reward_cfg.dim, self.cfg.hidden_dim)
         self.optim = torch.optim.Adam(self.model.parameters(), lr=self.cfg.lr)
+        # Running per-objective reward normalization (chapter3.tex §3.2.3) —
+        # without it, smoothness dominates progress by ~1000x in raw scale
+        # (see CLAUDE.md / docs/mdp.md's "known gap" note this closes).
+        self.reward_norm = RunningMeanStd(reward_cfg.dim)
 
         # Persistent rollout state — set up once here, advanced by update(),
         # never reset mid-training (auto-reset happens per-lane inside
@@ -131,6 +136,8 @@ class MOPPOTrainer:
             transition, done = self.env.step(action)
             self.stack.push(transition["obs"], done_mask=done)
             reward_vec = compute_reward_vector(transition, self.reward_cfg)
+            self.reward_norm.update(reward_vec)
+            reward_vec = self.reward_norm.normalize(reward_vec)
 
             self._lane_step_count += 1
             if done.any():
@@ -244,14 +251,18 @@ class MOPPOTrainer:
         """Saves model + optimizer state (and the persistent step counter,
         for a resume to report a continuous update count) — not the env,
         rollout buffer, or preference-vector RNG state, which don't need to
-        survive a resume the way training-loop progress does. Creates any
-        missing parent directories (e.g. a fresh logs/<run>/ dir)."""
+        survive a resume the way training-loop progress does. The reward
+        normalizer's running stats DO need to survive — reloading fresh
+        stats would shock the reward scale the value function was trained
+        against. Creates any missing parent directories (e.g. a fresh
+        logs/<run>/ dir)."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(
             {
                 "model": self.model.state_dict(),
                 "optim": self.optim.state_dict(),
                 "t": self._t,
+                "reward_norm": self.reward_norm.state_dict(),
             },
             path,
         )
@@ -264,3 +275,4 @@ class MOPPOTrainer:
         self.model.load_state_dict(checkpoint["model"])
         self.optim.load_state_dict(checkpoint["optim"])
         self._t = checkpoint["t"]
+        self.reward_norm.load_state_dict(checkpoint["reward_norm"])

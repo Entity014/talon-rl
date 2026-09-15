@@ -45,11 +45,6 @@ invariants this code depends on before you change anything.
 
 ## Known gaps vs. chapter3.tex (don't mistake this for the real thing)
 
-- **No running per-objective reward normalization.** chapter3.tex explicitly
-  calls this out as necessary ("ป้องกันไม่ให้เทอมที่มีขนาดใหญ่ครอบงำเกรเดียนต์ของเทอมอื่น") —
-  it's skipped here, and you can see why in the smoke-test output: the
-  `smoothness` term sits around -300 while `progress` sits around 0-1, which
-  will dominate the vector critic's loss until normalization is added.
 - No OOD monitor gating $w$ (depends on $\sigma_t$ from the Adaptation Module,
   which is out of scope).
 - **Terminal-step reward/action mispairing under auto-reset.** For a lane
@@ -176,7 +171,7 @@ original single-env setup and known limitations.
 ## Next milestones (after proposal defense)
 
 1. ~~Write `IsaacLabTalonEnv(BaseTalonEnv)` against the real Unitree A1 asset.~~ Done — see `talon_rl/tasks/locomotion/a1_env/`.
-2. Add running per-objective reward normalization.
+2. ~~Add running per-objective reward normalization.~~ Done — see `RunningMeanStd` in `scripts/rl/core/running_norm.py`, wired into `MOPPOTrainer._collect_rollout`.
 3. Reproduce the RMA (Kumar et al. 2021) two-phase teacher-student baseline —
    this is the Adaptation Module, currently entirely absent here.
 4. Build the Exteroception Module (depth → terrain/obstacle embedding).

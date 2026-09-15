@@ -45,15 +45,18 @@ through the name, but a raw index would silently break if this changes):
 5. `smoothness` — fixed-weight regularizer (action rate + joint accel), **not**
    part of the preference vector $w$ in the real system — see below
 
-### Known gap: no running per-objective normalization
+### Running per-objective normalization
 
 chapter3.tex is explicit that every term needs "การปรับมาตรฐานแบบเคลื่อนที่ต่อ
 วัตถุประสงค์ (running per-objective normalization) ... เพื่อป้องกันไม่ให้เทอมที่มี
-ขนาดใหญ่ครอบงำเกรเดียนต์ของเทอมอื่น" — this repo doesn't have it yet. You can see
-the symptom directly in `scripts/rl/train_prelim.py` output: `smoothness` sits
-around -300 while `progress` sits around 0-1, so the vector critic's value
-loss is dominated by `smoothness` until normalization is added. Don't read
-anything into relative reward-term magnitudes until this is fixed.
+ขนาดใหญ่ครอบงำเกรเดียนต์ของเทอมอื่น" — `RunningMeanStd`
+(`scripts/rl/core/running_norm.py`, Welford batched update) tracks a running
+mean/std per reward term and `MOPPOTrainer._collect_rollout` divides each
+term by its running std (no mean-centering, so a bounded term like
+`clearance` keeps its 0-boundary meaning) before GAE. Raw scale is still
+wildly uneven — `smoothness` around -300 vs. `progress` around 0-1 — but the
+stored/normalized reward stays within the normalizer's clip range
+(`±10` by default) regardless.
 
 ## Preference vector $w$ (`preference.py`)
 
