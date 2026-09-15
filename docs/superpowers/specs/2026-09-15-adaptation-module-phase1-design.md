@@ -64,11 +64,15 @@ already-vendored `ConstraintManager`,
 `docs/superpowers/specs/2026-09-15-constraint-manager-vendor-design.md`).
 Rejected because:
 
-1. **Domain randomization of the 7 factors is exactly what Isaac Lab's
-   stock `EventManager` already does** — most factors have ready-made
-   functions in `isaaclab.envs.mdp.events` (mass, friction, actuator gain);
-   leg-length and joint-range need new event *functions*, not a new manager
-   *type*.
+1. **Domain randomization of 6 of the 7 factors is exactly what Isaac
+   Lab's stock `EventManager` already does** — most have ready-made
+   functions in `isaaclab.envs.mdp.events` (mass with `recompute_inertia`,
+   friction, actuator gain); joint-range needs one new event *function*,
+   not a new manager *type*. Leg-length is the exception — it's not an
+   event at all (Isaac Lab blocks runtime scale-randomization on an
+   Articulation), it's an offline USD-variant-generation script plus stock
+   `MultiUsdFileCfg` spawn-time selection (see below) — still no new
+   manager, just a different stock mechanism.
 2. **Exposing raw $e_t$ to the trainer is exactly what `ObservationManager`
    already does** — `a1_env_cfg.py` already has one obs group (`PolicyCfg`);
    Isaac Lab natively supports more than one, which is exactly the
@@ -127,25 +131,49 @@ class ExtrinsicsCfg:
     adaptation_latent_dim: int = 8  # z_t width — RMA's original default, [TBD] pending ablation
 ```
 
+### Leg-length: offline USD-variant generation, not a runtime event
+
+**Corrected 2026-09-15** (see `03_Daily_Notes/2026-09-15.md`, talon-thesis):
+`isaaclab.envs.mdp.events.randomize_rigid_body_scale` explicitly raises
+`ValueError` for an `Articulation` (A1 is one) — verified against the
+installed isaaclab 0.48.0 source, not assumed. Isaac Lab's own docstring
+recommends generating separate USD files and using multi-asset spawning
+instead, which is what this spec does:
+
+- `scripts/rl/assets/generate_a1_leg_length_variants.py` (new, offline
+  utility — not part of the training loop, run once ahead of time): for
+  each of $N$ discrete scale factors, opens the base A1 USD, scales the
+  leg-link geometry, analytically recomputes mass ($\propto s^3$) and
+  inertia ($\propto s^5$, uniform-density assumption) via
+  `UsdPhysics.MassAPI`, shifts each child joint's local transform by $s$ so
+  the kinematic chain stays consistent, writes the chosen scale factor as a
+  custom USD attribute on the root prim (so it can be read back as an
+  observation — Isaac Lab doesn't expose "which multi-asset variant this
+  env got" as a queryable property), and saves as a new
+  `unitree_a1_leg_scale_<s>.usd` file next to the vendored asset.
+- `A1SceneCfg.robot.spawn` changes from a single `UsdFileCfg` to
+  `MultiUsdFileCfg(usd_path=[<N generated variant paths>], random_choice=True)`
+  — Isaac Lab's own stock wrapper (`isaaclab.sim.spawners.wrappers`),
+  picks one variant per env at scene construction, not at each reset (leg
+  length doesn't change mid-episode, unlike the other 6 factors).
+- `mdp.leg_length_extrinsic` (observation function) reads the custom scale
+  attribute back off each env's spawned prim.
+
 ### `talon_rl/tasks/locomotion/a1_env/mdp/events.py` (new file)
 
-Custom event functions Isaac Lab doesn't ship:
-- `randomize_leg_length(env, asset_cfg, scale_range)` — samples a scale
-  factor $s$ per env, per leg; writes scaled link geometry, analytically
-  recomputed mass ($\propto s^3$) and inertia ($\propto s^5$, uniform-density
-  assumption) via the Articulation runtime API (not the engine's own
-  scale-and-hope), and shifts the child joint's local offset by $s$ so the
-  kinematic chain stays consistent. Precedent: URMA/URMAv2 (Bohlinger et
-  al. 2025, arXiv:2509.02815) trains across 10M morphological variants with
-  this class of analytical scaling.
+Custom event function Isaac Lab doesn't ship:
 - `randomize_joint_range(env, asset_cfg, scale_range)` — scales each
   joint's position limits by a per-env factor, written via the
-  Articulation's joint-limit runtime API.
+  Articulation's joint-limit runtime API. (Unlike leg-length, this is a
+  property write on the already-spawned Articulation, not a geometry
+  change — no scale-on-Articulation restriction applies.)
 
 Existing stock functions reused directly (no new code): mass/CoM via
-`isaaclab.envs.mdp.events.randomize_rigid_body_mass`, friction via
-`randomize_rigid_body_material`, motor power via an actuator-gain
-randomization event.
+`isaaclab.envs.mdp.events.randomize_rigid_body_mass` (has a
+`recompute_inertia` flag built in — verified in the installed source, no
+custom mass/inertia code needed here, unlike leg-length's geometry case),
+friction via `randomize_rigid_body_material`, motor power via
+`randomize_actuator_gains`.
 
 `terrain_height` needs no new event — it's already effectively randomized
 by which sub-terrain cell a lane spawns on (`A1_ROUGH_TERRAINS_CFG`); Phase
@@ -159,8 +187,9 @@ class EventsCfg:
     randomize_payload_mass = EventTerm(func=mdp.randomize_rigid_body_mass, mode="reset", params={...})
     randomize_friction = EventTerm(func=mdp.randomize_rigid_body_material, mode="reset", params={...})
     randomize_motor_power = EventTerm(func=mdp.randomize_actuator_gains, mode="reset", params={...})
-    randomize_leg_length = EventTerm(func=mdp.randomize_leg_length, mode="reset", params={...})
     randomize_joint_range = EventTerm(func=mdp.randomize_joint_range, mode="reset", params={...})
+    # leg-length is NOT an event — it's fixed per env at spawn time via
+    # A1SceneCfg.robot.spawn's MultiUsdFileCfg, see above.
 
 @configclass
 class ObservationsCfg:
