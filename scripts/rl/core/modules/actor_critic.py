@@ -33,6 +33,13 @@ class ActorCritic(nn.Module):
         logp = dist.log_prob(action).sum(-1)
         return action, logp
 
+    def act_inference(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
+        """Deterministic action (the Normal's mean, no sampling) — for
+        play/deployment, not training. Same input always gives the same
+        output, unlike act(). Also what gets exported for sim2sim/hardware:
+        see scripts/rl/core/wrapper/exporter.py."""
+        return self.actor_mean(self.actor_body(actor_obs_w))
+
     def logp(self, actor_obs_w: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         mean = self.actor_mean(self.actor_body(actor_obs_w))
         dist = Normal(mean, self.log_std.exp())

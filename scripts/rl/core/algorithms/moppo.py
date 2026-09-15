@@ -229,6 +229,17 @@ class MOPPOTrainer:
             "mean_episode_len": mean_episode_len,
         }
 
+    def act_inference(self) -> np.ndarray:
+        """Deterministic action (no sampling) from the trainer's current
+        internal state (self.stack.policy_obs + self.w) — for play.py, not
+        training. Does not advance any state; call env.step() with the
+        result and push the new obs onto self.stack yourself, same as
+        _collect_rollout does."""
+        actor_obs_w = np.concatenate([self.stack.policy_obs, self.w], axis=-1).astype(np.float32)
+        with torch.no_grad():
+            action_t = self.model.act_inference(torch.from_numpy(actor_obs_w))
+        return action_t.numpy()
+
     def save(self, path: str) -> None:
         """Saves model + optimizer state (and the persistent step counter,
         for a resume to report a continuous update count) — not the env,
