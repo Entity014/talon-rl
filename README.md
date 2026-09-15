@@ -112,6 +112,9 @@ scripts/
                         # (core/algorithms/ — one file per algorithm, e.g. multiple SAC/TQC-
                         # style variants — vs. this repo's current single MOPPO algorithm)
     train_prelim.py      # entry point — mirrors co_rl/train.py sitting beside core/
+    play.py                # loads a checkpoint, runs deterministic inference,
+                           # optionally exports (--export) and/or analyzes (--analyze/--plot)
+    sim2sim.py               # mechanism-only Isaac Sim -> MuJoCo policy rollout (00_Proposal §3.4)
     core/
       algorithms/
         moppo.py            # MOPPOConfig + MOPPOTrainer — preference-conditioned PPO
@@ -122,9 +125,17 @@ scripts/
         actor_critic.py      # ActorCritic network shape — reusable across algorithms
       storage/
         rollout_storage.py    # gae_per_objective — GAE math, reusable across algorithms
-      preference.py            # Dirichlet sampling, rate-limiter, floor-clip
-      obs_stack.py               # batched (N, stacks, obs_dim) actor/critic observation history
-      dummy_env.py                 # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
+      wrapper/
+        exporter.py            # TorchScript policy export for deployment/sim2sim
+      run_dir.py                 # logs/talon_rl/<run>/ management — config.yaml dump,
+                                 # checkpoint.pt, --load_run "last" resolution
+      analyzer.py                 # play.py's --analyze/--plot: per-step signal
+                                  # collection + matplotlib PNGs, own impl (not a port —
+                                  # see the module's own docstring for why)
+      sim2sim.py                   # A1 MuJoCo observation-building + rollout mechanism
+      preference.py                  # Dirichlet sampling, rate-limiter, floor-clip
+      obs_stack.py                     # batched (N, stacks, obs_dim) actor/critic observation history
+      dummy_env.py                       # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
 ```
 
 ```text

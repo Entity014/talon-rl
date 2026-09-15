@@ -2,6 +2,7 @@
 """Prelim entry point — runs MOPPO on DummyTalonEnv and prints per-update stats.
 
     python scripts/rl/train_prelim.py --updates 50
+    python scripts/rl/train_prelim.py --updates 50 --logs_root logs/talon_rl --run_name exp1
     python scripts/rl/train_prelim.py --updates 50 --log_dir runs/exp1 --save_path runs/exp1/ckpt.pt
 
 This exists to eyeball whether the reward-vector terms respond sensibly to
@@ -13,11 +14,13 @@ to get an actual Phase 1 prelim result — see envs/base_env.py.
 from __future__ import annotations
 
 import argparse
+import os
 
-from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, PreferenceCfg, RewardVectorCfg
+from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
 from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
 from rl.core.dummy_env import DummyTalonEnv
+from rl.core.run_dir import dump_config, make_run_dir
 
 
 def main() -> None:
@@ -26,20 +29,36 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
     parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
-    parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes.")
+    parser.add_argument("--num_policy_stacks", type=int, default=1, help="History frames the actor sees (Flamingo-style stacking, see obs_stack.py).")
+    parser.add_argument("--num_critic_stacks", type=int, default=1, help="History frames the critic sees — can differ from --num_policy_stacks.")
+    parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes (ignored if --logs_root is set).")
     parser.add_argument("--resume", type=str, default=None, help="Load a checkpoint from this path before training starts.")
-    parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard.")
+    parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard (ignored if --logs_root is set).")
+    parser.add_argument("--logs_root", type=str, default=None, help="Enable run-directory management: creates <logs_root>/<run_name or timestamp>/, dumps config.yaml, logs to its tensorboard/ subdir, and saves checkpoint.pt there — supersedes --log_dir/--save_path when set.")
+    parser.add_argument("--run_name", type=str, default=None, help="Run directory name under --logs_root (default: a timestamp).")
     args = parser.parse_args()
-
-    writer = None
-    if args.log_dir:
-        from torch.utils.tensorboard import SummaryWriter
-        writer = SummaryWriter(log_dir=args.log_dir)
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
     reward_cfg = RewardVectorCfg()
     pref_cfg = PreferenceCfg()
+    stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
+    moppo_cfg = MOPPOConfig()
+
+    run_dir = None
+    log_dir = args.log_dir
+    save_path = args.save_path
+    if args.logs_root:
+        run_dir = make_run_dir(args.logs_root, run_name=args.run_name)
+        dump_config(run_dir, obs=obs_cfg, action=action_cfg, reward=reward_cfg, preference=pref_cfg, stack=stack_cfg, moppo=moppo_cfg)
+        log_dir = os.path.join(run_dir, "tensorboard")
+        save_path = os.path.join(run_dir, "checkpoint.pt")
+        print(f"run directory: {run_dir}")
+
+    writer = None
+    if log_dir:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=log_dir)
 
     if args.env == "dummy":
         env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=args.num_envs, horizon=200, seed=args.seed)
@@ -53,8 +72,11 @@ def main() -> None:
         # import, same as tests/test_a1_env.py does. Found 2026-09-14 while
         # running this branch for real for the first time (Task 9): without
         # this, `import talon_rl.tasks.locomotion.a1_env` below raises
-        # ModuleNotFoundError: No module named 'carb'.
-        import os
+        # ModuleNotFoundError: No module named 'carb'. (`os` itself is
+        # already imported at module scope — no local re-import here, since
+        # a local `import os` anywhere in this function would make `os` a
+        # local variable for the ENTIRE function body, breaking every
+        # earlier `os.path.join` call above with UnboundLocalError.)
         os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
         from isaacsim import SimulationApp
         simulation_app = SimulationApp({"headless": True})  # noqa: F841 — kept alive for the process lifetime
@@ -67,7 +89,7 @@ def main() -> None:
         cfg.scene.num_envs = args.num_envs
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
-    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=args.seed)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, stack_cfg=stack_cfg, seed=args.seed)
 
     if args.resume:
         trainer.load(args.resume)
@@ -96,9 +118,9 @@ def main() -> None:
     if writer is not None:
         writer.close()
 
-    if args.save_path:
-        trainer.save(args.save_path)
-        print(f"saved checkpoint to {args.save_path}")
+    if save_path:
+        trainer.save(save_path)
+        print(f"saved checkpoint to {save_path}")
 
     if args.env == "isaac_lab":
         import threading

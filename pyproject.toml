@@ -9,6 +9,8 @@ dependencies = [
     "gymnasium>=1.1",
     "prettytable>=3.0",
     "mujoco>=3.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.5",
 ]
 
 [project.optional-dependencies]
