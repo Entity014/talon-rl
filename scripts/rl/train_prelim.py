@@ -2,6 +2,7 @@
 """Prelim entry point — runs MOPPO on DummyTalonEnv and prints per-update stats.
 
     python scripts/rl/train_prelim.py --updates 50
+    python scripts/rl/train_prelim.py --updates 50 --log_dir runs/exp1 --save_path runs/exp1/ckpt.pt
 
 This exists to eyeball whether the reward-vector terms respond sensibly to
 different regions of the preference simplex, NOT to produce a trained policy
@@ -27,7 +28,13 @@ def main() -> None:
     parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
     parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes.")
     parser.add_argument("--resume", type=str, default=None, help="Load a checkpoint from this path before training starts.")
+    parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard.")
     args = parser.parse_args()
+
+    writer = None
+    if args.log_dir:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=args.log_dir)
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
@@ -74,6 +81,20 @@ def main() -> None:
             f"update {i:3d} | policy_loss={stats['policy_loss']:+.4f} "
             f"value_loss={stats['value_loss']:.4f} ep_len={stats['mean_episode_len']:.1f} | {r}"
         )
+
+        if writer is not None:
+            # Tags follow jaykorea/Isaac-RL-Two-wheel-Legged-Bot's
+            # rsl_rl-derived OnPolicyRunner convention (Loss/*, Train/*) —
+            # Reward/* is our own addition, one tag per reward-vector term,
+            # since our reward is a vector (theirs is a pre-summed scalar).
+            writer.add_scalar("Loss/policy", stats["policy_loss"], i)
+            writer.add_scalar("Loss/value", stats["value_loss"], i)
+            writer.add_scalar("Train/mean_episode_length", stats["mean_episode_len"], i)
+            for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
+                writer.add_scalar(f"Reward/{name}", value, i)
+
+    if writer is not None:
+        writer.close()
 
     if args.save_path:
         trainer.save(args.save_path)
