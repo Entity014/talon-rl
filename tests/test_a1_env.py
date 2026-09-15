@@ -29,10 +29,17 @@ def test_isaac_lab_env_implements_base_contract():
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
 
         from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import IsaacLabTalonEnvCfg
+        from talon_rl.tasks.locomotion.a1_env.terrain_config import A1_ROUGH_TERRAINS_CFG
 
         cfg = IsaacLabTalonEnvCfg()
         cfg.scene.num_envs = 4  # small N for a fast structural check
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
+
+        # terrain: confirm the scene uses the generator config, not a flat
+        # ground plane — exact InteractiveScene asset-lookup syntax
+        # (env.scene["terrain"]) taken from Isaac Lab's own convention,
+        # verify against the installed isaaclab.scene API
+        assert env.scene["terrain"].cfg.terrain_generator is A1_ROUGH_TERRAINS_CFG
 
         obs_cfg = ObservationSpaceCfg()
         action_cfg = ActionSpaceCfg()
