@@ -226,3 +226,128 @@ def test_save_creates_parent_directories():
         ckpt_path = os.path.join(tmp_dir, "nested", "run_dir", "checkpoint.pt")
         trainer.save(ckpt_path)
         assert os.path.isfile(ckpt_path)
+
+
+from talon_rl.config import ExtrinsicsCfg
+
+
+class _ExtrinsicsDummyEnv(DummyTalonEnv):
+    """DummyTalonEnv plus a fake extrinsics vector in the transition dict —
+    exercises MOPPOTrainer's encoder wiring without needing Isaac Sim."""
+
+    def __init__(self, *args, extrinsics_dim: int, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._extrinsics_dim = extrinsics_dim
+
+    def _with_extrinsics(self, transition):
+        transition["extrinsics"] = np.random.randn(self.num_envs, self._extrinsics_dim).astype(np.float32)
+        return transition
+
+    def reset(self):
+        return self._with_extrinsics(super().reset())
+
+    def step(self, action):
+        transition, done = super().step(action)
+        return self._with_extrinsics(transition), done
+
+
+def test_encoder_concatenates_z_t_into_actor_obs():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+
+    env = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        extrinsics_cfg=extrinsics_cfg,
+        seed=0,
+    )
+    expected_actor_dim = trainer.stack.policy_obs_dim + reward_cfg.dim + extrinsics_cfg.adaptation_latent_dim
+    assert trainer.model.actor_body[0].in_features == expected_actor_dim
+
+
+def test_encoder_params_are_in_the_optimizer():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+
+    env = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        extrinsics_cfg=extrinsics_cfg,
+        seed=0,
+    )
+    optim_param_ids = {id(p) for group in trainer.optim.param_groups for p in group["params"]}
+    for p in trainer.encoder.parameters():
+        assert id(p) in optim_param_ids
+
+
+def test_update_runs_end_to_end_with_encoder():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+
+    env = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        extrinsics_cfg=extrinsics_cfg,
+        seed=0,
+    )
+    stats = trainer.update()
+    assert np.isfinite(stats["policy_loss"])
+    assert np.isfinite(stats["value_loss"])
+
+
+def test_encoder_checkpoint_round_trips():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+    moppo_cfg = MOPPOConfig(num_steps=5, epochs_per_update=1)
+
+    env = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, extrinsics_cfg=extrinsics_cfg, seed=0
+    )
+    trainer.update()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "checkpoint.pt")
+        trainer.save(ckpt_path)
+
+        env2 = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=1, extrinsics_dim=extrinsics_cfg.dim)
+        fresh_trainer = MOPPOTrainer(
+            env2, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, extrinsics_cfg=extrinsics_cfg, seed=1
+        )
+        for p1, p2 in zip(trainer.encoder.parameters(), fresh_trainer.encoder.parameters()):
+            assert not torch.equal(p1, p2)
+
+        fresh_trainer.load(ckpt_path)
+        for p1, p2 in zip(trainer.encoder.parameters(), fresh_trainer.encoder.parameters()):
+            assert torch.equal(p1, p2)
+
+
+def test_dummy_env_without_extrinsics_still_works():
+    # --env dummy must keep working unmodified when extrinsics_cfg is None.
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0
+    )
+    assert not hasattr(trainer, "encoder") or trainer.encoder is None
+    stats = trainer.update()
+    assert np.isfinite(stats["policy_loss"])

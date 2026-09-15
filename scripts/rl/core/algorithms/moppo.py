@@ -45,12 +45,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from talon_rl.config import ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
+from talon_rl.config import ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 from talon_rl.envs.base_env import BaseTalonEnv
 from talon_rl.reward import compute_reward_vector
 
 from ..losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
 from ..modules.actor_critic import ActorCritic
+from ..modules.env_factor_encoder import EnvFactorEncoder
 from ..obs_stack import ObservationStack
 from ..preference import floor_clip, rate_limit, sample_preference_vector
 from ..running_norm import RunningMeanStd
@@ -84,6 +85,7 @@ class MOPPOTrainer:
         pref_cfg: PreferenceCfg,
         moppo_cfg: MOPPOConfig | None = None,
         stack_cfg: ObservationStackCfg | None = None,
+        extrinsics_cfg: ExtrinsicsCfg | None = None,
         seed: int = 0,
     ):
         self.env = env
@@ -98,10 +100,16 @@ class MOPPOTrainer:
         self.stack = ObservationStack(
             self.n, env.obs_dim, self.stack_cfg.num_policy_stacks, self.stack_cfg.num_critic_stacks
         )
+        self.extrinsics_cfg = extrinsics_cfg
+        self.encoder = EnvFactorEncoder(extrinsics_cfg.dim, extrinsics_cfg.adaptation_latent_dim) if extrinsics_cfg else None
         actor_obs_w_dim = self.stack.policy_obs_dim + reward_cfg.dim
         critic_obs_w_dim = self.stack.critic_obs_dim + reward_cfg.dim
+        if extrinsics_cfg:
+            actor_obs_w_dim += extrinsics_cfg.adaptation_latent_dim
+            critic_obs_w_dim += extrinsics_cfg.adaptation_latent_dim
         self.model = ActorCritic(actor_obs_w_dim, critic_obs_w_dim, env.action_dim, reward_cfg.dim, self.cfg.hidden_dim)
-        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.cfg.lr)
+        params = list(self.model.parameters()) + (list(self.encoder.parameters()) if self.encoder else [])
+        self.optim = torch.optim.Adam(params, lr=self.cfg.lr)
         # Running per-objective reward normalization (chapter3.tex §3.2.3) —
         # without it, smoothness dominates progress by ~1000x in raw scale
         # (see CLAUDE.md / docs/mdp.md's "known gap" note this closes).
@@ -112,6 +120,7 @@ class MOPPOTrainer:
         # env.step() itself).
         transition = self.env.reset()
         self.stack.reset(transition["obs"])
+        self._last_extrinsics = transition.get("extrinsics") if self.encoder else None
         self.w = sample_preference_vector(self.rng, self.reward_cfg, self.pref_cfg, self.n)
         self.w = floor_clip(self.w, self.reward_cfg.term_names, self.reward_cfg.impact_floor_eps)
         self._prev_done = np.zeros(self.n, dtype=bool)
@@ -122,6 +131,29 @@ class MOPPOTrainer:
         # than a single rollout window (num_steps, default 24), so a window-
         # local measurement can never see a full episode.
         self._lane_step_count = np.zeros(self.n, dtype=np.int64)
+
+    def _actor_obs(self) -> np.ndarray:
+        """Actor observation, [policy_obs, z_t, w] — z_t (when an encoder is
+        active) is inserted BEFORE w, not appended after it, so that w stays
+        the trailing reward_cfg.dim columns of actor_obs exactly as update()
+        assumes (w_used slicing, the diversity regularizer's w' swap — see
+        those call sites' comments)."""
+        parts = [self.stack.policy_obs]
+        if self.encoder:
+            z_t = self.encoder(torch.from_numpy(self._last_extrinsics).float()).detach().numpy()
+            parts.append(z_t)
+        parts.append(self.w)
+        return np.concatenate(parts, axis=-1).astype(np.float32)
+
+    def _critic_obs(self) -> np.ndarray:
+        """Critic observation, [critic_obs, z_t, w] — same ordering rationale
+        as _actor_obs()."""
+        parts = [self.stack.critic_obs]
+        if self.encoder:
+            z_t = self.encoder(torch.from_numpy(self._last_extrinsics).float()).detach().numpy()
+            parts.append(z_t)
+        parts.append(self.w)
+        return np.concatenate(parts, axis=-1).astype(np.float32)
 
     def _collect_rollout(self) -> dict:
         actor_obs_list, critic_obs_list, act_list, logp_list, rew_list, val_list, done_list = (
@@ -139,8 +171,8 @@ class MOPPOTrainer:
             self.w = np.where(self._prev_done[:, None], w_target, w_rate_limited)
             self.w = floor_clip(self.w, self.reward_cfg.term_names, self.reward_cfg.impact_floor_eps)
 
-            actor_obs_w = np.concatenate([self.stack.policy_obs, self.w], axis=-1).astype(np.float32)
-            critic_obs_w = np.concatenate([self.stack.critic_obs, self.w], axis=-1).astype(np.float32)
+            actor_obs_w = self._actor_obs()
+            critic_obs_w = self._critic_obs()
             with torch.no_grad():
                 action_t, logp_t = self.model.act(torch.from_numpy(actor_obs_w))
                 value_t = self.model.value(torch.from_numpy(critic_obs_w))
@@ -148,6 +180,7 @@ class MOPPOTrainer:
 
             transition, done = self.env.step(action)
             self.stack.push(transition["obs"], done_mask=done)
+            self._last_extrinsics = transition.get("extrinsics") if self.encoder else None
             reward_vec = compute_reward_vector(transition, self.reward_cfg)
             self.reward_norm.update(reward_vec)
             reward_vec = self.reward_norm.normalize(reward_vec)
@@ -169,7 +202,7 @@ class MOPPOTrainer:
             self._t += 1
 
         with torch.no_grad():
-            final_critic_obs_w = np.concatenate([self.stack.critic_obs, self.w], axis=-1).astype(np.float32)
+            final_critic_obs_w = self._critic_obs()
             final_value = self.model.value(torch.from_numpy(final_critic_obs_w)).numpy()
 
         return {
@@ -278,7 +311,7 @@ class MOPPOTrainer:
         training. Does not advance any state; call env.step() with the
         result and push the new obs onto self.stack yourself, same as
         _collect_rollout does."""
-        actor_obs_w = np.concatenate([self.stack.policy_obs, self.w], axis=-1).astype(np.float32)
+        actor_obs_w = self._actor_obs()
         with torch.no_grad():
             action_t = self.model.act_inference(torch.from_numpy(actor_obs_w))
         return action_t.numpy()
@@ -299,6 +332,7 @@ class MOPPOTrainer:
                 "optim": self.optim.state_dict(),
                 "t": self._t,
                 "reward_norm": self.reward_norm.state_dict(),
+                "encoder": self.encoder.state_dict() if self.encoder else None,
             },
             path,
         )
@@ -312,3 +346,5 @@ class MOPPOTrainer:
         self.optim.load_state_dict(checkpoint["optim"])
         self._t = checkpoint["t"]
         self.reward_norm.load_state_dict(checkpoint["reward_norm"])
+        if self.encoder and checkpoint.get("encoder"):
+            self.encoder.load_state_dict(checkpoint["encoder"])
