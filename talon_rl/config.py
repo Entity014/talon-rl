@@ -16,6 +16,7 @@ vector only, which is enough to test the Multi-Objective Module in isolation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -88,3 +89,39 @@ class ObservationStackCfg:
 
     num_policy_stacks: int = 1
     num_critic_stacks: int = 1
+
+
+@dataclass(frozen=True)
+class ExtrinsicsCfg:
+    """Phase 1 privileged extrinsics e_t (chapter3.tex §3.2.1, RMA's Env
+    Factor Encoder input). Dimensions are placeholders — not tuned,
+    chapter3.tex marks the true dimensionality [TBD] pending ablation (its
+    7-factor set differs from RMA's original 17)."""
+
+    payload_mass_dim: int = 1
+    payload_com_offset_dim: int = 3
+    friction_dim: int = 1
+    motor_power_scale_dim: int = 1
+    leg_length_scale_dim: int = 1
+    joint_range_scale_dim: int = 1
+    terrain_height_dim: int = 1
+
+    payload_treatment: Literal["explicit_observed_rewarded", "noise_only"] = "explicit_observed_rewarded"
+
+    adaptation_latent_dim: int = 8  # z_t width — RMA's original default, [TBD] pending ablation
+
+    @property
+    def payload_dim(self) -> int:
+        return self.payload_mass_dim + self.payload_com_offset_dim
+
+    @property
+    def dim(self) -> int:
+        """Total e_t width — shrinks under noise_only (payload excluded
+        entirely, not just unrewarded — see Pipeline_Summary.md §3.10)."""
+        non_payload = (
+            self.friction_dim + self.motor_power_scale_dim + self.leg_length_scale_dim
+            + self.joint_range_scale_dim + self.terrain_height_dim
+        )
+        if self.payload_treatment == "noise_only":
+            return non_payload
+        return non_payload + self.payload_dim
