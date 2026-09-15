@@ -27,11 +27,12 @@ resampling) is MOPPO-specific, not a generic on-policy concern — a second
 algorithm might not resample w every step at all — so it stays part of this
 class rather than being pulled into a shared runner. Only the pieces
 genuinely reusable across algorithms (the network shape, GAE math) live in
-scripts/rl/modules/ and scripts/rl/storage/.
+scripts/rl/core/modules/ and scripts/rl/core/storage/.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -227,3 +228,28 @@ class MOPPOTrainer:
             "mean_reward_vec": mean_reward_vec,
             "mean_episode_len": mean_episode_len,
         }
+
+    def save(self, path: str) -> None:
+        """Saves model + optimizer state (and the persistent step counter,
+        for a resume to report a continuous update count) — not the env,
+        rollout buffer, or preference-vector RNG state, which don't need to
+        survive a resume the way training-loop progress does. Creates any
+        missing parent directories (e.g. a fresh logs/<run>/ dir)."""
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save(
+            {
+                "model": self.model.state_dict(),
+                "optim": self.optim.state_dict(),
+                "t": self._t,
+            },
+            path,
+        )
+
+    def load(self, path: str) -> None:
+        """Loads model + optimizer state saved by save(). The trainer must
+        already be constructed with matching obs/action/reward dims (this
+        does not reconstruct the model architecture, only its weights)."""
+        checkpoint = torch.load(path, map_location=self.cfg.device)
+        self.model.load_state_dict(checkpoint["model"])
+        self.optim.load_state_dict(checkpoint["optim"])
+        self._t = checkpoint["t"]

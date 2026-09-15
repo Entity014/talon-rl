@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
     parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
+    parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes.")
+    parser.add_argument("--resume", type=str, default=None, help="Load a checkpoint from this path before training starts.")
     args = parser.parse_args()
 
     obs_cfg = ObservationSpaceCfg()
@@ -60,6 +62,10 @@ def main() -> None:
 
     trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=args.seed)
 
+    if args.resume:
+        trainer.load(args.resume)
+        print(f"resumed from {args.resume} (t={trainer._t})")
+
     print(f"reward terms: {reward_cfg.term_names}")
     for i in range(1, args.updates + 1):
         stats = trainer.update()
@@ -68,6 +74,10 @@ def main() -> None:
             f"update {i:3d} | policy_loss={stats['policy_loss']:+.4f} "
             f"value_loss={stats['value_loss']:.4f} ep_len={stats['mean_episode_len']:.1f} | {r}"
         )
+
+    if args.save_path:
+        trainer.save(args.save_path)
+        print(f"saved checkpoint to {args.save_path}")
 
     if args.env == "isaac_lab":
         import threading

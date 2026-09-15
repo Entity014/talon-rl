@@ -7,7 +7,11 @@ is wired correctly end to end, now with N parallel lanes and persistent
 rollout collection across update() calls.
 """
 
+import os
+import tempfile
+
 import numpy as np
+import torch
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
@@ -77,3 +81,57 @@ def test_rollout_is_persistent_across_update_calls():
     trainer.update()
     t_after = trainer._t
     assert t_after == t_before + 5  # advanced by exactly num_steps, not reset to 0
+
+
+def test_save_load_round_trips_model_and_optimizer_state():
+    """A checkpoint saved from one trainer must reproduce identical model
+    weights (and optimizer state) in a FRESH trainer instance — proves the
+    state actually transferred through the file, not just "didn't crash"."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    moppo_cfg = MOPPOConfig(num_steps=5, epochs_per_update=1)
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=0)
+    trainer.update()  # advance weights away from their initial random values
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "checkpoint.pt")
+        trainer.save(ckpt_path)
+
+        # A fresh trainer — different seed, so its initial (pre-load) weights
+        # are NOT the same as trainer's, ruling out a test that would pass
+        # even if load() were a no-op.
+        env2 = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=1)
+        fresh_trainer = MOPPOTrainer(env2, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=1)
+        for p1, p2 in zip(trainer.model.parameters(), fresh_trainer.model.parameters()):
+            assert not torch.equal(p1, p2)  # sanity: genuinely different before load
+
+        fresh_trainer.load(ckpt_path)
+
+        for p1, p2 in zip(trainer.model.parameters(), fresh_trainer.model.parameters()):
+            assert torch.equal(p1, p2)
+
+        # Optimizer state round-trips too (same param groups' state keys).
+        assert trainer.optim.state_dict()["param_groups"] == fresh_trainer.optim.state_dict()["param_groups"]
+
+
+def test_save_creates_parent_directories():
+    """train_prelim.py's --save_path may point at a directory that doesn't
+    exist yet (e.g. a fresh logs/<run>/ dir) — save() must create it."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=2, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0
+    )
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "nested", "run_dir", "checkpoint.pt")
+        trainer.save(ckpt_path)
+        assert os.path.isfile(ckpt_path)
