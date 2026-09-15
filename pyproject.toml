@@ -8,6 +8,7 @@ dependencies = [
     "torch>=2.0",
     "gymnasium>=1.1",
     "prettytable>=3.0",
+    "mujoco>=3.0",
 ]
 
 [project.optional-dependencies]
