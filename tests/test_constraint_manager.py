@@ -131,3 +131,97 @@ def test_constraint_term_cfg_constructs_with_required_func(constraint_manager_mo
     assert cfg.p_max == 0.5
     assert cfg.use_curriculum is False
     assert cfg.time_out == "constraint"
+
+
+def test_constraint_probability_stays_within_p_max(constraint_manager_module):
+    manager_module, term_cfg_module, _ = constraint_manager_module
+    env = FakeEnv(num_envs=3)
+
+    def torque_violation(env):
+        return torch.tensor([0.0, 0.5, 1.0])
+
+    cfg = types.SimpleNamespace(
+        torque=term_cfg_module.ConstraintTermCfg(
+            func=torque_violation, time_out="constraint", p_max=0.5, use_curriculum=False
+        )
+    )
+    manager = manager_module.ConstraintManager(cfg, env)
+    manager.compute()
+
+    assert torch.all(manager.constrained >= 0.0)
+    assert torch.all(manager.constrained <= 0.5 + 1e-6)
+    torch.testing.assert_close(manager.constrained, torch.tensor([0.0, 0.25, 0.5]))
+
+
+def test_curriculum_forces_zero_before_threshold_and_ramps_after(constraint_manager_module):
+    manager_module, term_cfg_module, _ = constraint_manager_module
+
+    def torque_violation(env):
+        return torch.tensor([1.0])
+
+    cfg = types.SimpleNamespace(
+        torque=term_cfg_module.ConstraintTermCfg(
+            func=torque_violation, time_out="constraint", p_max=0.5, use_curriculum=True
+        )
+    )
+
+    env_before = FakeEnv(num_envs=1, common_step_counter=0)
+    manager_before = manager_module.ConstraintManager(cfg, env_before, static_curriculum_steps=100)
+    manager_before.compute()
+    assert torch.all(manager_before.constrained == 0.0)
+
+    env_after = FakeEnv(num_envs=1, common_step_counter=200)
+    manager_after = manager_module.ConstraintManager(cfg, env_after, static_curriculum_steps=100)
+    manager_after.compute()
+    assert torch.all(manager_after.constrained > 0.0)
+
+
+def test_manager_term_base_func_does_not_raise_on_construction(constraint_manager_module):
+    manager_module, term_cfg_module, ManagerTermBase = constraint_manager_module
+
+    class StatefulTerm(ManagerTermBase):
+        def __call__(self, env):
+            return torch.zeros(env.num_envs)
+
+    term_instance = StatefulTerm()
+    env = FakeEnv(num_envs=2)
+    cfg = types.SimpleNamespace(
+        stateful=term_cfg_module.ConstraintTermCfg(func=term_instance, time_out="terminate")
+    )
+
+    manager = manager_module.ConstraintManager(cfg, env)  # must not raise
+
+    assert len(manager._class_term_cfgs) == 1
+    manager.reset()  # must not raise — calls term_instance.reset(env_ids=...)
+
+
+def test_truncate_term_rejects_non_binary_values(constraint_manager_module):
+    manager_module, term_cfg_module, _ = constraint_manager_module
+
+    def bad_violation(env):
+        return torch.tensor([0.3, 1.0])
+
+    env = FakeEnv(num_envs=2)
+    cfg = types.SimpleNamespace(
+        limit=term_cfg_module.ConstraintTermCfg(func=bad_violation, time_out="truncate")
+    )
+    manager = manager_module.ConstraintManager(cfg, env)
+
+    with pytest.raises(ValueError):
+        manager.compute()
+
+
+def test_terminate_term_rejects_non_binary_values(constraint_manager_module):
+    manager_module, term_cfg_module, _ = constraint_manager_module
+
+    def bad_violation(env):
+        return torch.tensor([0.0, 0.5])
+
+    env = FakeEnv(num_envs=2)
+    cfg = types.SimpleNamespace(
+        fall=term_cfg_module.ConstraintTermCfg(func=bad_violation, time_out="terminate")
+    )
+    manager = manager_module.ConstraintManager(cfg, env)
+
+    with pytest.raises(ValueError):
+        manager.compute()

@@ -6,6 +6,7 @@ what changed from the vendored source and why. Not wired into any env yet
 — ConstraintManager has no consumer in this repo.
 """
 
+from .constraint_manager import ConstraintManager
 from .constraint_term_cfg import ConstraintTermCfg
 
-__all__ = ["ConstraintTermCfg"]
+__all__ = ["ConstraintManager", "ConstraintTermCfg"]
