@@ -351,3 +351,28 @@ def test_dummy_env_without_extrinsics_still_works():
     assert not hasattr(trainer, "encoder") or trainer.encoder is None
     stats = trainer.update()
     assert np.isfinite(stats["policy_loss"])
+
+
+def test_update_backprops_into_encoder_parameters():
+    # Non-obvious requirement: self.encoder being in self.optim's param
+    # groups is not sufficient — update() must actually route a live,
+    # gradient-carrying z_t through the loss (not just replay the numpy-
+    # frozen z_t baked into the rollout buffer at collection time), or
+    # optim.step() is a structural no-op for the encoder despite membership.
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+
+    env = _ExtrinsicsDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        extrinsics_cfg=extrinsics_cfg,
+        seed=0,
+    )
+    before = [p.clone() for p in trainer.encoder.parameters()]
+    trainer.update()
+    after = list(trainer.encoder.parameters())
+    assert any(not torch.equal(b, a) for b, a in zip(before, after))

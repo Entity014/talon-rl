@@ -159,6 +159,7 @@ class MOPPOTrainer:
         actor_obs_list, critic_obs_list, act_list, logp_list, rew_list, val_list, done_list = (
             [], [], [], [], [], [], []
         )
+        extrinsics_list = []  # (T, N, extrinsics_dim) — the e_t used to build this step's z_t, for update()'s live re-encode
         finished_lengths = []  # lane episode lengths completed within this window
 
         for _ in range(self.cfg.num_steps):
@@ -173,6 +174,8 @@ class MOPPOTrainer:
 
             actor_obs_w = self._actor_obs()
             critic_obs_w = self._critic_obs()
+            if self.encoder:
+                extrinsics_list.append(self._last_extrinsics)
             with torch.no_grad():
                 action_t, logp_t = self.model.act(torch.from_numpy(actor_obs_w))
                 value_t = self.model.value(torch.from_numpy(critic_obs_w))
@@ -215,6 +218,7 @@ class MOPPOTrainer:
             "dones": np.stack(done_list),                  # (T, N)
             "final_value": final_value,                     # (N, K)
             "finished_lengths": finished_lengths,           # episode lengths completed this window
+            "extrinsics": np.stack(extrinsics_list) if self.encoder else None,  # (T, N, extrinsics_dim)
         }
 
     def update(self) -> dict:
@@ -243,10 +247,30 @@ class MOPPOTrainer:
         actions_t = torch.from_numpy(r["actions"].reshape(T * N, -1))
         logp_old_t = torch.from_numpy(r["logp"].reshape(T * N))
         returns_t = torch.from_numpy(returns.reshape(T * N, -1).astype(np.float32))
+        extrinsics_t = torch.from_numpy(r["extrinsics"].reshape(T * N, -1)).float() if self.encoder else None
 
         last_policy_loss = last_value_loss = 0.0
         for _ in range(self.cfg.epochs_per_update):
-            logp_new = self.model.logp(actor_obs_t, actions_t)
+            # The stored actor_obs_t/critic_obs_t are numpy-frozen constants
+            # (z_t baked in via a no_grad snapshot at collection time, see
+            # _actor_obs()/_critic_obs()) — replaying them alone would make
+            # self.encoder's optim membership a structural no-op, since a
+            # numpy round-trip strips the autograd graph. Re-encode z_t live
+            # from the stored extrinsics every epoch (encoder params change
+            # each optim.step(), same reason logp_new/values_pred are also
+            # recomputed fresh each epoch, not reused from collection time),
+            # and splice it into the middle [obs, z_t, w] slice so gradients
+            # actually reach self.encoder.parameters() through loss.backward().
+            if self.encoder:
+                z_t_live = self.encoder(extrinsics_t)
+                p, lat = self.stack.policy_obs_dim, self.extrinsics_cfg.adaptation_latent_dim
+                actor_obs_live = torch.cat([actor_obs_t[:, :p], z_t_live, actor_obs_t[:, p + lat :]], dim=-1)
+                cp = self.stack.critic_obs_dim
+                critic_obs_live = torch.cat([critic_obs_t[:, :cp], z_t_live, critic_obs_t[:, cp + lat :]], dim=-1)
+            else:
+                actor_obs_live, critic_obs_live = actor_obs_t, critic_obs_t
+
+            logp_new = self.model.logp(actor_obs_live, actions_t)
             ratio = torch.exp(logp_new - logp_old_t)
             clip_loss = d3po_actor_loss(ratio, adv_t, w_t, self.cfg.clip_eps)
 
@@ -254,9 +278,9 @@ class MOPPOTrainer:
             # overfitting to one w' draw). w' goes through the same
             # floor_clip pipeline as the real w (_sample_diversity_w).
             w_prime_t = torch.from_numpy(self._sample_diversity_w(T * N))
-            actor_obs_prime_t = actor_obs_t.clone()
+            actor_obs_prime_t = actor_obs_live.clone()
             actor_obs_prime_t[:, -self.reward_cfg.dim :] = w_prime_t
-            mean_w = self.model.act_inference(actor_obs_t)
+            mean_w = self.model.act_inference(actor_obs_live)
             mean_w_prime = self.model.act_inference(actor_obs_prime_t)
             diversity_loss = diversity_regularizer_loss(
                 mean_w, mean_w_prime, w_t, w_prime_t, self.model.log_std.exp(), self.cfg.diversity_alpha
@@ -264,7 +288,7 @@ class MOPPOTrainer:
 
             policy_loss = clip_loss + self.cfg.diversity_lambda * diversity_loss
 
-            values_pred = self.model.value(critic_obs_t)
+            values_pred = self.model.value(critic_obs_live)
             value_loss = nn.functional.mse_loss(values_pred, returns_t)
 
             loss = policy_loss + 0.5 * value_loss
