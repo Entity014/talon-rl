@@ -80,7 +80,9 @@ talon_rl/
   assets/
     unitree_a1/
       a1.py               # TALON_A1_CFG — UNITREE_A1_CFG + RMA Kp/Kd, local usd_path
-    data/unitree_a1/       # vendored A1 USD/mesh/texture (~42MB, no live Nucleus dependency)
+    data/Robots/unitree_a1/ # vendored A1 USD/mesh/texture + UrdfConverter config.yaml (~42MB, no live Nucleus dependency)
+    config/
+      extension.toml      # Isaac Sim Kit extension descriptor for talon_rl.assets
   tasks/locomotion/a1_env/
     a1_env.py            # IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv), registered Isaac-Talon-A1-v0
     a1_env_cfg.py         # scene/observations/actions/terminations/events manager configs
