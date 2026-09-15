@@ -50,7 +50,7 @@ through the name, but a raw index would silently break if this changes):
 chapter3.tex is explicit that every term needs "การปรับมาตรฐานแบบเคลื่อนที่ต่อ
 วัตถุประสงค์ (running per-objective normalization) ... เพื่อป้องกันไม่ให้เทอมที่มี
 ขนาดใหญ่ครอบงำเกรเดียนต์ของเทอมอื่น" — this repo doesn't have it yet. You can see
-the symptom directly in `scripts/train_prelim.py` output: `smoothness` sits
+the symptom directly in `scripts/rl/train_prelim.py` output: `smoothness` sits
 around -300 while `progress` sits around 0-1, so the vector critic's value
 loss is dominated by `smoothness` until normalization is added. Don't read
 anything into relative reward-term magnitudes until this is fixed.

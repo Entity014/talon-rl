@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from moppo.obs_stack import ObservationStack
+from rl.core.obs_stack import ObservationStack
 
 
 def test_default_stack_of_one_is_passthrough():

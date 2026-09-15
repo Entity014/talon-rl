@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prelim entry point — runs MOPPO on DummyTalonEnv and prints per-update stats.
 
-    python scripts/train_prelim.py --updates 50
+    python scripts/rl/train_prelim.py --updates 50
 
 This exists to eyeball whether the reward-vector terms respond sensibly to
 different regions of the preference simplex, NOT to produce a trained policy
@@ -15,8 +15,8 @@ import argparse
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, PreferenceCfg, RewardVectorCfg
 
-from moppo.dummy_env import DummyTalonEnv
-from moppo.moppo import MOPPOConfig, MOPPOTrainer
+from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
+from rl.core.dummy_env import DummyTalonEnv
 
 
 def main() -> None:

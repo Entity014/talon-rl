@@ -21,6 +21,13 @@ num_steps timesteps continuing wherever the previous call left off (not a
 fresh episode-based rollout every call, unlike the pre-2026-09-14 version).
 GAE uses the standard done-masked recursion so value bootstrapping never
 crosses an episode boundary within a lane.
+
+The rollout collection here (including the per-step preference-vector
+resampling) is MOPPO-specific, not a generic on-policy concern — a second
+algorithm might not resample w every step at all — so it stays part of this
+class rather than being pulled into a shared runner. Only the pieces
+genuinely reusable across algorithms (the network shape, GAE math) live in
+scripts/rl/modules/ and scripts/rl/storage/.
 """
 
 from __future__ import annotations
@@ -30,14 +37,15 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.distributions import Normal
 
 from talon_rl.config import ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 from talon_rl.envs.base_env import BaseTalonEnv
 from talon_rl.reward import compute_reward_vector
 
-from .obs_stack import ObservationStack
-from .preference import floor_clip, rate_limit, sample_preference_vector
+from ..modules.actor_critic import ActorCritic
+from ..obs_stack import ObservationStack
+from ..preference import floor_clip, rate_limit, sample_preference_vector
+from ..storage.rollout_storage import gae_per_objective
 
 
 @dataclass
@@ -50,54 +58,6 @@ class MOPPOConfig:
     epochs_per_update: int = 4
     num_steps: int = 24  # rollout length per update() call, across all N lanes
     device: str = "cpu"
-
-
-class ActorCritic(nn.Module):
-    def __init__(self, actor_obs_dim: int, critic_obs_dim: int, action_dim: int, reward_dim: int, hidden_dim: int):
-        super().__init__()
-        self.actor_body = nn.Sequential(
-            nn.Linear(actor_obs_dim, hidden_dim), nn.ELU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ELU(),
-        )
-        self.actor_mean = nn.Linear(hidden_dim, action_dim)
-        self.log_std = nn.Parameter(torch.zeros(action_dim))
-
-        self.critic_body = nn.Sequential(
-            nn.Linear(critic_obs_dim, hidden_dim), nn.ELU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ELU(),
-        )
-        self.critic_head = nn.Linear(hidden_dim, reward_dim)
-
-    def act(self, actor_obs_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        mean = self.actor_mean(self.actor_body(actor_obs_w))
-        dist = Normal(mean, self.log_std.exp())
-        action = dist.sample()
-        logp = dist.log_prob(action).sum(-1)
-        return action, logp
-
-    def logp(self, actor_obs_w: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        mean = self.actor_mean(self.actor_body(actor_obs_w))
-        dist = Normal(mean, self.log_std.exp())
-        return dist.log_prob(action).sum(-1)
-
-    def value(self, critic_obs_w: torch.Tensor) -> torch.Tensor:
-        return self.critic_head(self.critic_body(critic_obs_w))
-
-
-def _gae_per_objective(
-    rewards: np.ndarray, values: np.ndarray, dones: np.ndarray, gamma: float, lam: float
-) -> np.ndarray:
-    """rewards: (T, N, K), values: (T+1, N, K), dones: (T, N) -> advantages (T, N, K).
-    dones[t] masks out value bootstrapping across an episode boundary at step t."""
-    T, N, K = rewards.shape
-    adv = np.zeros((T, N, K), dtype=np.float32)
-    gae = np.zeros((N, K), dtype=np.float32)
-    for t in reversed(range(T)):
-        mask = (1.0 - dones[t])[:, None]  # (N, 1), broadcasts over K
-        delta = rewards[t] + gamma * values[t + 1] * mask - values[t]
-        gae = delta + gamma * lam * mask * gae
-        adv[t] = gae
-    return adv
 
 
 class MOPPOTrainer:
@@ -209,7 +169,7 @@ class MOPPOTrainer:
         r = self._collect_rollout()
 
         values_with_final = np.concatenate([r["values"], r["final_value"][None]], axis=0)  # (T+1, N, K)
-        adv = _gae_per_objective(r["rewards"], values_with_final, r["dones"], self.cfg.gamma, self.cfg.gae_lambda)
+        adv = gae_per_objective(r["rewards"], values_with_final, r["dones"], self.cfg.gamma, self.cfg.gae_lambda)
         returns = adv + r["values"]
 
         T, N = r["dones"].shape

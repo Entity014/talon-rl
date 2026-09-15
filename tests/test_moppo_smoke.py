@@ -11,8 +11,8 @@ import numpy as np
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
-from moppo.dummy_env import DummyTalonEnv
-from moppo.moppo import MOPPOConfig, MOPPOTrainer
+from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
+from rl.core.dummy_env import DummyTalonEnv
 
 
 def test_moppo_runs_a_few_updates_without_nans():

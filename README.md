@@ -18,7 +18,7 @@ on either env is meaningful; only "the pipeline runs without breaking" is.
 
 **Isaac Sim is the target simulator, and it's now wired up.** `IsaacLabTalonEnv`
 implements the same `reset()`/`step()` contract as `DummyTalonEnv` —
-`scripts/moppo/moppo.py` doesn't need to change at all to switch between them;
+`scripts/rl/core/algorithms/moppo.py` doesn't need to change at all to switch between them;
 see `--env dummy` vs `--env isaac_lab` below.
 
 See [docs/mdp.md](docs/mdp.md) for the field-by-field rationale behind every
@@ -75,7 +75,7 @@ joint topologies, and TienKung's joint topology is nothing like the A1's.
 
 It lives in this repo as a sibling module (not a separate repo) because it
 reuses this repo's generic infrastructure directly — `BaseTalonEnv`, the
-dim-agnostic preference-sampling functions in `scripts/moppo/preference.py`
+dim-agnostic preference-sampling functions in `scripts/rl/core/preference.py`
 — rather than because it's part of the thesis's claimed contribution. See
 `docs/superpowers/specs/2026-09-15-tienkung-manipulation-design.md` for the
 full design rationale. Round 1 only: asset vendoring + MDP config/reward +
@@ -107,19 +107,31 @@ talon_rl/
     mdp/                   # scripted MDP term functions (observations.py, terminations.py)
 tests/                # pytest — reward terms, preference math, end-to-end smoke tests
 scripts/
-  train_prelim.py      # entry point
-  moppo/
-    moppo.py            # preference-conditioned PPO (vector critic, w . advantage)
-    preference.py        # Dirichlet sampling, rate-limiter, floor-clip
-    obs_stack.py          # batched (N, stacks, obs_dim) actor/critic observation history
-    dummy_env.py           # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
+  rl/                   # driver code, matches jaykorea's own scripts/co_rl/ split exactly:
+                        # entry point at this level, library nested one level deeper in core/
+                        # (core/algorithms/ — one file per algorithm, e.g. multiple SAC/TQC-
+                        # style variants — vs. this repo's current single MOPPO algorithm)
+    train_prelim.py      # entry point — mirrors co_rl/train.py sitting beside core/
+    core/
+      algorithms/
+        moppo.py            # MOPPOConfig + MOPPOTrainer — preference-conditioned PPO
+                            # (vector critic, w . advantage); rollout collection stays
+                            # here rather than a shared runner since the per-step
+                            # preference-vector resampling is MOPPO-specific, not generic
+      modules/
+        actor_critic.py      # ActorCritic network shape — reusable across algorithms
+      storage/
+        rollout_storage.py    # gae_per_objective — GAE math, reusable across algorithms
+      preference.py            # Dirichlet sampling, rate-limiter, floor-clip
+      obs_stack.py               # batched (N, stacks, obs_dim) actor/critic observation history
+      dummy_env.py                 # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
 ```
 
 ```text
 talon_rl/tasks/manipulation/tienkung_env/  # separate module, see the section above — not part of this thesis
   config.py             # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg for this task
   reward.py             # 5-term reward vector, retargeted from talon_rl/reward.py's shape
-  dummy_env.py           # physics-free smoke-test env, mirrors scripts/moppo/dummy_env.py's structure
+  dummy_env.py           # physics-free smoke-test env, mirrors scripts/rl/core/dummy_env.py's structure
 talon_rl/assets/tienkung2_lite/  # vendored TienKung2 Lite asset, mirrors assets/unitree_a1/'s pattern
 ```
 
@@ -128,7 +140,7 @@ talon_rl/assets/tienkung2_lite/  # vendored TienKung2 Lite asset, mirrors assets
 ```bash
 pip install -e ".[dev]"
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/
-python scripts/train_prelim.py --updates 50
+python scripts/rl/train_prelim.py --updates 50
 ```
 
 (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` works around an unrelated ROS
@@ -139,7 +151,7 @@ include everywhere.)
 
 ```bash
 source ~/isaac-lab-env/bin/activate
-python scripts/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
+python scripts/rl/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
 ```
 
 Proves the pipeline runs against a real, vectorized Isaac Lab environment

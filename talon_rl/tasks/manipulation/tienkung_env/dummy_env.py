@@ -1,7 +1,7 @@
 # talon_rl/tasks/manipulation/tienkung_env/dummy_env.py
 """Physics-free smoke-test env for TienKung's bimanual box-carry —
 same batch-native, gym.vector.SyncVectorEnv-backed structure as
-scripts/moppo/dummy_env.py's DummyEnv/DummyTalonEnv (this thesis's own A1
+scripts/rl/core/dummy_env.py's DummyEnv/DummyTalonEnv (this thesis's own A1
 dummy env), own toy physics: action[0] drives box-lift progress,
 action[1] drives grip firmness (higher = firmer hold = more arm-contact
 force / impact risk, lower = gentler but risks the box slipping) —

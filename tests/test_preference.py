@@ -1,7 +1,7 @@
 import numpy as np
 
 from talon_rl.config import PreferenceCfg, RewardVectorCfg
-from moppo.preference import floor_clip, rate_limit, sample_preference_vector
+from rl.core.preference import floor_clip, rate_limit, sample_preference_vector
 
 
 def test_sample_preference_vector_sums_to_one_and_matches_shape():
