@@ -27,7 +27,7 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg
 from isaaclab.utils import configclass
 
-from talon_rl.assets.a1 import TALON_A1_CFG
+from talon_rl.assets.unitree_a1.a1 import TALON_A1_CFG
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 
 from . import mdp
