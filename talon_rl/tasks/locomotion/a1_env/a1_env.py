@@ -74,7 +74,14 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
         transition = {
             "obs": obs_dict["policy"].cpu().numpy().astype(np.float32),
             "extrinsics": obs_dict["privileged"].cpu().numpy().astype(np.float32),
-            "v_actual": robot.data.root_lin_vel_b.cpu().numpy(),
+            # v_command is (v_x, v_y, omega_z) (config.py's command_dim comment) —
+            # root_lin_vel_b alone is (v_x, v_y, v_z), so its 3rd column was being
+            # compared against a yaw-rate target instead of the robot's actual yaw
+            # rate. Swap in root_ang_vel_b's z-component so progress_reward's
+            # exp-kernel tracks what v_command actually specifies.
+            "v_actual": torch.cat(
+                [robot.data.root_lin_vel_b[:, :2], robot.data.root_ang_vel_b[:, 2:3]], dim=-1
+            ).cpu().numpy(),
             "v_command": self.v_command_buf.cpu().numpy(),
             "obstacle_dist": np.maximum(
                 0.0, (self.obstacle_ahead_buf - robot.data.root_pos_w[:, 0]).cpu().numpy()
