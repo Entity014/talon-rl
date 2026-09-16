@@ -101,7 +101,7 @@ class ExtrinsicsCfg:
     payload_mass_dim: int = 1
     payload_com_offset_dim: int = 3
     friction_dim: int = 1
-    motor_power_scale_dim: int = 1
+    motor_power_scale_dim: int = 2  # Kp (stiffness) + Kd (damping) -- RMA randomizes/observes both, not just Kp
     leg_length_scale_dim: int = 1
     joint_range_scale_dim: int = 1
     terrain_height_dim: int = 1

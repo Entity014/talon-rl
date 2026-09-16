@@ -77,9 +77,11 @@ def friction_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Scene
 
 
 def motor_power_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
-    asset: Articulation = env.scene[asset_cfg.name]
-    stiffness = next(iter(asset.actuators.values())).stiffness
-    return stiffness.mean(dim=-1, keepdim=True)
+    """Kp (stiffness) and Kd (damping), matching randomize_motor_power's
+    randomization of both -- an earlier version only observed stiffness,
+    leaving Kd randomized but never fed back to the encoder."""
+    actuator = next(iter(env.scene[asset_cfg.name].actuators.values()))
+    return torch.stack([actuator.stiffness.mean(dim=-1), actuator.damping.mean(dim=-1)], dim=-1)
 
 
 def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:

@@ -200,6 +200,7 @@ class EventCfg:
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "stiffness_distribution_params": (0.8, 1.2),  # [TBD] placeholder, not tuned
+            "damping_distribution_params": (0.8, 1.2),  # [TBD] placeholder, not tuned -- RMA randomizes Kd too, not just Kp
             "operation": "scale",
         },
     )
