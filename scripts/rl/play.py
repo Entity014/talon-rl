@@ -129,7 +129,11 @@ def main() -> None:
         os.makedirs(os.path.dirname(video_path), exist_ok=True)
         fps = round(1.0 / env.step_dt)
         video_writer = imageio.get_writer(video_path, fps=fps)
-        video_writer.append_data(env.render())  # capture the initial reset() frame too
+        # First call after creating the render product comes back black --
+        # a warm-up quirk of Omniverse Replicator's annotator pipeline, not a
+        # real frame. Discard it, then capture the actual post-reset frame.
+        env.render()
+        video_writer.append_data(env.render())
 
     trainer.model.eval()
     total_reward = np.zeros(reward_cfg.dim, dtype=np.float32)

@@ -289,6 +289,19 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.02
         self.sim.render_interval = self.decimation
 
+        # Default ViewerCfg is a fixed world-space camera at (7.5, 7.5, 7.5)
+        # looking at world origin -- with a terrain generator (env_spacing=2.5,
+        # 4096 envs) the robot is almost never anywhere near there, so
+        # play.py's --video came out pointed at empty/wrong terrain with no
+        # robot in frame. asset_root tracking follows env 0's robot every
+        # frame instead; eye/lookat become offsets from that root, not world
+        # coordinates.
+        self.viewer.origin_type = "asset_root"
+        self.viewer.env_index = 0
+        self.viewer.asset_name = "robot"
+        self.viewer.eye = (2.0, 2.0, 1.2)
+        self.viewer.lookat = (0.0, 0.0, 0.3)
+
         _obs_cfg = ObservationSpaceCfg()
         _action_cfg = ActionSpaceCfg()
         self.obs_dim = _obs_cfg.total_dim - _obs_cfg.preference_dim
