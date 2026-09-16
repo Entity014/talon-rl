@@ -40,3 +40,25 @@ def randomize_joint_range(
     new_limits = torch.stack([mean - new_half_range, mean + new_half_range], dim=-1)  # (E, J, 2)
 
     asset.write_joint_position_limit_to_sim(new_limits, env_ids=env_ids)
+
+
+def randomize_velocity_command(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    lin_vel_x_range: tuple[float, float],
+    lin_vel_y_range: tuple[float, float],
+    ang_vel_z_range: tuple[float, float],
+):
+    """Resamples this task's scripted v_command_buf (v_x, v_y, omega_z) on
+    reset. Without this the command was fixed at [0.5, 0, 0] for the whole
+    run, so progress_reward's tracking term (chapter3.tex's Progress) could
+    never actually reward following a lateral or turning command -- see
+    a1_env.py's load_managers() for where v_command_buf is first allocated
+    (this event only resamples it, mode="reset")."""
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=env.device)
+    n = len(env_ids)
+    vx = math_utils.sample_uniform(*lin_vel_x_range, (n,), device=env.device)
+    vy = math_utils.sample_uniform(*lin_vel_y_range, (n,), device=env.device)
+    wz = math_utils.sample_uniform(*ang_vel_z_range, (n,), device=env.device)
+    env.v_command_buf[env_ids] = torch.stack([vx, vy, wz], dim=-1)

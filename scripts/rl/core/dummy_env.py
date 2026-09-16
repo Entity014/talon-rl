@@ -46,7 +46,17 @@ class DummyEnv(gym.Env):
         self.pos = 0.0
         self.vel = 0.0
         self.prev_action = np.zeros(self.action_dim, dtype=np.float32)
-        self.v_command = np.array([self.np_random.uniform(0.3, 1.0), 0.0, 0.0], dtype=np.float32)
+        # Ranges match a1_env_cfg.py's randomize_velocity_command event -- vy/omega_z
+        # used to be fixed at 0 here, so progress_reward's tracking term was never
+        # exercised on anything but a straight-forward command by either env.
+        self.v_command = np.array(
+            [
+                self.np_random.uniform(-0.3, 1.0),  # includes stand-still and backward
+                self.np_random.uniform(-0.3, 0.3),
+                self.np_random.uniform(-0.5, 0.5),
+            ],
+            dtype=np.float32,
+        )
         self.obstacle_ahead = float(self.np_random.uniform(3.0, 6.0))
         obs = self._compute_transition(np.zeros(self.action_dim, dtype=np.float32))
         return obs, {}

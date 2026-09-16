@@ -213,6 +213,20 @@ class EventCfg:
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
+    # v_command_buf (a1_env.py's load_managers()) was fixed at [0.5, 0, 0] for
+    # the whole run -- progress_reward could never reward tracking a lateral
+    # or turning command since none was ever commanded. [TBD] placeholder
+    # ranges, not tuned.
+    randomize_velocity_command = EventTerm(
+        func=mdp.randomize_velocity_command,
+        mode="reset",
+        params={
+            "lin_vel_x_range": (-0.3, 1.0),  # includes stand-still and backward, not just forward
+            "lin_vel_y_range": (-0.3, 0.3),
+            "ang_vel_z_range": (-0.5, 0.5),
+        },
+    )
+
 
 @configclass
 class RewardsCfg:

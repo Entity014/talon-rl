@@ -79,7 +79,7 @@ def test_isaac_lab_env_implements_base_contract():
         # restore from, so at mode="reset" it random-walks the CoM every
         # episode instead of resampling a fixed per-env offset), so it shows
         # up in the "startup" bucket checked below, not this one.
-        assert len(env.event_manager.active_terms["reset"]) == 5
+        assert len(env.event_manager.active_terms["reset"]) == 6
         assert "randomize_payload_com" in env.event_manager.active_terms["startup"]
 
         obs_cfg = ObservationSpaceCfg()
