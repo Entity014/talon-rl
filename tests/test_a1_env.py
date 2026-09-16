@@ -34,6 +34,20 @@ def test_isaac_lab_env_implements_base_contract():
 
         cfg = IsaacLabTalonEnvCfg()
         cfg.scene.num_envs = 4  # small N for a fast structural check
+
+        # Finding 3 (final-review): payload_treatment="noise_only" must leave
+        # `payload` out of the privileged observation group entirely (not just
+        # unrewarded) — this is pure __post_init__ cfg composition, no scene
+        # build needed, but IsaacLabTalonEnvCfg still can't be imported/
+        # constructed without a live SimulationApp (isaaclab.managers imports
+        # `carb`, which only exists once the kit runtime is up), so this can't
+        # be a standalone non-GPU test — it rides along on the app already
+        # booted above instead of paying for a second SimulationApp boot.
+        from talon_rl.config import ExtrinsicsCfg
+
+        noise_only_cfg = IsaacLabTalonEnvCfg(extrinsics_cfg=ExtrinsicsCfg(payload_treatment="noise_only"))
+        assert not hasattr(noise_only_cfg.observations.privileged, "payload")
+
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
         # terrain: confirm the scene uses the generator config, not a flat
@@ -83,7 +97,6 @@ def test_isaac_lab_env_implements_base_contract():
         ):
             assert key in transition
             assert transition[key].shape[0] == 4
-        from talon_rl.config import ExtrinsicsCfg
         assert "extrinsics" in transition
         assert transition["extrinsics"].shape == (4, ExtrinsicsCfg().dim)
 
