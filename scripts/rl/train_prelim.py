@@ -146,6 +146,19 @@ def main() -> None:
     if log_dir:
         from torch.utils.tensorboard import SummaryWriter
         writer = SummaryWriter(log_dir=log_dir)
+        # One-time note so a Reward/<term> curve is legible without opening
+        # reward.py -- each term is otherwise just a bare, unlabeled scalar.
+        writer.add_text(
+            "Reward/composition",
+            "| term | formula | inputs |\n"
+            "|---|---|---|\n"
+            "| progress | exp(-\\|\\|v_actual - v_command\\|\\|^2 / progress_std^2) | v_actual, v_command: (v_x, v_y, omega_z) |\n"
+            "| clearance | clip(obstacle_dist / safe_dist, 0, 1) | scripted placeholder until the Exteroception Module exists |\n"
+            "| energy | -sum\\|joint_torque * joint_vel\\| | negated raw mechanical power |\n"
+            "| impact | -max(0, peak_foot_contact_force - threshold) / threshold | only force above threshold is penalized |\n"
+            "| smoothness | -(sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | fixed-weight regularizer, not part of preference vector w |\n",
+            0,
+        )
 
     if args.env == "dummy":
         env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=args.num_envs, horizon=200, seed=args.seed)
