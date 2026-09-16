@@ -353,6 +353,124 @@ def test_dummy_env_without_extrinsics_still_works():
     assert np.isfinite(stats["policy_loss"])
 
 
+class _ShiftedExtrinsicsDummyEnv(DummyTalonEnv):
+    """Like _ExtrinsicsDummyEnv but with an artificially large fixed offset
+    and scale on one channel — mimics the real Isaac Lab env's ~1000x
+    per-channel dynamic range (e.g. actuator stiffness ~44-66 vs. CoM
+    offset ~±0.05), which np.random.randn's unit-scale output does not
+    exercise (see Finding 2: the dummy-env test fixture was blind to this
+    class of bug for exactly that reason)."""
+
+    def __init__(self, *args, extrinsics_dim: int, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._extrinsics_dim = extrinsics_dim
+
+    def _with_extrinsics(self, transition):
+        raw = np.random.randn(self.num_envs, self._extrinsics_dim).astype(np.float32)
+        raw[:, 0] = raw[:, 0] * 5.0 + 55.0  # channel 0 at a real stiffness-like scale
+        transition["extrinsics"] = raw
+        return transition
+
+    def reset(self):
+        return self._with_extrinsics(super().reset())
+
+    def step(self, action):
+        transition, done = super().step(action)
+        return self._with_extrinsics(transition), done
+
+
+def test_extrinsics_normalization_running_stats_move_from_init():
+    """Finding 2 regression: raw extrinsics fed straight into
+    EnvFactorEncoder span a ~1000x per-channel range, so the large-magnitude
+    channel dominates the small ones' gradient contribution for a long
+    time. Proves trainer.extrinsics_norm's running mean/var actually move
+    away from RunningMeanStd(dim)'s init defaults (mean=0, var=1) once fed
+    extrinsics far from zero-mean/unit-variance, and that the shifted
+    channel's mean lands near its true offset (55) rather than near 0 —
+    i.e. the stats are per-channel-correct, not just "moved" — mirroring
+    test_reward_norm_state_round_trips_through_checkpoint's structure for
+    reward_norm."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+
+    env = _ShiftedExtrinsicsDummyEnv(
+        obs_cfg, action_cfg, num_envs=8, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim
+    )
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=10, epochs_per_update=2),
+        extrinsics_cfg=extrinsics_cfg,
+        seed=0,
+    )
+    assert trainer.extrinsics_norm is not None
+    assert np.allclose(trainer.extrinsics_norm.mean, 0.0)  # RunningMeanStd's pre-fit default
+    assert np.allclose(trainer.extrinsics_norm.var, 1.0)
+
+    for _ in range(3):
+        trainer.update()
+
+    assert not np.allclose(trainer.extrinsics_norm.mean, 0.0)
+    assert not np.allclose(trainer.extrinsics_norm.var, 1.0)
+    assert trainer.extrinsics_norm.mean[0] > 20.0  # channel 0's true offset is 55
+
+
+def test_extrinsics_norm_state_round_trips_through_checkpoint():
+    """Same rationale as test_reward_norm_state_round_trips_through_checkpoint:
+    a resumed run must keep the same extrinsics scale as the run it resumes
+    from, or the encoder sees a different input distribution than the one
+    its weights were trained against."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    extrinsics_cfg = ExtrinsicsCfg()
+    moppo_cfg = MOPPOConfig(num_steps=5, epochs_per_update=1)
+
+    env = _ShiftedExtrinsicsDummyEnv(
+        obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0, extrinsics_dim=extrinsics_cfg.dim
+    )
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, extrinsics_cfg=extrinsics_cfg, seed=0
+    )
+    trainer.update()
+    trainer.update()  # accumulate non-trivial running stats
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "checkpoint.pt")
+        trainer.save(ckpt_path)
+
+        env2 = _ShiftedExtrinsicsDummyEnv(
+            obs_cfg, action_cfg, num_envs=4, horizon=40, seed=1, extrinsics_dim=extrinsics_cfg.dim
+        )
+        fresh_trainer = MOPPOTrainer(
+            env2, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, extrinsics_cfg=extrinsics_cfg, seed=1
+        )
+        assert not np.allclose(trainer.extrinsics_norm.mean, fresh_trainer.extrinsics_norm.mean)
+
+        fresh_trainer.load(ckpt_path)
+        assert np.allclose(trainer.extrinsics_norm.mean, fresh_trainer.extrinsics_norm.mean)
+        assert np.allclose(trainer.extrinsics_norm.var, fresh_trainer.extrinsics_norm.var)
+        assert trainer.extrinsics_norm.count == fresh_trainer.extrinsics_norm.count
+
+
+def test_extrinsics_norm_is_none_on_dummy_path():
+    # --env dummy (extrinsics_cfg=None) must not construct an extrinsics
+    # normalizer either — mirrors the existing self.encoder is None guard.
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0
+    )
+    assert trainer.extrinsics_norm is None
+
+
 def test_update_backprops_into_encoder_parameters():
     # Non-obvious requirement: self.encoder being in self.optim's param
     # groups is not sufficient — update() must actually route a live,

@@ -114,6 +114,12 @@ class MOPPOTrainer:
         # without it, smoothness dominates progress by ~1000x in raw scale
         # (see CLAUDE.md / docs/mdp.md's "known gap" note this closes).
         self.reward_norm = RunningMeanStd(reward_cfg.dim)
+        # Extrinsics channels span a ~1000x range (CoM offset ~±0.05 vs.
+        # actuator stiffness ~44-66) — fed raw into EnvFactorEncoder's first
+        # Linear layer, the large-magnitude channels dominate the small ones'
+        # gradient contribution for a long time. Same fix as reward_norm
+        # above, applied to the encoder's input instead of the reward vector.
+        self.extrinsics_norm = RunningMeanStd(extrinsics_cfg.dim) if extrinsics_cfg else None
 
         # Persistent rollout state — set up once here, advanced by update(),
         # never reset mid-training (auto-reset happens per-lane inside
@@ -140,7 +146,8 @@ class MOPPOTrainer:
         those call sites' comments)."""
         parts = [self.stack.policy_obs]
         if self.encoder:
-            z_t = self.encoder(torch.from_numpy(self._last_extrinsics).float()).detach().numpy()
+            e_t = self.extrinsics_norm.normalize(self._last_extrinsics)
+            z_t = self.encoder(torch.from_numpy(e_t).float()).detach().numpy()
             parts.append(z_t)
         parts.append(self.w)
         return np.concatenate(parts, axis=-1).astype(np.float32)
@@ -150,7 +157,8 @@ class MOPPOTrainer:
         as _actor_obs()."""
         parts = [self.stack.critic_obs]
         if self.encoder:
-            z_t = self.encoder(torch.from_numpy(self._last_extrinsics).float()).detach().numpy()
+            e_t = self.extrinsics_norm.normalize(self._last_extrinsics)
+            z_t = self.encoder(torch.from_numpy(e_t).float()).detach().numpy()
             parts.append(z_t)
         parts.append(self.w)
         return np.concatenate(parts, axis=-1).astype(np.float32)
@@ -172,10 +180,16 @@ class MOPPOTrainer:
             self.w = np.where(self._prev_done[:, None], w_target, w_rate_limited)
             self.w = floor_clip(self.w, self.reward_cfg.term_names, self.reward_cfg.impact_floor_eps)
 
+            if self.encoder:
+                # Update running stats before normalize()-ing this step's
+                # extrinsics into _actor_obs()/_critic_obs() — same
+                # update-then-normalize cadence as reward_norm below, so the
+                # encoder always sees the freshest running scale.
+                self.extrinsics_norm.update(self._last_extrinsics)
             actor_obs_w = self._actor_obs()
             critic_obs_w = self._critic_obs()
             if self.encoder:
-                extrinsics_list.append(self._last_extrinsics)
+                extrinsics_list.append(self._last_extrinsics)  # raw — update()'s epoch loop re-normalizes before re-encoding
             with torch.no_grad():
                 action_t, logp_t = self.model.act(torch.from_numpy(actor_obs_w))
                 value_t = self.model.value(torch.from_numpy(critic_obs_w))
@@ -247,7 +261,15 @@ class MOPPOTrainer:
         actions_t = torch.from_numpy(r["actions"].reshape(T * N, -1))
         logp_old_t = torch.from_numpy(r["logp"].reshape(T * N))
         returns_t = torch.from_numpy(returns.reshape(T * N, -1).astype(np.float32))
-        extrinsics_t = torch.from_numpy(r["extrinsics"].reshape(T * N, -1)).float() if self.encoder else None
+        if self.encoder:
+            # Normalize with the SAME running stats used during collection
+            # (already updated for this rollout in _collect_rollout, above)
+            # so the live re-encode sees the same input scale the frozen
+            # snapshot did.
+            extrinsics_normed = self.extrinsics_norm.normalize(r["extrinsics"].reshape(T * N, -1))
+            extrinsics_t = torch.from_numpy(extrinsics_normed).float()
+        else:
+            extrinsics_t = None
 
         last_policy_loss = last_value_loss = 0.0
         for _ in range(self.cfg.epochs_per_update):
@@ -357,6 +379,7 @@ class MOPPOTrainer:
                 "t": self._t,
                 "reward_norm": self.reward_norm.state_dict(),
                 "encoder": self.encoder.state_dict() if self.encoder else None,
+                "extrinsics_norm": self.extrinsics_norm.state_dict() if self.extrinsics_norm else None,
             },
             path,
         )
@@ -372,3 +395,5 @@ class MOPPOTrainer:
         self.reward_norm.load_state_dict(checkpoint["reward_norm"])
         if self.encoder and checkpoint.get("encoder"):
             self.encoder.load_state_dict(checkpoint["encoder"])
+        if self.extrinsics_norm and checkpoint.get("extrinsics_norm"):
+            self.extrinsics_norm.load_state_dict(checkpoint["extrinsics_norm"])
