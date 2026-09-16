@@ -86,14 +86,26 @@ def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sce
     """Reads back the legScale custom attribute Task 5's generator script
     wrote onto each spawned variant's root prim. InteractiveScene has no
     .stage attribute (confirmed against installed isaaclab 0.48.0) — the
-    stage lives on the SimulationContext instead."""
-    asset: Articulation = env.scene[asset_cfg.name]
-    scales = []
-    for i in range(env.num_envs):
-        prim = asset._root_physx_view.prim_paths[i]  # noqa: SLF001 — no public per-env prim accessor
-        attr = env.sim.stage.GetPrimAtPath(prim).GetAttribute("legScale")
-        scales.append(attr.Get() if attr.IsValid() else 1.0)
-    return torch.tensor(scales, device=asset.device).unsqueeze(-1)
+    stage lives on the SimulationContext instead.
+
+    legScale is fixed at spawn time and never changes for an env's whole
+    lifetime (leg length isn't reset-randomized, only variant-selected at
+    spawn — see a1_env_cfg.py), so the per-env USD prim lookup below only
+    needs to run once per env instance, not once per observation step: at
+    this repo's configured default of 4096 envs, re-reading on every call
+    would be 4096 USD attribute reads every single step for a value that
+    never changes. Cached on the env object itself, the same pattern
+    a1_env.py's load_managers() already uses for v_command_buf/
+    obstacle_ahead_buf (per-env-instance state with no other natural home)."""
+    if not hasattr(env, "_leg_scale_cache"):
+        asset: Articulation = env.scene[asset_cfg.name]
+        scales = []
+        for i in range(env.num_envs):
+            prim = asset._root_physx_view.prim_paths[i]  # noqa: SLF001 — no public per-env prim accessor
+            attr = env.sim.stage.GetPrimAtPath(prim).GetAttribute("legScale")
+            scales.append(attr.Get() if attr.IsValid() else 1.0)
+        env._leg_scale_cache = torch.tensor(scales, device=asset.device).unsqueeze(-1)
+    return env._leg_scale_cache
 
 
 def joint_range_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:

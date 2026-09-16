@@ -24,6 +24,7 @@ def test_isaac_lab_env_implements_base_contract():
     from isaacsim import SimulationApp
 
     app = SimulationApp({"headless": True})
+    ok = False
     try:
         import gymnasium as gym
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
@@ -86,9 +87,17 @@ def test_isaac_lab_env_implements_base_contract():
         reward_vec = compute_reward_vector(transition, RewardVectorCfg())
         assert reward_vec.shape == (4, RewardVectorCfg().dim)
         assert np.all(np.isfinite(reward_vec))
+        ok = True
     finally:
+        # app.close() reliably hangs past this point in this Isaac Sim
+        # install (confirmed independent of this file's own changes — see
+        # task-6-report.md), so this watchdog force-exits instead of hanging
+        # the whole suite forever. It must NOT always exit 0: that previously
+        # masked a real AssertionError (the terrain `is`-identity bug) for
+        # multiple prior tasks, since a failure inside try still reaches this
+        # finally block. `ok` is only True once every assertion above passed.
         import threading
-        watchdog = threading.Timer(15.0, lambda: os._exit(0))
+        watchdog = threading.Timer(15.0, lambda: os._exit(0 if ok else 1))
         watchdog.daemon = True
         watchdog.start()
         app.close()
