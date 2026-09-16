@@ -73,6 +73,7 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
         action = self.action_manager.action.cpu().numpy()
         transition = {
             "obs": obs_dict["policy"].cpu().numpy().astype(np.float32),
+            "extrinsics": obs_dict["privileged"].cpu().numpy().astype(np.float32),
             "v_actual": robot.data.root_lin_vel_b.cpu().numpy(),
             "v_command": self.v_command_buf.cpu().numpy(),
             "obstacle_dist": np.maximum(

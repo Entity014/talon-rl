@@ -17,7 +17,7 @@ import argparse
 import os
 import time
 
-from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
+from talon_rl.config import ActionSpaceCfg, ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
 from rl.core.dummy_env import DummyTalonEnv
 from rl.core.run_dir import dump_config, make_run_dir
@@ -130,6 +130,7 @@ def main() -> None:
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
     moppo_cfg = MOPPOConfig()
+    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" else None
 
     run_dir = None
     log_dir = args.log_dir
@@ -162,7 +163,7 @@ def main() -> None:
         cfg.scene.num_envs = args.num_envs
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
-    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, stack_cfg=stack_cfg, seed=args.seed)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, stack_cfg=stack_cfg, extrinsics_cfg=extrinsics_cfg, seed=args.seed)
 
     if args.resume:
         trainer.load(args.resume)

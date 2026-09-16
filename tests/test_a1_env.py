@@ -77,6 +77,9 @@ def test_isaac_lab_env_implements_base_contract():
         ):
             assert key in transition
             assert transition[key].shape[0] == 4
+        from talon_rl.config import ExtrinsicsCfg
+        assert "extrinsics" in transition
+        assert transition["extrinsics"].shape == (4, ExtrinsicsCfg().dim)
 
         action = np.zeros((4, env.action_dim), dtype=np.float32)
         transition, done = env.step(action)
@@ -84,6 +87,8 @@ def test_isaac_lab_env_implements_base_contract():
         assert done.shape == (4,)
         assert done.dtype == bool
         assert np.all(np.isfinite(transition["obs"]))
+        assert "extrinsics" in transition
+        assert transition["extrinsics"].shape == (4, ExtrinsicsCfg().dim)
         reward_vec = compute_reward_vector(transition, RewardVectorCfg())
         assert reward_vec.shape == (4, RewardVectorCfg().dim)
         assert np.all(np.isfinite(reward_vec))
