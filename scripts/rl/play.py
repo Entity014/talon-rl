@@ -18,7 +18,14 @@ import os
 
 import numpy as np
 
-from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
+from talon_rl.config import (
+    ActionSpaceCfg,
+    ExtrinsicsCfg,
+    ObservationSpaceCfg,
+    ObservationStackCfg,
+    PreferenceCfg,
+    RewardVectorCfg,
+)
 from talon_rl.reward import compute_reward_vector
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
@@ -76,7 +83,15 @@ def main() -> None:
         cfg.scene.num_envs = args.num_envs
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
-    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), stack_cfg=stack_cfg, seed=args.seed)
+    # Must match train_prelim.py's --env isaac_lab branch exactly: a checkpoint
+    # trained with an encoder has an actor/critic sized for z_t and an "encoder"
+    # key in its state dict -- building the trainer without extrinsics_cfg here
+    # would load_state_dict() into a wrongly-shaped model.
+    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" else None
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), stack_cfg=stack_cfg,
+        extrinsics_cfg=extrinsics_cfg, seed=args.seed,
+    )
     trainer.load(checkpoint_path)
     print(f"loaded checkpoint from {checkpoint_path} (t={trainer._t})")
 
@@ -91,6 +106,10 @@ def main() -> None:
     for _ in range(args.steps):
         action = trainer.act_inference()
         transition, done = env.step(action)
+        # This loop drives the env directly instead of MOPPOTrainer._collect_rollout,
+        # which is the only other place _last_extrinsics normally advances -- without
+        # this line z_t would stay frozen at the initial reset's value for every step.
+        trainer._last_extrinsics = transition.get("extrinsics") if trainer.encoder else None
         trainer.stack.push(transition["obs"], done_mask=done)
         total_reward += compute_reward_vector(transition, reward_cfg).mean(axis=0)
         if analyzer is not None:
