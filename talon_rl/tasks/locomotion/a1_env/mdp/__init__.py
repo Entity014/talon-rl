@@ -9,5 +9,15 @@ isaaclab_tasks' own cartpole/mdp/__init__.py)."""
 from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .events import randomize_joint_range  # noqa: F401
-from .observations import foot_contact_binary, roll_pitch, v_command  # noqa: F401
+from .observations import (  # noqa: F401
+    foot_contact_binary,
+    friction_extrinsic,
+    joint_range_extrinsic,
+    leg_length_extrinsic,
+    local_terrain_height,
+    motor_power_extrinsic,
+    payload_extrinsics,
+    roll_pitch,
+    v_command,
+)
 from .terminations import obstacle_reached  # noqa: F401

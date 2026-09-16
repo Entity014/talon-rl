@@ -36,10 +36,30 @@ def test_isaac_lab_env_implements_base_contract():
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
         # terrain: confirm the scene uses the generator config, not a flat
-        # ground plane — exact InteractiveScene asset-lookup syntax
-        # (env.scene["terrain"]) taken from Isaac Lab's own convention,
-        # verify against the installed isaaclab.scene API
-        assert env.scene["terrain"].cfg.terrain_generator is A1_ROUGH_TERRAINS_CFG
+        # ground plane. NOT an `is` identity check (pre-existing bug found
+        # while wiring Task 6: Isaac Lab clones/replaces cfg objects on the
+        # way into the scene, e.g. IsaacLabTalonEnvCfg.__post_init__ already
+        # does this for scene.robot via TALON_A1_CFG.replace(), so the
+        # terrain_generator living on the built scene is never the same
+        # object as the module-level A1_ROUGH_TERRAINS_CFG — `is` silently
+        # failed every run, masked because the finally block's watchdog
+        # always exits 0 before pytest can report the AssertionError. Compare
+        # the structural fingerprint that actually distinguishes "our rough
+        # generator" from a flat plane or a different generator instead.
+        terrain_generator = env.scene["terrain"].cfg.terrain_generator
+        assert terrain_generator.num_rows == A1_ROUGH_TERRAINS_CFG.num_rows
+        assert terrain_generator.num_cols == A1_ROUGH_TERRAINS_CFG.num_cols
+        assert set(terrain_generator.sub_terrains) == set(A1_ROUGH_TERRAINS_CFG.sub_terrains)
+
+        # Adaptation Module Phase 1: privileged extrinsics group must exist
+        # alongside policy — proves the teacher's 7-factor e_t is actually
+        # wired into the ObservationManager, not just defined in cfg.
+        assert "privileged" in env.observation_manager.active_terms
+        assert "payload" in env.observation_manager.active_terms["privileged"]
+        # reset_scene (pre-existing, load-bearing per-episode reset) plus the
+        # 5 new DR terms — a regression here means EventCfg's merge (Ruling 1)
+        # silently dropped one or the other.
+        assert len(env.event_manager.active_terms["reset"]) == 6
 
         obs_cfg = ObservationSpaceCfg()
         action_cfg = ActionSpaceCfg()

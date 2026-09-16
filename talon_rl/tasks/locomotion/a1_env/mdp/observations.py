@@ -47,3 +47,67 @@ def v_command(env: ManagerBasedRLEnv) -> torch.Tensor:
     in this prelim (matches the single-env IsaacLabTalonEnv's
     self.v_command, 2026-09-13). (N, 3)."""
     return env.v_command_buf
+
+
+# --- Privileged extrinsics e_t (Adaptation Module Phase 1, chapter3.tex
+# §3.2.1) — only consumed by ObservationsCfg.PrivilegedCfg, never PolicyCfg.
+# See a1_env_cfg.py for the conditional payload wiring.
+
+
+def payload_extrinsics(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Payload mass + CoM offset on the trunk (extrinsics factor 1+2).
+    Only wired into PrivilegedCfg when payload_treatment != noise_only —
+    see a1_env_cfg.py."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    trunk_id = asset.find_bodies("trunk")[0][0]
+    # root_physx_view getters return CPU tensors regardless of sim device
+    # (confirmed live against installed isaaclab 0.48.0) — every other
+    # extrinsics term is CUDA, and ObservationManager.compute_group's
+    # torch.cat over the whole privileged group fails across mixed devices.
+    mass = asset.root_physx_view.get_masses()[:, trunk_id : trunk_id + 1].to(asset.device)
+    com = asset.root_physx_view.get_coms()[:, trunk_id, :3].to(asset.device)
+    return torch.cat([mass, com], dim=-1)
+
+
+def friction_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    asset: Articulation = env.scene[asset_cfg.name]
+    # get_material_properties() is CPU-backed, same caveat as get_masses/get_coms above.
+    materials = asset.root_physx_view.get_material_properties().to(asset.device)
+    return materials[:, 0, 0:1]  # static friction of the first shape, as a per-env scalar
+
+
+def motor_power_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    asset: Articulation = env.scene[asset_cfg.name]
+    stiffness = next(iter(asset.actuators.values())).stiffness
+    return stiffness.mean(dim=-1, keepdim=True)
+
+
+def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Reads back the legScale custom attribute Task 5's generator script
+    wrote onto each spawned variant's root prim. InteractiveScene has no
+    .stage attribute (confirmed against installed isaaclab 0.48.0) — the
+    stage lives on the SimulationContext instead."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    scales = []
+    for i in range(env.num_envs):
+        prim = asset._root_physx_view.prim_paths[i]  # noqa: SLF001 — no public per-env prim accessor
+        attr = env.sim.stage.GetPrimAtPath(prim).GetAttribute("legScale")
+        scales.append(attr.Get() if attr.IsValid() else 1.0)
+    return torch.tensor(scales, device=asset.device).unsqueeze(-1)
+
+
+def joint_range_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    asset: Articulation = env.scene[asset_cfg.name]
+    limits = asset.data.joint_pos_limits
+    ranges = (limits[..., 1] - limits[..., 0]).mean(dim=-1, keepdim=True)
+    default_ranges = (asset.data.default_joint_pos_limits[..., 1] - asset.data.default_joint_pos_limits[..., 0]).mean(dim=-1, keepdim=True)
+    return ranges / default_ranges  # current/default ratio — this env's scale factor
+
+
+def local_terrain_height(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Terrain height needs no new randomization — it's already
+    effectively randomized by which sub-terrain cell a lane spawns on
+    (A1_ROUGH_TERRAINS_CFG). Reads the terrain's own tracked level per env."""
+    terrain = env.scene.terrain
+    levels = terrain.terrain_levels.float() if hasattr(terrain, "terrain_levels") else torch.zeros(env.num_envs, device=env.device)
+    return levels.unsqueeze(-1)
