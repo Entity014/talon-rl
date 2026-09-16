@@ -72,7 +72,7 @@ def test_rollout_runs_without_crashing_or_nans(tmp_path):
         critic_obs_dim=obs_cfg.total_dim,
         action_dim=action_cfg.dim,
         reward_dim=reward_cfg.dim,
-        hidden_dim=16,
+        hidden_dims=[16, 16],
     )
     export_path = str(tmp_path / "policy.pt")
     export_policy_as_jit(model_nn, export_path)

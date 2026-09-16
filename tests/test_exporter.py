@@ -8,7 +8,7 @@ def test_act_inference_is_deterministic():
     """Unlike act() (samples from a Normal), act_inference() must give the
     exact same output for the same input every call — the property play.py
     and any exported deployment artifact depend on."""
-    model = ActorCritic(actor_obs_dim=8, critic_obs_dim=8, action_dim=4, reward_dim=3, hidden_dim=16)
+    model = ActorCritic(actor_obs_dim=8, critic_obs_dim=8, action_dim=4, reward_dim=3, hidden_dims=[16, 16])
     obs = torch.randn(2, 8)
 
     out1 = model.act_inference(obs)
@@ -21,7 +21,7 @@ def test_exported_jit_module_matches_act_inference(tmp_path):
     """The exported JIT module must reproduce act_inference()'s output
     exactly for the same input — proves the export actually captured the
     trained actor weights, not just that torch.jit.save() didn't error."""
-    model = ActorCritic(actor_obs_dim=8, critic_obs_dim=8, action_dim=4, reward_dim=3, hidden_dim=16)
+    model = ActorCritic(actor_obs_dim=8, critic_obs_dim=8, action_dim=4, reward_dim=3, hidden_dims=[16, 16])
     obs = torch.randn(3, 8)
     expected = model.act_inference(obs)
 

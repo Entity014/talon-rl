@@ -10,21 +10,26 @@ import torch.nn as nn
 from torch.distributions import Normal
 
 
+def _mlp_body(in_dim: int, hidden_dims: list[int]) -> nn.Sequential:
+    layers: list[nn.Module] = []
+    prev_dim = in_dim
+    for h in hidden_dims:
+        layers += [nn.Linear(prev_dim, h), nn.ELU()]
+        prev_dim = h
+    return nn.Sequential(*layers)
+
+
 class ActorCritic(nn.Module):
-    def __init__(self, actor_obs_dim: int, critic_obs_dim: int, action_dim: int, reward_dim: int, hidden_dim: int):
+    def __init__(
+        self, actor_obs_dim: int, critic_obs_dim: int, action_dim: int, reward_dim: int, hidden_dims: list[int]
+    ):
         super().__init__()
-        self.actor_body = nn.Sequential(
-            nn.Linear(actor_obs_dim, hidden_dim), nn.ELU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ELU(),
-        )
-        self.actor_mean = nn.Linear(hidden_dim, action_dim)
+        self.actor_body = _mlp_body(actor_obs_dim, hidden_dims)
+        self.actor_mean = nn.Linear(hidden_dims[-1], action_dim)
         self.log_std = nn.Parameter(torch.zeros(action_dim))
 
-        self.critic_body = nn.Sequential(
-            nn.Linear(critic_obs_dim, hidden_dim), nn.ELU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ELU(),
-        )
-        self.critic_head = nn.Linear(hidden_dim, reward_dim)
+        self.critic_body = _mlp_body(critic_obs_dim, hidden_dims)
+        self.critic_head = nn.Linear(hidden_dims[-1], reward_dim)
 
     def act(self, actor_obs_w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         mean = self.actor_mean(self.actor_body(actor_obs_w))

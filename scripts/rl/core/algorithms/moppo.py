@@ -39,7 +39,7 @@ scripts/rl/core/modules/ and scripts/rl/core/storage/.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
@@ -60,7 +60,7 @@ from ..storage.rollout_storage import gae_per_objective
 
 @dataclass
 class MOPPOConfig:
-    hidden_dim: int = 64
+    hidden_dims: list[int] = field(default_factory=lambda: [512, 256, 128])  # matches jaykorea/Isaac-RL-Two-wheel-Legged-Bot's humanoid config and TienKung-Lab's exported policy shape
     lr: float = 3e-4
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -107,7 +107,7 @@ class MOPPOTrainer:
         if extrinsics_cfg:
             actor_obs_w_dim += extrinsics_cfg.adaptation_latent_dim
             critic_obs_w_dim += extrinsics_cfg.adaptation_latent_dim
-        self.model = ActorCritic(actor_obs_w_dim, critic_obs_w_dim, env.action_dim, reward_cfg.dim, self.cfg.hidden_dim)
+        self.model = ActorCritic(actor_obs_w_dim, critic_obs_w_dim, env.action_dim, reward_cfg.dim, self.cfg.hidden_dims)
         params = list(self.model.parameters()) + (list(self.encoder.parameters()) if self.encoder else [])
         self.optim = torch.optim.Adam(params, lr=self.cfg.lr)
         # Running per-objective reward normalization (chapter3.tex §3.2.3) —
