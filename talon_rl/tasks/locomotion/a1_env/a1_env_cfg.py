@@ -26,6 +26,7 @@ from dataclasses import MISSING, field
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -234,6 +235,19 @@ class RewardsCfg:
 
 
 @configclass
+class CurriculumCfg:
+    # A1_ROUGH_TERRAINS_CFG's curriculum=False (terrain_config/rough_config.py)
+    # meant every env samples terrain difficulty uniformly from the start --
+    # a robot could spawn straight into a pit or tall stairs before it had
+    # learned to stand on flat ground, with no way to earn its way up from
+    # something easier. This term promotes/demotes each env's terrain row by
+    # how far it actually walked -- see mdp.terrain_levels_vel's docstring for
+    # why it isn't Isaac Lab's own stock isaaclab_tasks mdp.terrain_levels_vel
+    # verbatim (that one needs a CommandManager this task doesn't have).
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+
+
+@configclass
 class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
     scene: A1SceneCfg = A1SceneCfg(num_envs=_DEFAULT_NUM_ENVS, env_spacing=2.5)
     observations: ObservationsCfg = ObservationsCfg()
@@ -241,6 +255,7 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
     events: EventCfg = EventCfg()
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
     extrinsics_cfg: ExtrinsicsCfg = field(default_factory=ExtrinsicsCfg)
 
     def __post_init__(self) -> None:
@@ -274,6 +289,16 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
                 ],
                 random_choice=True,
             )
+        )
+
+        # Same sharing hazard as scene.robot above: A1SceneCfg.terrain's
+        # terrain_generator field holds a reference to the module-level
+        # A1_ROUGH_TERRAINS_CFG singleton, not a private copy -- mutating
+        # curriculum on it in place would leak into every other
+        # IsaacLabTalonEnvCfg() instance (and the module-level object
+        # itself). .replace() at both levels avoids that.
+        self.scene.terrain = self.scene.terrain.replace(
+            terrain_generator=self.scene.terrain.terrain_generator.replace(curriculum=True)
         )
 
         # payload is observed+rewarded only under the "explicit" treatment —
