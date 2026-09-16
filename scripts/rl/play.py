@@ -49,10 +49,13 @@ def main() -> None:
     parser.add_argument("--export", type=str, default=None, help="Export the loaded policy as TorchScript to this path.")
     parser.add_argument("--analyze", type=str, nargs="+", default=None, help="Transition-dict keys to record per step (e.g. joint_vel joint_torque).")
     parser.add_argument("--plot", action="store_true", help="With --analyze: save one PNG per recorded key next to the checkpoint (or ./exported/ for --checkpoint).")
+    parser.add_argument("--video", action="store_true", help="Record an .mp4 of the rollout (--env isaac_lab only -- DummyTalonEnv has no scene to render).")
     args = parser.parse_args()
 
     if bool(args.checkpoint) == bool(args.load_run):
         raise SystemExit("pass exactly one of --checkpoint or --load_run")
+    if args.video and args.env == "dummy":
+        raise SystemExit("--video needs a real scene to render -- pass --env isaac_lab")
     checkpoint_path = args.checkpoint or resolve_checkpoint(args.logs_root, args.load_run)
 
     obs_cfg = ObservationSpaceCfg()
@@ -72,8 +75,19 @@ def main() -> None:
         # the whole function body, breaking every `os.path`/`os.environ`
         # use above with UnboundLocalError — see train_prelim.py's own note).
         os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
-        from isaacsim import SimulationApp
-        simulation_app = SimulationApp({"headless": True})  # noqa: F841 — kept alive for the process lifetime
+        # AppLauncher, not a bare SimulationApp -- see train_prelim.py's own
+        # comment on this exact class (bare SimulationApp was found to
+        # silently fail PhysX GPU scene construction some of the time, no
+        # traceback; AppLauncher does extra Kit extension/experience-file
+        # setup that fixed it there). Also required for --video: passing
+        # enable_cameras straight into a bare SimulationApp's config dict is
+        # silently ignored -- AppLauncher is what actually picks the
+        # camera-enabled Kit experience file (isaaclab.python.headless.
+        # rendering.kit) that makes env.render() produce real frames instead
+        # of raising "Cannot render 'rgb_array' when ... 'NO_GUI_OR_RENDERING'".
+        from isaaclab.app import AppLauncher
+        app_launcher = AppLauncher({"headless": True, "enable_cameras": args.video})
+        simulation_app = app_launcher.app  # noqa: F841 — kept alive for the process lifetime
 
         import gymnasium as gym
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401 — registers Isaac-Talon-A1-v0
@@ -81,7 +95,12 @@ def main() -> None:
 
         cfg = IsaacLabTalonEnvCfg()
         cfg.scene.num_envs = args.num_envs
-        env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
+        # render_mode="rgb_array" is what makes env.render() return frames instead
+        # of None -- gym.wrappers.RecordVideo doesn't work here (it expects the
+        # standard 5-tuple step() contract; IsaacLabTalonEnv.step() returns this
+        # repo's own (transition_dict, done_array) shape, see a1_env.py's
+        # docstring), so frames are captured by hand in the play loop below.
+        env = gym.make("Isaac-Talon-A1-v0", cfg=cfg, render_mode="rgb_array" if args.video else None).unwrapped
 
     # Must match train_prelim.py's --env isaac_lab branch exactly: a checkpoint
     # trained with an encoder has an actor/critic sized for z_t and an "encoder"
@@ -101,6 +120,17 @@ def main() -> None:
 
     analyzer = Analyzer(args.analyze) if args.analyze else None
 
+    video_writer = None
+    video_path = None
+    if args.video:
+        import imageio
+
+        video_path = os.path.join(os.path.dirname(checkpoint_path), "exported", "play.mp4")
+        os.makedirs(os.path.dirname(video_path), exist_ok=True)
+        fps = round(1.0 / env.step_dt)
+        video_writer = imageio.get_writer(video_path, fps=fps)
+        video_writer.append_data(env.render())  # capture the initial reset() frame too
+
     trainer.model.eval()
     total_reward = np.zeros(reward_cfg.dim, dtype=np.float32)
     for _ in range(args.steps):
@@ -114,6 +144,12 @@ def main() -> None:
         total_reward += compute_reward_vector(transition, reward_cfg).mean(axis=0)
         if analyzer is not None:
             analyzer.record(transition)
+        if video_writer is not None:
+            video_writer.append_data(env.render())
+
+    if video_writer is not None:
+        video_writer.close()
+        print(f"saved video to {video_path}")
 
     mean_reward = total_reward / args.steps
     r = ", ".join(f"{n}={v:+.3f}" for n, v in zip(reward_cfg.term_names, mean_reward))
