@@ -89,7 +89,14 @@ class A1SceneCfg(InteractiveSceneCfg):
 
 @configclass
 class ActionsCfg:
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=1.0)
+    # scale=1.0 let a unit action swing a joint target by a full radian off
+    # the default pose every 20ms control step -- violent enough that the
+    # robot collapsed within 1-2 physics steps after every reset regardless
+    # of training progress (confirmed via play.py --video: frame 0 stands
+    # normally, frame ~1 is already flat). Isaac Lab's own reference
+    # velocity locomotion config (velocity_env_cfg.py) uses 0.5 for the same
+    # PD-gain/joint-position-control setup -- matching it here.
+    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5)
 
 
 @configclass
