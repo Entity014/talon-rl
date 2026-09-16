@@ -57,10 +57,16 @@ def test_isaac_lab_env_implements_base_contract():
         # wired into the ObservationManager, not just defined in cfg.
         assert "privileged" in env.observation_manager.active_terms
         assert "payload" in env.observation_manager.active_terms["privileged"]
-        # reset_scene (pre-existing, load-bearing per-episode reset) plus the
-        # 5 new DR terms — a regression here means EventCfg's merge (Ruling 1)
-        # silently dropped one or the other.
-        assert len(env.event_manager.active_terms["reset"]) == 6
+        # reset_scene (pre-existing, load-bearing per-episode reset) plus 4 of
+        # the 5 new DR terms — a regression here means EventCfg's merge
+        # (Ruling 1) silently dropped one or the other. randomize_payload_com
+        # is the 5th DR term but runs at mode="startup" instead (final-review
+        # Finding 1: randomize_rigid_body_com has no default_com buffer to
+        # restore from, so at mode="reset" it random-walks the CoM every
+        # episode instead of resampling a fixed per-env offset), so it shows
+        # up in the "startup" bucket checked below, not this one.
+        assert len(env.event_manager.active_terms["reset"]) == 5
+        assert "randomize_payload_com" in env.event_manager.active_terms["startup"]
 
         obs_cfg = ObservationSpaceCfg()
         action_cfg = ActionSpaceCfg()

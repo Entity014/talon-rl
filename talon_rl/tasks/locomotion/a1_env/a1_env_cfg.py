@@ -165,7 +165,11 @@ class EventCfg:
     )
     randomize_payload_com = EventTerm(
         func=mdp.randomize_rigid_body_com,
-        mode="reset",
+        # startup (not reset): randomize_rigid_body_com has no default_com buffer to
+        # restore from first, so it does coms[...] += rand_samples on the CURRENT
+        # value. At mode="reset" this random-walks the CoM every episode. Sampling
+        # once at spawn still gives every env its own offset without accumulating.
+        mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="trunk"),
             "com_range": {"x": (-0.05, 0.05), "y": (-0.05, 0.05), "z": (-0.02, 0.02)},  # [TBD] placeholder, not tuned
