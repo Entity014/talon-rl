@@ -201,6 +201,18 @@ class EventCfg:
         params={"asset_cfg": SceneEntityCfg("robot"), "scale_range": (0.8, 1.0)},  # [TBD] placeholder, not tuned
     )
 
+    # Dynamic perturbation (not one of the 7 RMA extrinsics -- those are static
+    # properties, this is an external disturbance) so the policy learns to
+    # recover from shoves instead of only ever seeing steady-state contact.
+    # Matches Isaac Lab's own reference velocity locomotion template exactly
+    # (isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py).
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
+    )
+
 
 @configclass
 class RewardsCfg:
