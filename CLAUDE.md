@@ -24,13 +24,14 @@ invariants" shape as this one.)
 ## Rules learned so far
 
 - **`RewardVectorCfg.term_names` is the single source of truth for reward
-  order.** Every place that builds a 5-vector (reward.py, preference.py,
+  order.** Every place that builds the Phase-1 5-vector (reward.py, preference.py,
   moppo.py) indexes by name via this tuple, never a hardcoded position. If
   you add a 6th term, add it to `term_names` + `active` + `_TERM_FUNCS` in
   `reward.py` together — nowhere else needs to change.
-- **$w$ always sums to 1 and never violates the impact floor.** Always
-  produce $w$ through `preference.sample_preference_vector` ->
-  `preference.rate_limit` -> `preference.floor_clip`, in that order. Don't
+- **$w$ always sums to 1 and never violates the impact floor.** Phase-1 MOPPO
+  produces it through `preference.sample_preference_vector` ->
+  `preference.floor_clip` once per episode. A future HLP/manual scheduler
+  additionally applies `preference.rate_limit` before the floor clip. Don't
   construct or mutate a preference vector by hand anywhere else — it's the
   one invariant the Multi-Objective Module depends on.
 - **`BaseTalonEnv.obs_dim` excludes $w$.** The preference vector is appended
@@ -38,9 +39,10 @@ invariants" shape as this one.)
   new env (including the eventual Isaac Lab one) must NOT put $w$ into its
   own `obs` array — it'll get double-appended and silently break the
   policy's input shape.
-- **A `transition` dict must carry every key `reward._TERM_FUNCS` expects**:
-  `v_actual`, `v_command`, `obstacle_dist`, `joint_torque`, `joint_vel`,
-  `foot_contact_force`, `action`, `prev_action`, `joint_acc`, plus `obs`. If
+- **A `transition` dict must carry every active reward input**:
+  `v_actual`, `v_command`, `joint_torque`, `joint_vel`,
+  `foot_contact_force`, `action`, `prev_action`, `joint_acc`, `roll_pitch`,
+  plus `obs`. If
   you write a new env, grep `reward.py` for the exact key names before
   assuming the shape is obvious. (A second reward module now exists for the
   TienKung sibling module, with its own key set — see README's "A separate
@@ -72,3 +74,13 @@ both the dummy env and, when Isaac Sim is installed, the real Isaac Lab env;
 3.12 .venv). A green suite proves the wiring, not correctness of the RL
 algorithm's convergence behavior; there's no oracle to check against until
 there's a real terrain/env to train on.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
