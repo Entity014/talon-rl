@@ -8,9 +8,15 @@ existing reward vector (talon_rl/reward.py) combined with terrain that
 actually offers those choices — not from new reward terms. See
 docs/superpowers/specs/2026-09-15-a1-terrain-curriculum-design.md.
 
-No curriculum progression yet (curriculum=False below) — that, and the
-separate "extreme-terrain held-out" set used in Gate 1 (proposal §3.4),
-are later increments.
+Curriculum enabled (curriculum=True below): each sub-terrain's own
+step_height_range/grid_height_range/pit_depth_range is already an
+(easy, hard) pair, and Isaac Lab's generator scales linearly within that
+range by row (isaaclab/terrains/trimesh/mesh_terrains.py — e.g. pit_terrain's
+`pit_depth = range[0] + difficulty * (range[1] - range[0])`) — row 0 (where
+CurriculumManager's terrain_levels_vel starts every env, mdp/curriculums.py)
+gets each terrain's easy end instead of a full-difficulty random draw. The
+separate "extreme-terrain held-out" set used in Gate 1 (proposal §3.4) is a
+later increment.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ A1_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     vertical_scale=0.005,
     slope_threshold=0.5,
     use_cache=False,
-    curriculum=False,
+    curriculum=True,
     sub_terrains={
         # climbable obstacles
         "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
