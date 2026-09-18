@@ -36,9 +36,31 @@ class RunningMeanStd:
         self.var = m2 / tot_count
         self.count = tot_count
 
-    def normalize(self, x: np.ndarray, clip: float = 10.0) -> np.ndarray:
+    def normalize(self, x: np.ndarray, clip: float = 10.0, center: bool = False) -> np.ndarray:
+        """center=False (default): divide by std only, so a bounded term's
+        0-boundary keeps its meaning -- this is what reward normalization
+        (chapter3.tex Sec 3.2.3, the original use of this class) needs.
+
+        center=True: standard (x-mean)/std. Needed for MOPPOTrainer's
+        extrinsics e_t (2026-09-18 fix) -- several extrinsics channels have
+        a large nonzero mean with no special zero-meaning (e.g. motor
+        stiffness Kp, running mean ~55 to match RMA's own Kp=55), so
+        dividing by std alone left them permanently near +/-`clip` every
+        single step regardless of training progress. That constant
+        near-clip bias fed into EnvFactorEncoder (env_factor_encoder.py,
+        whose final layer has no bounding activation) and came out the
+        other side as an oversized z_t (observed up to ~12 in a physics
+        validation rollout, runs/phase1_longrun5_2026-09-18/validation/),
+        saturating ActorCritic's tanh output on ~86% of joints almost every
+        step -- the actual reason every env fell at nearly the same step
+        (11-13/60), not organic loss-of-balance. A zero-variance channel
+        (this run's leg_length_scale, always exactly 1.0 -- domain
+        randomization for it isn't actually varying) is also naturally
+        fixed by centering: (x-mean)/std collapses to exactly 0 instead of
+        std~=1e-4 blowing x/std up to the clip boundary."""
         std = np.sqrt(self.var + 1e-8)
-        return np.clip(x / std, -clip, clip).astype(np.float32)
+        numerator = (x - self.mean) if center else x
+        return np.clip(numerator / std, -clip, clip).astype(np.float32)
 
     def state_dict(self) -> dict:
         # Plain Python lists/floats, not numpy arrays — torch.load's default
