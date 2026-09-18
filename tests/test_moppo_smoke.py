@@ -83,6 +83,24 @@ def test_rollout_is_persistent_across_update_calls():
     assert t_after == t_before + 5  # advanced by exactly num_steps, not reset to 0
 
 
+def test_preference_is_constant_until_an_episode_resets():
+    """Phase-1 MOPPO follows AMOR: w is sampled once at episode start, not
+    continuously resampled inside an episode."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=3, horizon=1000, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0,
+    )
+
+    w_initial = trainer.w.copy()
+    trainer.update()
+    assert np.allclose(trainer.w, w_initial)
+
+
 def test_save_load_round_trips_model_and_optimizer_state():
     """A checkpoint saved from one trainer must reproduce identical model
     weights (and optimizer state) in a FRESH trainer instance — proves the
@@ -494,3 +512,116 @@ def test_update_backprops_into_encoder_parameters():
     trainer.update()
     after = list(trainer.encoder.parameters())
     assert any(not torch.equal(b, a) for b, a in zip(before, after))
+
+
+class _TruncatingDummyEnv(DummyTalonEnv):
+    """DummyTalonEnv plus a controllable `terminal_fall` that's False even
+    when `done` is True on lane 0's second step — simulates IsaacLabTalonEnv
+    reporting a time-out (episode cut off, more reward was still possible)
+    rather than a real fall (base_contact, no more reward possible)."""
+
+    def step(self, action):
+        transition, done = super().step(action)
+        transition["terminal_fall"] = np.zeros(self.num_envs, dtype=bool)
+        return transition, done
+
+
+class _ActionRecordingDummyEnv(DummyTalonEnv):
+    """DummyTalonEnv plus recording of the exact action array step() received
+    (DummyEnv.step() clips its own copy to [-1, 1] internally, which would
+    hide whether the action passed in was already bounded)."""
+
+    def step(self, action):
+        self.last_action_received = action.copy()
+        return super().step(action)
+
+
+def test_collect_rollout_action_is_bounded_and_matches_what_env_received():
+    """ActorCritic.act() tanh-squashes internally now (see its ACTION_CLIP
+    comment: two hard-clamp variants tried first each broke training a
+    different way), so the action applied to the env and the action stored
+    for training (act_list/logp_list) must be the exact same bounded value
+    -- no separate raw-vs-applied split needed or wanted anymore."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = _ActionRecordingDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=3, epochs_per_update=1),
+        seed=0,
+    )
+    with torch.no_grad():
+        trainer.model.actor_mean.weight.fill_(0.0)
+        trainer.model.actor_mean.bias.fill_(50.0)  # forces the pre-tanh mean far past ACTION_CLIP
+
+    r = trainer._collect_rollout()
+    assert np.all(np.abs(r["actions"]) <= trainer.model.ACTION_CLIP)
+    np.testing.assert_array_equal(env.last_action_received, r["actions"][-1])
+
+
+def test_gae_dones_uses_terminal_fall_not_raw_done():
+    """`done` conflates real termination with time-out truncation
+    (a1_env.py's `terminated | truncated`) — GAE must only zero the value
+    bootstrap on the former, or a full-horizon time-out gets treated
+    identically to a fall and there's no training signal left favoring
+    "survive longer" once episodes approach the horizon (found 2026-09-17
+    diagnosing mean_episode_length regressing across training runs)."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = _TruncatingDummyEnv(obs_cfg, action_cfg, num_envs=4, horizon=3, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        seed=0,
+    )
+    r = trainer._collect_rollout()
+    # horizon=3 means every lane times out (done=True) at t=2 (0-indexed) —
+    # _TruncatingDummyEnv reports terminal_fall=False throughout, so the
+    # collected "dones" (what GAE bootstraps against) must stay all-False
+    # despite done being True at that step.
+    assert not r["dones"].any()
+
+
+def test_penalty_curriculum_ramps_up_each_update_and_survives_checkpoint():
+    """RMA-style penalty curriculum (MOPPOConfig.penalty_curriculum_init) —
+    k starts small and ramps toward 1 via k = k ** growth each update() call,
+    tried 2026-09-17 after phase1_longrun (20000 updates) showed
+    mean_episode_len flat at its ~6-8 floor for the first ~12,000 iterations
+    regardless of raw iteration count. Must actually advance (not stay
+    frozen at init), and must round-trip through save/load like the reward
+    normalizer's stats do -- a resume that resets it back to k_0 would undo
+    whatever ramp progress a long run had already made."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    cfg = MOPPOConfig(num_steps=5, epochs_per_update=1, penalty_curriculum_init=0.03, penalty_curriculum_growth=0.997)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=cfg, seed=0)
+
+    k_before = trainer._penalty_k
+    assert k_before == cfg.penalty_curriculum_init
+    stats = trainer.update()
+    assert stats["penalty_curriculum_k"] == k_before  # this call used the pre-advance value
+    assert trainer._penalty_k == k_before ** cfg.penalty_curriculum_growth
+    assert trainer._penalty_k > k_before  # k in (0, 1) raised to a power < 1 increases it
+
+    for _ in range(10):
+        trainer.update()
+    k_after_many = trainer._penalty_k
+    assert k_after_many > k_before
+    assert 0.0 < k_after_many < 1.0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "ckpt.pt")
+        trainer.save(path)
+        trainer2 = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=cfg, seed=1)
+        trainer2.load(path)
+        assert trainer2._penalty_k == k_after_many

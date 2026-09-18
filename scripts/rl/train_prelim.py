@@ -55,6 +55,8 @@ def _format_iteration_log(
         f"{'Computation:':>{pad}} {timesteps_per_iter / max(iter_time, 1e-9):.0f} steps/s (iteration {iter_time:.3f}s)",
         f"{'Mean policy loss:':>{pad}} {stats['policy_loss']:.4f}",
         f"{'Mean value loss:':>{pad}} {stats['value_loss']:.4f}",
+        f"{'Mean entropy:':>{pad}} {stats['entropy']:.4f}",
+        f"{'Penalty curriculum k:':>{pad}} {stats['penalty_curriculum_k']:.4f}",
         f"{'Mean episode length:':>{pad}} {stats['mean_episode_len']:.2f}",
         "",
     ]
@@ -76,6 +78,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
     parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
+    parser.add_argument(
+        "--no_encoder", action="store_true",
+        help="Train a deployable actor without the privileged Isaac Lab Env Factor Encoder; required by sim2sim until a student encoder exists.",
+    )
+    parser.add_argument(
+        "--torch_compile", action="store_true",
+        help="Compile the CUDA actor-critic with torch.compile to reduce Python/kernel overhead.",
+    )
+    parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
+    parser.add_argument("--stand_phase_s", type=float, default=2.0, help="Seconds of zero velocity command before locomotion commands are enabled.")
     parser.add_argument("--num_policy_stacks", type=int, default=1, help="History frames the actor sees (Flamingo-style stacking, see obs_stack.py).")
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="History frames the critic sees — can differ from --num_policy_stacks.")
     parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes (ignored if --logs_root is set).")
@@ -129,8 +141,11 @@ def main() -> None:
     reward_cfg = RewardVectorCfg()
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
-    moppo_cfg = MOPPOConfig()
-    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" else None
+    moppo_cfg = MOPPOConfig(
+        device="cuda" if args.env == "isaac_lab" else "cpu",
+        torch_compile=args.torch_compile,
+    )
+    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" and not args.no_encoder else None
 
     run_dir = None
     log_dir = args.log_dir
@@ -153,10 +168,10 @@ def main() -> None:
             "| term | formula | inputs |\n"
             "|---|---|---|\n"
             "| progress | exp(-\\|\\|v_actual - v_command\\|\\|^2 / progress_std^2) | v_actual, v_command: (v_x, v_y, omega_z) |\n"
-            "| clearance | clip(obstacle_dist / safe_dist, 0, 1) | scripted placeholder until the Exteroception Module exists |\n"
             "| energy | -sum\\|joint_torque * joint_vel\\| | negated raw mechanical power |\n"
             "| impact | -max(0, peak_foot_contact_force - threshold) / threshold | only force above threshold is penalized |\n"
-            "| smoothness | -(sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | fixed-weight regularizer, not part of preference vector w |\n",
+            "| smoothness | -(sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | action-rate and acceleration penalty |\n"
+            "| balance | -sum(roll_pitch^2) | dense anti-fall orientation penalty |\n",
             0,
         )
 
@@ -174,6 +189,9 @@ def main() -> None:
 
         cfg = IsaacLabTalonEnvCfg()
         cfg.scene.num_envs = args.num_envs
+        cfg.action_scale = args.action_scale
+        cfg.stand_phase_s = args.stand_phase_s
+        cfg.actions.joint_pos.scale = args.action_scale
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 
     trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, stack_cfg=stack_cfg, extrinsics_cfg=extrinsics_cfg, seed=args.seed)
@@ -185,6 +203,18 @@ def main() -> None:
     print(f"reward terms: {reward_cfg.term_names}")
     timesteps_per_iter = moppo_cfg.num_steps * env.num_envs
     start_time = time.time()
+    # Best-so-far checkpoint, by mean_episode_len — found 2026-09-17
+    # (phase1_longrun, 20000 updates): the run briefly reached
+    # mean_episode_len=70.45 around iteration 14501, then collapsed back to
+    # its ~6-8 floor for the remaining 5500 iterations and never recovered.
+    # save_path only ever gets overwritten with the LATEST weights, so that
+    # brief good policy was unrecoverably lost once training continued past
+    # it -- there was no separate "best" file to fall back to.
+    best_episode_len = float("-inf")
+    best_path = None
+    if save_path:
+        root, ext = os.path.splitext(save_path)
+        best_path = f"{root}_best{ext}"
     for i in range(1, args.updates + 1):
         iter_start = time.time()
         stats = trainer.update()
@@ -203,6 +233,8 @@ def main() -> None:
             # since our reward is a vector (theirs is a pre-summed scalar).
             writer.add_scalar("Loss/policy", stats["policy_loss"], i)
             writer.add_scalar("Loss/value", stats["value_loss"], i)
+            writer.add_scalar("Loss/entropy", stats["entropy"], i)
+            writer.add_scalar("Train/penalty_curriculum_k", stats["penalty_curriculum_k"], i)
             writer.add_scalar("Train/mean_episode_length", stats["mean_episode_len"], i)
             for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
                 writer.add_scalar(f"Reward/{name}", value, i)
@@ -210,6 +242,11 @@ def main() -> None:
         if save_path and args.save_every and i % args.save_every == 0:
             trainer.save(save_path)
             print(f"checkpoint saved to {save_path} (update {i})")
+
+        if best_path and stats["mean_episode_len"] > best_episode_len:
+            best_episode_len = stats["mean_episode_len"]
+            trainer.save(best_path)
+            print(f"new best mean_episode_len={best_episode_len:.2f} — saved to {best_path} (update {i})")
 
     if writer is not None:
         writer.close()
