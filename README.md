@@ -31,8 +31,9 @@ invariants this code depends on before you change anything.
 
 - Multi-Objective Module: MOPPO, Dirichlet-sampled preference vector $w$,
   rate-limiter + floor-clip, vector critic $V(s,c,w)$ (table in §3.2.3)
-- All 5 reward-vector terms from table 3.3: Progress, Clearance, Energy,
-  Impact, Smoothness
+- Five Phase-1 preference-conditioned objectives: Progress, Energy, Impact,
+  Smoothness, and Balance. Clearance returns only when the Exteroception
+  Module supplies a meaningful obstacle signal.
 
 **Out of scope (separate milestones, after the proposal defense):**
 
@@ -47,16 +48,6 @@ invariants this code depends on before you change anything.
 
 - No OOD monitor gating $w$ (depends on $\sigma_t$ from the Adaptation Module,
   which is out of scope).
-- **Terminal-step reward/action mispairing under auto-reset.** For a lane
-  that terminates on a given step, the reward vector for that step is
-  computed from the *next* episode's first frame (reset()'s fresh values —
-  e.g. zeroed `action`/`prev_action`, a freshly-randomized `obstacle_dist`),
-  not from the actual terminal frame/action that caused the termination.
-  This is consistent across both envs (so `--env dummy`/`--env isaac_lab`
-  stay a true drop-in swap) and gives roughly 1-in-`horizon` steps slightly
-  wrong credit assignment. Deliberately out of scope for this prelim — see
-  [`talon_rl/envs/base_env.py`](talon_rl/envs/base_env.py) for the exact
-  mechanism.
 
 ## A separate module: TienKung bimanual box-carry (not part of this thesis)
 
@@ -115,7 +106,7 @@ scripts/
         moppo.py            # MOPPOConfig + MOPPOTrainer — preference-conditioned PPO
                             # (vector critic, D3PO's Late-Stage Weighting — see losses.py);
                             # rollout collection stays here rather than a shared runner
-                            # since the per-step preference-vector resampling is
+                            # since the per-episode preference-vector sampling is
                             # MOPPO-specific, not generic
       losses.py               # D3PO's per-objective clip + diversity regularizer (arXiv:2602.07764)
       modules/
@@ -138,7 +129,7 @@ scripts/
 ```text
 talon_rl/tasks/manipulation/tienkung_env/  # separate module, see the section above — not part of this thesis
   config.py             # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg for this task
-  reward.py             # 5-term reward vector, retargeted from talon_rl/reward.py's shape
+  reward.py             # its own 5-term reward vector, retargeted for box carry
   dummy_env.py           # physics-free smoke-test env, mirrors scripts/rl/core/dummy_env.py's structure
 talon_rl/assets/tienkung2_lite/  # vendored TienKung2 Lite asset, mirrors assets/unitree_a1/'s pattern
 ```
@@ -159,7 +150,7 @@ include everywhere.)
 
 ```bash
 source ~/isaac-lab-env/bin/activate
-python scripts/rl/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
+PYTHONPATH=.:scripts python scripts/rl/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
 ```
 
 Proves the pipeline runs against a real, vectorized Isaac Lab environment
