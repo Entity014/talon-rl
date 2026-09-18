@@ -26,15 +26,20 @@ from ..modules.actor_critic import ActorCritic
 
 class _PolicyExportWrapper(nn.Module):
     """Actor-only forward, deterministic (ActorCritic.act_inference) — no
-    critic, no sampling. This is the scriptable unit that gets saved."""
+    critic, no sampling. This is the scriptable unit that gets saved.
+
+    Delegates to model.act_inference() rather than reimplementing the actor
+    forward pass — found 2026-09-17: it used to call
+    `actor_mean(actor_body(x))` directly, silently bypassing act_inference's
+    tanh-squash bound (added the same day). Any future change to
+    act_inference would have gone stale here the same way."""
 
     def __init__(self, model: ActorCritic):
         super().__init__()
-        self.actor_body = model.actor_body
-        self.actor_mean = model.actor_mean
+        self.model = model
 
     def forward(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
-        return self.actor_mean(self.actor_body(actor_obs_w))
+        return self.model.act_inference(actor_obs_w)
 
 
 def export_policy_as_jit(model: ActorCritic, path: str) -> None:
