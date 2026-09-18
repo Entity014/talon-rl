@@ -6,7 +6,7 @@ cartpole_env_cfg.py and jaykorea's velocity_env_cfg.py, both verified
 2026-09-14 against the real installed isaaclab 0.48.0).
 
 RewardsCfg is deliberately empty — see a1_env.py's step() override and the
-design doc's Decision 2: this repo needs an unsummed 5-term reward vector,
+design doc's Decision 2: this repo needs an unsummed five-objective Phase-1 reward vector,
 which RewardManager's scalar-sum contract can't produce, so reward
 computation happens directly in step() via
 talon_rl.reward.compute_reward_vector() instead of through this manager.
@@ -65,7 +65,15 @@ class A1SceneCfg(InteractiveSceneCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=A1_ROUGH_TERRAINS_CFG,
-        max_init_terrain_level=5,
+        # Start every env at the easiest row (0) instead of randint(0,5) —
+        # mean_episode_length plateaued at ~13/200 steps within the first 100
+        # PPO updates and never moved across 2000 (phase1_postfix_2026-09-17),
+        # matching the zero-action probe showing low-origin-z (easy) cells
+        # holding the full 200 steps while high-difficulty cells fell in
+        # 15-100. The policy never saw an easy episode to bootstrap balance
+        # from. terrain_levels_vel (mdp/curriculums.py) still promotes envs
+        # upward as they succeed.
+        max_init_terrain_level=0,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -96,19 +104,38 @@ class ActionsCfg:
     # normally, frame ~1 is already flat). Isaac Lab's own reference
     # velocity locomotion config (velocity_env_cfg.py) uses 0.5 for the same
     # PD-gain/joint-position-control setup -- matching it here.
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5)
+    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.15)
 
 
 @configclass
 class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
-        joint_pos = ObsTerm(func=mdp.joint_pos)
-        joint_vel = ObsTerm(func=mdp.joint_vel)
-        roll_pitch = ObsTerm(func=mdp.roll_pitch)
-        foot_contact = ObsTerm(func=mdp.foot_contact_binary)
-        last_action = ObsTerm(func=mdp.last_action)
-        v_command = ObsTerm(func=mdp.v_command)
+        # No observation had a `scale` here at all before 2026-09-17 -- raw
+        # joint_vel (A1's actuator velocity_limit=21.0 rad/s, a1.py) sat two
+        # orders of magnitude above roll_pitch or v_command, all fed straight
+        # into a plain Linear+ELU MLP with no input normalization layer.
+        # Scaled by known physical bounds (Isaac Lab's ObsTerm.scale, same
+        # mechanism its own reference locomotion configs use for this exact
+        # reason) rather than a running normalizer: these ranges are fixed
+        # hardware limits, not something that drifts with training the way
+        # reward scale does (which is why RunningMeanStd exists for rewards,
+        # not observations).
+        joint_pos = ObsTerm(func=mdp.joint_pos, scale=1.0 / 3.1416)  # absolute joint angle, no natural bound tighter than +/-pi
+        joint_vel = ObsTerm(func=mdp.joint_vel, scale=1.0 / 21.0)  # A1 actuator velocity_limit, a1.py
+        roll_pitch = ObsTerm(func=mdp.roll_pitch, scale=1.0 / 3.1416)  # radians, can swing to +/-pi mid-fall
+        foot_contact = ObsTerm(func=mdp.foot_contact_binary)  # already {0, 1}
+        last_action = ObsTerm(func=mdp.last_action, scale=1.0 / 3.0)  # must match ActorCritic.ACTION_CLIP
+        v_command = ObsTerm(func=mdp.v_command)  # already O(1): vx in [-0.3, 1.0], vy/omega_z in [-0.5, 0.5]
+        # Added 2026-09-18 (see ObservationSpaceCfg.base_ang_vel_dim's
+        # comment): no signal anywhere for how fast the trunk itself is
+        # rotating, only static roll_pitch and individual joint_vel. Isaac
+        # Lab builtins (already reachable via `from isaaclab.envs.mdp import
+        # *` in mdp/__init__.py), scale=0.25 matches jaykorea/Isaac-RL-Two-
+        # wheel-Legged-Bot's wolf_env (the reference this repo's rollout
+        # convention already cites).
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.25)
+        projected_gravity = ObsTerm(func=mdp.projected_gravity)  # already a unit vector, no scale needed
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -265,8 +292,15 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
     terminations: TerminationsCfg = TerminationsCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
     extrinsics_cfg: ExtrinsicsCfg = field(default_factory=ExtrinsicsCfg)
+    action_scale: float = 0.15
+    stand_phase_s: float = 2.0
 
     def __post_init__(self) -> None:
+        if self.action_scale <= 0.0:
+            raise ValueError("action_scale must be positive")
+        if self.stand_phase_s < 0.0:
+            raise ValueError("stand_phase_s must be non-negative")
+        self.actions.joint_pos.scale = self.action_scale
         # .replace() with no actual changes, not a direct assignment: TALON_A1_CFG
         # is a shared module-level object, and every IsaacLabTalonEnvCfg()
         # instance (e.g. Task 6's own structural test constructs more than

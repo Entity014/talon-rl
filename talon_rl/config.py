@@ -30,6 +30,26 @@ class ObservationSpaceCfg:
     prev_action_dim: int = 12  # a_{t-1}, feedback
     command_dim: int = 3  # v_x, v_y, omega_z target
     preference_dim: int = 5  # w — one weight per reward-vector term (table 3.3)
+    # Added 2026-09-18: neither RMA's own x_t nor this repo previously
+    # observed trunk angular velocity at all, only the individual joints'
+    # (joint_vel) and a static roll_pitch snapshot -- no signal anywhere for
+    # how fast the trunk itself is rotating, i.e. how fast it's falling.
+    # Confirmed missing by diffing against jaykorea/Isaac-RL-Two-wheel-
+    # Legged-Bot (the reference repo moppo.py's docstring already cites for
+    # its rollout-collection convention), whose own quadruped env
+    # (wolf_env/velocity_env_cfg.py) observes both base_ang_vel and
+    # projected_gravity as standard practice. root_ang_vel_b was already
+    # read elsewhere in this codebase (reward.py's v_actual, for the yaw-
+    # rate term) but never exposed to the policy's own observation.
+    base_ang_vel_dim: int = 3  # root_ang_vel_b (IMU gyro rate) — how fast the trunk itself is rotating
+    # projected_gravity_b: gravity direction in the body frame, a unit
+    # vector — standard alternative/complement to roll_pitch in legged-gym-
+    # style observations, bounded and singularity-free unlike raw Euler
+    # angles (roll_pitch already stays, not redundant: projected_gravity
+    # collapses yaw information roll_pitch's atan2/asin form doesn't have
+    # anyway, but the two together are the common convention, not either
+    # alone).
+    projected_gravity_dim: int = 3
 
     @property
     def total_dim(self) -> int:
@@ -41,6 +61,8 @@ class ObservationSpaceCfg:
             + self.prev_action_dim
             + self.command_dim
             + self.preference_dim
+            + self.base_ang_vel_dim
+            + self.projected_gravity_dim
         )
 
 
@@ -53,20 +75,44 @@ class ActionSpaceCfg:
 
 @dataclass(frozen=True)
 class RewardVectorCfg:
-    """Table 3.3 term names, in the fixed order used everywhere in this repo.
+    """Phase-1 reward objectives, in the fixed order used everywhere.
 
     `active` controls which terms are actually summed in `reward.compute_reward_vector`
     — kept here (not hardcoded) so a future full-scope run can add terms without
     touching the MOPPO/preference code.
+
+    Clearance is deliberately not present in Phase 1: until exteroception
+    produces a meaningful obstacle signal, sampling a preference weight for a
+    zero-valued objective would create policy contexts with no learning signal.
+    Add it back as a sixth objective only together with that signal.
     """
 
-    term_names: tuple[str, ...] = ("progress", "clearance", "energy", "impact", "smoothness")
+    term_names: tuple[str, ...] = ("progress", "energy", "impact", "smoothness", "balance")
     active: tuple[bool, ...] = field(default_factory=lambda: (True, True, True, True, True))
 
     # Reward-shaping constants (rough starting points, not tuned — expect to
     # retune once running on the real terrain curriculum, not the dummy env).
     progress_std: float = 0.5  # exp-kernel std for velocity tracking
     impact_floor_eps: float = 0.05  # w_impact >= eps, per chapter3.tex §3.2.3
+    balance_floor_eps: float = 0.15  # keep anti-fall learning signal present during every preference episode
+    # 5.0 (was) is dwarfed by what surviving would have earned: progress_reward
+    # alone averages ~0.75/step across every run so far regardless of episode
+    # length, so gamma=0.99 discounted over the ~200-step horizon is worth
+    # ballpark 0.75*(1-0.99**200)/(1-0.99) =~ 65 in foregone reward -- a fall
+    # at step 13 barely dents that. Bumped 5x as a first experiment (not
+    # re-tuned/validated) after mean_episode_length peaked at iter ~15-20 then
+    # regressed back to its ~13-step floor over the rest of training in three
+    # consecutive runs (2026-09-17) despite curriculum/easy-start fixes ruling
+    # out terrain difficulty as the cause.
+    fall_penalty: float = 25.0  # terminal balance penalty for non-timeout falls
+    # Flat reward for every step not yet fallen, added to balance_reward —
+    # AMOR's constant survival bonus c_alive / classic Gym alive_bonus. 0.3
+    # is deliberately modest relative to the roll_pitch^2 penalty it's added
+    # to (steady-state balance reward sits around -0.3 to -0.5 across every
+    # run so far) so upright-but-imperfect posture is still distinguishable
+    # from truly-upright, not swamped into "any pose is fine as long as
+    # you're alive." Untuned starting point, not swept.
+    alive_bonus: float = 0.3
 
     @property
     def dim(self) -> int:
@@ -75,7 +121,12 @@ class RewardVectorCfg:
 
 @dataclass(frozen=True)
 class PreferenceCfg:
-    """Dirichlet sampling + rate-limiting for the preference vector w (chapter3.tex fig 3.3)."""
+    """Preference settings for Phase 1 and the later HLP deployment stage.
+
+    Phase-1 MOPPO samples one Dirichlet vector at each episode reset and holds
+    it fixed for that episode, matching AMOR. `max_delta_per_step` is reserved
+    for a future HLP/manual scheduler that changes w while the robot runs.
+    """
 
     dirichlet_alpha: float = 1.0
     max_delta_per_step: float = 0.05  # rate-limiter cap on ||w_t - w_{t-1}||
