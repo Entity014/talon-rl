@@ -44,6 +44,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
     parser.add_argument("--num_envs", type=int, default=4)
+    parser.add_argument(
+        "--no_encoder", action="store_true",
+        help="Load a checkpoint whose actor does not use the privileged Env Factor Encoder; required for sim2sim export.",
+    )
     parser.add_argument("--num_policy_stacks", type=int, default=1, help="Must match the value used when the checkpoint was trained.")
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="Must match the value used when the checkpoint was trained.")
     parser.add_argument("--export", type=str, default=None, help="Export the loaded policy as TorchScript to this path.")
@@ -106,7 +110,7 @@ def main() -> None:
     # trained with an encoder has an actor/critic sized for z_t and an "encoder"
     # key in its state dict -- building the trainer without extrinsics_cfg here
     # would load_state_dict() into a wrongly-shaped model.
-    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" else None
+    extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" and not args.no_encoder else None
     trainer = MOPPOTrainer(
         env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), stack_cfg=stack_cfg,
         extrinsics_cfg=extrinsics_cfg, seed=args.seed,

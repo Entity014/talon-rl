@@ -19,6 +19,7 @@ import mujoco
 import numpy as np
 import torch
 
+from talon_rl.config import RewardVectorCfg
 from rl.core.sim2sim import rollout
 
 _DEFAULT_A1_MUJOCO_XML = "talon_rl/assets/data/Robots/unitree_a1/mujoco/scene.xml"
@@ -30,9 +31,11 @@ def main() -> None:
     parser.add_argument("--mujoco_xml", type=str, default=_DEFAULT_A1_MUJOCO_XML)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--command", type=float, nargs=3, default=[0.5, 0.0, 0.0], help="v_x v_y omega_z")
+    reward_cfg = RewardVectorCfg()
     parser.add_argument(
-        "--preference", type=float, nargs=5, default=[0.2, 0.2, 0.2, 0.2, 0.2],
-        help="w for (progress, clearance, energy, impact, smoothness) — must sum to 1.",
+        "--preference", type=float, nargs=reward_cfg.dim,
+        default=[1.0 / reward_cfg.dim] * reward_cfg.dim,
+        help=f"w for {reward_cfg.term_names} — must sum to 1.",
     )
     args = parser.parse_args()
 

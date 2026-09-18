@@ -7,7 +7,7 @@ import torch
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, RewardVectorCfg
 
 from rl.core.modules import ActorCritic
-from rl.core.sim2sim import build_a1_actor_obs, get_a1_foot_contacts, quat_to_roll_pitch, rollout
+from rl.core.sim2sim import build_a1_actor_obs, get_a1_foot_contacts, quat_rotate_inverse_wxyz, quat_to_roll_pitch, rollout
 from rl.core.wrapper import export_policy_as_jit
 
 A1_SCENE_XML = "talon_rl/assets/data/Robots/unitree_a1/mujoco/scene.xml"
@@ -26,6 +26,23 @@ def test_quat_to_roll_pitch_90deg_roll():
     roll, pitch = quat_to_roll_pitch(quat)
     assert math.isclose(roll, math.pi / 2, abs_tol=1e-5)
     assert math.isclose(pitch, 0.0, abs_tol=1e-5)
+
+
+def test_quat_rotate_inverse_identity_quaternion_leaves_vector_unchanged():
+    world_gravity = np.array([0.0, 0.0, -1.0])
+    body_gravity = quat_rotate_inverse_wxyz(np.array([1.0, 0.0, 0.0, 0.0]), world_gravity)
+    assert np.allclose(body_gravity, world_gravity, atol=1e-6)
+
+
+def test_quat_rotate_inverse_90deg_roll_rotates_gravity_into_y():
+    """Matches test_quat_to_roll_pitch_90deg_roll's same quaternion — after a
+    90deg roll (rotation about x), a robot lying on its side should see
+    world-down gravity appear along its body y-axis, not z, in
+    projected_gravity_b (added 2026-09-18, see ObservationSpaceCfg)."""
+    half = math.pi / 4
+    quat = np.array([math.cos(half), math.sin(half), 0.0, 0.0])
+    body_gravity = quat_rotate_inverse_wxyz(quat, np.array([0.0, 0.0, -1.0]))
+    assert np.allclose(body_gravity, [0.0, -1.0, 0.0], atol=1e-5)
 
 
 def test_get_a1_foot_contacts_all_zero_when_standing_in_air():
@@ -51,7 +68,7 @@ def test_build_a1_actor_obs_matches_observation_space_total_dim():
     obs_cfg = ObservationSpaceCfg()
     prev_action = np.zeros(12, dtype=np.float32)
     command = np.array([0.5, 0.0, 0.0], dtype=np.float32)
-    preference = np.full(5, 0.2, dtype=np.float32)
+    preference = np.full(obs_cfg.preference_dim, 1.0 / obs_cfg.preference_dim, dtype=np.float32)
 
     obs = build_a1_actor_obs(model, data, prev_action, command, preference)
 
@@ -85,7 +102,7 @@ def test_rollout_runs_without_crashing_or_nans(tmp_path):
     stats = rollout(
         policy, mj_model, mj_data, steps=20,
         command=np.array([0.5, 0.0, 0.0], dtype=np.float32),
-        preference=np.full(5, 0.2, dtype=np.float32),
+        preference=np.full(obs_cfg.preference_dim, 1.0 / obs_cfg.preference_dim, dtype=np.float32),
     )
 
     assert stats["all_finite"]

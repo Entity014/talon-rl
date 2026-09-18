@@ -57,6 +57,22 @@ def test_lanes_auto_reset_independently():
     assert len(v_commands_seen) > 5
 
 
+def test_terminal_reward_uses_pre_reset_action_fields():
+    """SAME_STEP autoreset must not give the terminal action a fresh reset
+    reward (where action/prev_action are zero again)."""
+    env, _, action_cfg = _make_env(num_envs=1, horizon=1, seed=0)
+    env.reset()
+    action = np.full((1, action_cfg.dim), 0.5, dtype=np.float32)
+
+    transition, done = env.step(action)
+
+    assert done[0]
+    assert "reward_transition" in transition
+    assert np.allclose(transition["action"], 0.0)  # post-reset policy state
+    assert np.allclose(transition["reward_transition"]["action"], action)
+    assert np.any(transition["reward_transition"]["joint_acc"] != 0.0)
+
+
 def test_smoothness_uses_correct_prev_action_ordering():
     """joint_acc = (action - prev_action) / dt must use the PREVIOUS step's
     action, not this step's — regression test for the prev_action snapshot

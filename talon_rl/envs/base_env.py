@@ -4,31 +4,21 @@ Both DummyTalonEnv and IsaacLabTalonEnv (constructed via
 gym.make("Isaac-Talon-A1-v0")) satisfy this directly, no wrapper.
 reset()/step() return every transition value with a leading
 (num_envs, ...) axis; step()'s `done` array marks which lanes just
-auto-reset internally — that lane's "obs" row (and every other field) is
-already the fresh post-reset value, not the terminal one, matching gym
-VectorEnv / Isaac Lab ManagerBasedRLEnv auto-reset semantics.
+auto-reset internally. Its "obs" row is therefore the fresh post-reset
+observation, ready for the next action. When a transition ends an episode,
+the optional `reward_transition` entry holds the same reward inputs from the
+terminal frame; it is used only to assign the action's reward correctly.
 
 A transition dict must carry every key the task's own reward.py's
 _TERM_FUNCS expects (e.g. talon_rl.reward for the A1,
 talon_rl.tasks.manipulation.tienkung_env.reward for TienKung). For the A1's
-own reward.py that's (v_actual, v_command, obstacle_dist, joint_torque, joint_vel,
-foot_contact_force, action, prev_action, joint_acc), plus "obs" — see
+own reward.py that's (v_actual, v_command, joint_torque, joint_vel,
+foot_contact_force, action, prev_action, joint_acc, roll_pitch), plus "obs" — see
 reward.py for the exact shapes each key needs.
 
-Known limitation — terminal-step reward/action mispairing under auto-reset:
-because done[i]==True means lane i's fields are ALREADY the fresh
-post-reset values (not the terminal frame that actually caused
-termination), the reward vector computed from that step's transition dict
-is computed from the NEXT episode's first frame, not from the action that
-was actually taken to cause the termination — e.g. "action"/"prev_action"
-come back as zeros and "obstacle_dist" is the new episode's fresh
-randomized draw, instead of whatever the terminal frame actually was.
-Concretely: reset()'s fields, not the terminal frame's, get used for that
-step's reward. This happens consistently in both DummyTalonEnv and
-IsaacLabTalonEnv (so `--env dummy` -> `--env isaac_lab` stays a true
-drop-in swap), and is a known, deliberately-out-of-scope-for-this-prelim
-limitation — roughly 1-in-`horizon` steps gets slightly wrong credit
-assignment. Not fixed here; see README's Known gaps.
+`reward_transition` has all normal transition fields and the same batch
+shape. For non-terminal lanes it equals the normal transition; for a
+terminal lane, only reward inputs are replaced with their pre-reset values.
 """
 
 from __future__ import annotations

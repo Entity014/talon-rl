@@ -58,6 +58,9 @@ def randomize_velocity_command(
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
     n = len(env_ids)
+    if getattr(env.cfg, "stand_phase_s", 0.0) > 0.0 and env.common_step_counter * env.step_dt < env.cfg.stand_phase_s:
+        env.v_command_buf[env_ids] = 0.0
+        return
     vx = math_utils.sample_uniform(*lin_vel_x_range, (n,), device=env.device)
     vy = math_utils.sample_uniform(*lin_vel_y_range, (n,), device=env.device)
     wz = math_utils.sample_uniform(*ang_vel_z_range, (n,), device=env.device)

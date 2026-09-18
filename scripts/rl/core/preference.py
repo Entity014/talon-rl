@@ -50,3 +50,31 @@ def floor_clip(
     w[:, others] -= reduction
 
     return (w / w.sum(axis=-1, keepdims=True)).astype(np.float32)
+
+
+def floor_clip_terms(
+    w: np.ndarray, term_names: tuple[str, ...], floors: dict[str, float]
+) -> np.ndarray:
+    """Enforce several non-zero preference floors and renormalize once.
+
+    Balance is safety-critical for locomotion, so it needs the same invariant
+    treatment as impact instead of disappearing in a random Dirichlet episode.
+    """
+    w = w.copy()
+    indices = {name: term_names.index(name) for name in floors}
+    floor_values = np.array([floors[name] for name in floors], dtype=np.float32)
+    if np.any(floor_values < 0) or floor_values.sum() >= 1:
+        raise ValueError("preference floors must be non-negative and sum to less than 1")
+    for name, index in indices.items():
+        w[:, index] = np.maximum(w[:, index], floors[name])
+
+    required = floor_values.sum(axis=0)
+    total = w.sum(axis=-1, keepdims=True)
+    excess = np.maximum(total - 1.0, 0.0)
+    adjustable = np.ones(w.shape[1], dtype=bool)
+    adjustable[list(indices.values())] = False
+    adjustable_values = w[:, adjustable]
+    adjustable_sum = adjustable_values.sum(axis=-1, keepdims=True)
+    reduction = excess * adjustable_values / np.maximum(adjustable_sum, 1e-8)
+    w[:, adjustable] = adjustable_values - reduction
+    return (w / w.sum(axis=-1, keepdims=True)).astype(np.float32)

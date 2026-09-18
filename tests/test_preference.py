@@ -1,7 +1,7 @@
 import numpy as np
 
 from talon_rl.config import PreferenceCfg, RewardVectorCfg
-from rl.core.preference import floor_clip, rate_limit, sample_preference_vector
+from rl.core.preference import floor_clip, floor_clip_terms, rate_limit, sample_preference_vector
 
 
 def test_sample_preference_vector_sums_to_one_and_matches_shape():
@@ -48,3 +48,14 @@ def test_floor_clip_enforces_minimum_and_renormalizes():
     assert np.all(w_clipped[:, idx] >= 0.05 - 1e-6)
     assert np.allclose(w_clipped.sum(axis=-1), 1.0, atol=1e-5)
     assert np.allclose(w_clipped[1], w[1], atol=1e-5)  # row already above floor: no-op
+
+
+def test_floor_clip_terms_keeps_balance_signal_present():
+    names = ("progress", "energy", "impact", "smoothness", "balance")
+    w = np.array([[0.98, 0.01, 0.0, 0.01, 0.0]], dtype=np.float32)
+
+    clipped = floor_clip_terms(w, names, {"impact": 0.05, "balance": 0.15})
+
+    assert clipped[0, names.index("impact")] >= 0.05 - 1e-6
+    assert clipped[0, names.index("balance")] >= 0.15 - 1e-6
+    assert np.allclose(clipped.sum(axis=-1), 1.0, atol=1e-5)

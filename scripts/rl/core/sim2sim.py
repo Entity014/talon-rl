@@ -48,6 +48,20 @@ def quat_to_roll_pitch(quat_wxyz: np.ndarray) -> tuple[float, float]:
     return float(roll), float(pitch)
 
 
+def quat_rotate_inverse_wxyz(quat_wxyz: np.ndarray, vec_world: np.ndarray) -> np.ndarray:
+    """Rotates a world-frame vector into the body frame given the body's
+    world-orientation quaternion (MuJoCo [w, x, y, z] convention) — the
+    standard Isaac Gym/Lab `quat_rotate_inverse` formula, used here to build
+    projected_gravity_b (added 2026-09-18, see ObservationSpaceCfg) from
+    MuJoCo state the same way isaaclab.envs.mdp.projected_gravity derives it
+    from Isaac Lab's own root orientation."""
+    w, q_vec = float(quat_wxyz[0]), quat_wxyz[1:4].astype(np.float64)
+    a = vec_world * (2.0 * w**2 - 1.0)
+    b = np.cross(q_vec, vec_world) * w * 2.0
+    c = q_vec * (q_vec @ vec_world) * 2.0
+    return (a - b + c).astype(np.float32)
+
+
 def get_a1_foot_contacts(model, data) -> np.ndarray:
     """Binarized (4,) contact flag per leg, order (FR, FL, RR, RL) — matches
     the actuator order in a1.xml. See module docstring's foot-contact
@@ -72,18 +86,29 @@ def mj_id(model, body_name: str) -> int:
 def build_a1_actor_obs(
     model, data, prev_action: np.ndarray, command: np.ndarray, preference: np.ndarray
 ) -> np.ndarray:
-    """Builds the (50,) actor_obs_w vector — ObservationSpaceCfg's field
+    """Builds the (56,) actor_obs_w vector — ObservationSpaceCfg's field
     order (joint_pos, joint_vel, roll_pitch, foot_contact, prev_action,
-    command), then the preference vector appended, exactly matching
-    MOPPOTrainer._collect_rollout's `np.concatenate([stack.policy_obs, w])`
-    composition with num_policy_stacks=1 (see module docstring)."""
+    command, base_ang_vel, projected_gravity), then the preference vector
+    appended, exactly matching MOPPOTrainer._collect_rollout's
+    `np.concatenate([stack.policy_obs, w])` composition with
+    num_policy_stacks=1 (see module docstring)."""
     joint_pos = data.qpos[7:19].astype(np.float32)  # skip the 7-dim free joint (pos+quat)
     joint_vel = data.qvel[6:18].astype(np.float32)  # skip the 6-dim free joint (linvel+angvel)
-    roll, pitch = quat_to_roll_pitch(data.qpos[3:7])
+    quat_wxyz = data.qpos[3:7]
+    roll, pitch = quat_to_roll_pitch(quat_wxyz)
     roll_pitch = np.array([roll, pitch], dtype=np.float32)
     foot_contact = get_a1_foot_contacts(model, data)
+    # Free joint's qvel[3:6] is angular velocity already in the body frame
+    # under MuJoCo's convention (unlike qvel[0:3], the linear velocity,
+    # which is world-frame) -- matches Isaac Lab's root_ang_vel_b directly,
+    # no rotation needed.
+    base_ang_vel = data.qvel[3:6].astype(np.float32)
+    projected_gravity = quat_rotate_inverse_wxyz(quat_wxyz, np.array([0.0, 0.0, -1.0]))
 
-    obs = np.concatenate([joint_pos, joint_vel, roll_pitch, foot_contact, prev_action, command])
+    obs = np.concatenate([
+        joint_pos, joint_vel, roll_pitch, foot_contact, prev_action, command,
+        base_ang_vel, projected_gravity,
+    ])
     return np.concatenate([obs, preference]).astype(np.float32)
 
 

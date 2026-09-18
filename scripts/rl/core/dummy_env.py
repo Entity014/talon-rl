@@ -71,6 +71,23 @@ class DummyEnv(gym.Env):
         obs = self._compute_transition(action)
         self.prev_action = action  # advance AFTER _compute_transition reads the old value
 
+        # SyncVectorEnv's SAME_STEP autoreset invokes reset() immediately
+        # after this method returns. Preserve the reward inputs now, before
+        # that reset overwrites them, so PPO attributes a terminal reward to
+        # the action that actually produced it.
+        self.terminal_reward_transition = {
+            "v_actual": self.v_actual.copy(),
+            "v_command": self.v_command_out.copy(),
+            "roll_pitch": self.roll_pitch.copy(),
+            "obstacle_dist": np.float32(self.obstacle_dist),
+            "joint_torque": self.joint_torque.copy(),
+            "joint_vel": self.joint_vel.copy(),
+            "joint_acc": self.joint_acc.copy(),
+            "foot_contact_force": self.foot_contact_force.copy(),
+            "action": self.action.copy(),
+            "prev_action": self.prev_action_out.copy(),
+        }
+
         terminated = bool(self.pos >= self.obstacle_ahead)
         truncated = bool(self.t >= self.horizon)
         return obs, 0.0, terminated, truncated, {}
@@ -84,6 +101,7 @@ class DummyEnv(gym.Env):
         softness = float(np.clip(action[1], 0.0, 1.0)) if action.size > 1 else 0.0
 
         self.v_actual = np.array([self.vel, 0.0, 0.0], dtype=np.float32)
+        self.roll_pitch = np.zeros(2, dtype=np.float32)  # no rotational dynamics in this toy model -- always "upright"
         self.v_command_out = self.v_command
         self.obstacle_dist = max(0.0, self.obstacle_ahead - self.pos)
         self.joint_vel = np.full(self.action_dim, self.vel, dtype=np.float32)
@@ -100,6 +118,13 @@ class DummyEnv(gym.Env):
             np.ones(self.obs_cfg.foot_contact_dim, dtype=np.float32),
             self.prev_action[: self.obs_cfg.prev_action_dim],
             self.v_command,
+            # base_ang_vel/projected_gravity (added 2026-09-18, see
+            # ObservationSpaceCfg): no rotational dynamics in this toy model
+            # either, same rationale as roll_pitch above -- zero angular
+            # velocity, and a fixed "upright" gravity direction (Isaac Lab's
+            # projected_gravity_b convention: (0, 0, -1) when level).
+            np.zeros(self.obs_cfg.base_ang_vel_dim, dtype=np.float32),
+            np.array([0.0, 0.0, -1.0], dtype=np.float32)[: self.obs_cfg.projected_gravity_dim],
         ])
         return obs.astype(np.float32)
 
@@ -130,11 +155,21 @@ class DummyTalonEnv(BaseTalonEnv):
     def step(self, action: np.ndarray) -> tuple[dict, np.ndarray]:
         obs, _rewards, terminated, truncated, _infos = self._vec_env.step(action)
         done = np.logical_or(terminated, truncated)
-        return self._collect_transition(obs), done
+        transition = self._collect_transition(obs)
+        if done.any():
+            # Preserve post-reset obs for the next action, but replace only
+            # reward inputs for done lanes with the terminal-frame snapshot.
+            reward_transition = {key: value.copy() for key, value in transition.items()}
+            for env_idx in np.flatnonzero(done):
+                terminal = self._vec_env.envs[env_idx].unwrapped.terminal_reward_transition
+                for key, value in terminal.items():
+                    reward_transition[key][env_idx] = value
+            transition["reward_transition"] = reward_transition
+        return transition, done
 
     def _collect_transition(self, obs: np.ndarray) -> dict:
         transition = {"obs": obs.astype(np.float32)}
-        for key in ("v_actual", "obstacle_dist", "joint_torque", "joint_vel",
+        for key in ("v_actual", "roll_pitch", "obstacle_dist", "joint_torque", "joint_vel",
                     "joint_acc", "foot_contact_force", "action"):
             transition[key] = np.stack([getattr(env.unwrapped, key) for env in self._vec_env.envs])
         transition["v_command"] = np.stack([env.unwrapped.v_command_out for env in self._vec_env.envs])

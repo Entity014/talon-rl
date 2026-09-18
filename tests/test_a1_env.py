@@ -106,6 +106,15 @@ def test_isaac_lab_env_implements_base_contract():
         assert done.shape == (4,)
         assert done.dtype == bool
         assert np.all(np.isfinite(transition["obs"]))
+        # Regression: obstacle_reached compared world-frame root_pos_w.x
+        # straight against obstacle_ahead_buf (5.0), but the terrain grid
+        # spreads env_origins.x well past 5.0 (border_width=20.0) — any env
+        # whose origin.x alone exceeded 5.0 terminated on this very first
+        # step regardless of the robot's actual displacement from spawn.
+        assert not done.any(), (
+            "env(s) terminated on the first zero-action step — "
+            "obstacle_reached is comparing world-frame position again"
+        )
         assert "extrinsics" in transition
         assert transition["extrinsics"].shape == (4, ExtrinsicsCfg().dim)
         reward_vec = compute_reward_vector(transition, RewardVectorCfg())
