@@ -136,13 +136,22 @@ class RewardVectorCfg:
     # out terrain difficulty as the cause.
     fall_penalty: float = 25.0  # terminal balance penalty for non-timeout falls
     # Flat reward for every step not yet fallen, added to balance_reward —
-    # AMOR's constant survival bonus c_alive / classic Gym alive_bonus. 0.3
-    # is deliberately modest relative to the roll_pitch^2 penalty it's added
-    # to (steady-state balance reward sits around -0.3 to -0.5 across every
-    # run so far) so upright-but-imperfect posture is still distinguishable
-    # from truly-upright, not swamped into "any pose is fine as long as
-    # you're alive." Untuned starting point, not swept.
-    alive_bonus: float = 0.3
+    # AMOR's constant survival bonus c_alive / classic Gym alive_bonus.
+    # Bumped 0.3->1.0 (2026-09-19, first experiment, not re-swept): Reda et
+    # al. 2020 ("Learning to Locomote: Understanding How Environment Design
+    # Matters for Deep RL", Sec. 9) names "falling-forward" as the exact
+    # failure mode a too-small survival bonus produces -- a live training
+    # run (phase1_allfixes2) settled into a stable regime (15+ iterations,
+    # not noise) with Episode_Reward/progress ~0.3 and episode length ~10,
+    # matching a policy that gains transient forward velocity by toppling
+    # rather than walking. The original 0.3 was deliberately kept modest
+    # relative to the roll_pitch^2 penalty (steady-state balance reward
+    # -0.3 to -0.5) precisely so upright-but-imperfect posture stayed
+    # distinguishable from truly-upright -- but that same modesty is what
+    # Reda et al. warns leaves falling-forward as the more profitable
+    # local minimum. fall_penalty already got an analogous untuned 5x bump
+    # (5.0->25.0, 2026-09-17) for the same class of instability.
+    alive_bonus: float = 1.0
 
     @property
     def dim(self) -> int:
