@@ -152,6 +152,15 @@ class RewardVectorCfg:
     # local minimum. fall_penalty already got an analogous untuned 5x bump
     # (5.0->25.0, 2026-09-17) for the same class of instability.
     alive_bonus: float = 1.0
+    # Coefficient on balance_reward's -sum(roll_pitch^2) term. Default 1.0
+    # is the old unscaled behavior -- found 2026-09-19 (per-step trajectory
+    # trace) it gives too little dynamic range at realistic tilt angles
+    # (0.05 rad -> 0.98 rad -> 0.15 rad -> 0.9775, a difference of 0.02
+    # against alive_bonus's flat +1.0) to distinguish normal walking pitch
+    # from pre-fall pitch. Exposed for a k_theta sweep (5, 10) before
+    # touching any other term -- see talon-thesis/03_Daily_Notes/
+    # 2026-09-19.md for the sweep's own reasoning.
+    balance_tilt_coef: float = 1.0
 
     @property
     def dim(self) -> int:

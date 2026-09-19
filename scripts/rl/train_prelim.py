@@ -111,6 +111,14 @@ def main() -> None:
              "for PPO to strongly prefer real tracking over those. Sweep candidates 0.5/0.35/0.2, "
              "one seed each first (shape test) before committing seeds to a specific value.",
     )
+    parser.add_argument(
+        "--balance_tilt_coef", type=float, default=None,
+        help="Override RewardVectorCfg.balance_tilt_coef (default 1.0). Exposed 2026-09-19 for a "
+             "k_theta sweep after a trajectory trace found balance_reward's -sum(roll_pitch^2) term "
+             "has too little dynamic range at realistic tilt angles (0.05 vs 0.15 rad differ by only "
+             "0.02, dwarfed by alive_bonus's flat +1.0) to distinguish normal walking pitch from "
+             "pre-fall pitch. Sweep candidates 5, 10.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -173,7 +181,12 @@ def main() -> None:
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
-    reward_cfg = RewardVectorCfg() if args.progress_std is None else RewardVectorCfg(progress_std=args.progress_std)
+    reward_cfg_overrides = {}
+    if args.progress_std is not None:
+        reward_cfg_overrides["progress_std"] = args.progress_std
+    if args.balance_tilt_coef is not None:
+        reward_cfg_overrides["balance_tilt_coef"] = args.balance_tilt_coef
+    reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single
     # source of truth for reward order" invariant). See --w_curriculum_updates'

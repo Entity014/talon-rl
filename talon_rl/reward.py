@@ -213,7 +213,7 @@ def smoothness_reward(
 def balance_reward(
     roll_pitch: np.ndarray, terminal_fall: np.ndarray | None = None, fall_penalty: float = 0.0,
     alive_bonus: float = 0.0, v_z: np.ndarray | None = None, height: np.ndarray | None = None,
-    target_height: float = 0.42,
+    target_height: float = 0.42, tilt_coef: float = 1.0,
 ) -> np.ndarray:
     """Penalizes trunk tilt directly -- a dense, per-step gradient against
     falling. Not in chapter3.tex's original table 3.3; added because none of
@@ -225,6 +225,19 @@ def balance_reward(
     has the equivalent term (#8, Orientation: -||theta_roll,pitch||^2) for
     exactly this reason; AMOR's root-orientation term is reference-tracking
     (needs mocap) and doesn't port to this reference-free task.
+
+    `tilt_coef` (added 2026-09-19, default 1.0 = old unscaled behavior):
+    found via a per-step trajectory trace that `-sum(roll_pitch**2)` has too
+    little dynamic range to distinguish a normal walking pitch (~0.05 rad)
+    from a pre-fall one (~0.15 rad) -- 0.0025 vs 0.0225, a difference of
+    only 0.02 against `alive_bonus`'s flat +1.0 baseline, so balance_reward
+    sat at ~0.98-1.0 almost regardless of tilt right up until the terminal
+    fall_penalty fired. This is NOT alive_bonus mathematically cancelling
+    the tilt gradient (a constant can't do that) -- it's that the tilt
+    penalty's own coefficient (implicitly 1) is too small for its
+    quadratic-in-radians scale to matter next to a bonus of that
+    magnitude. Exposed as a preference-orthogonal scale knob to calibrate
+    against, not a fixed multiplier chosen a priori.
 
     `alive_bonus` (added 2026-09-18): a flat positive reward every step the
     lane hasn't fallen, matching AMOR's constant survival bonus c_alive and
@@ -262,7 +275,7 @@ def balance_reward(
     (isaaclab_assets/robots/unitree.py) -- the pose the robot is already
     built to stand at, not a swept/tuned value. Optional, same reasoning as
     v_z above (DummyTalonEnv has no terrain to measure height above)."""
-    reward = -np.sum(roll_pitch**2, axis=-1) + alive_bonus
+    reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus
     if v_z is not None:
         reward = reward - v_z.astype(np.float32) ** 2
     if height is not None:
@@ -322,7 +335,7 @@ _TERM_FUNCS = {
     ),
     "balance": lambda t, cfg: balance_reward(
         t["roll_pitch"], t.get("terminal_fall"), cfg.fall_penalty, cfg.alive_bonus,
-        t.get("v_z"), t.get("height"),
+        t.get("v_z"), t.get("height"), tilt_coef=cfg.balance_tilt_coef,
     ),
 }
 
