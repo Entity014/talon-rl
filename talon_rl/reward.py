@@ -367,7 +367,7 @@ _TERM_FUNCS = {
     ),
     "balance": lambda t, cfg: balance_reward(
         t["roll_pitch"], t.get("terminal_fall"), cfg.fall_penalty, cfg.alive_bonus,
-        t.get("v_z"), t.get("height"), tilt_coef=cfg.balance_tilt_coef,
+        t.get("v_z"), t.get("height"), target_height=cfg.target_height, tilt_coef=cfg.balance_tilt_coef,
         roll_pitch_rate=t.get("roll_pitch_rate"), tilt_rate_coef=cfg.balance_tilt_rate_coef,
         height_coef=cfg.balance_height_coef,
     ),

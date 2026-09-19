@@ -186,6 +186,25 @@ class RewardVectorCfg:
     # policy that can only walk crouched. Swept 5/10 (H2/H3) on top of the
     # k_theta=1.0/k_dot=0 baseline (A), isolated from the tilt sweep.
     balance_height_coef: float = 1.0
+    # Target height for balance_reward's -(height-target_height)^2 term.
+    # Default 0.42 = UNITREE_A1_CFG's own spawn height (unchanged). Exposed
+    # 2026-09-20 for a pure-RL feasibility experiment: rather than building
+    # a scripted/MPC controller to test whether h=0.42 is reachable
+    # independent of reward design (an earlier plan this session's user
+    # explicitly reversed -- this repo has NO MPC/scripted gait stack
+    # anywhere, only the RL policy itself via JointPositionActionCfg, and
+    # introducing one would test a different system than the thesis is
+    # actually about), train two otherwise-identical checkpoints differing
+    # ONLY in target_height (0.25 vs 0.42, everything else -- network, PPO/
+    # MOPPO, seed, progress_std, balance_tilt_coef, terrain, preference
+    # distribution, training steps -- held fixed) and compare survival/
+    # v_x/height/pitch/fall rate under fixed-w eval. If h=0.25 walks but
+    # h=0.42 doesn't, that's a learning-difficulty/feasibility signal under
+    # pure RL; if h=0.42 also walks once height_coef etc. are tuned right,
+    # the crouching problem is a reward-landscape/local-optimum issue, not
+    # a feasibility one -- no controller-level detour needed to tell them
+    # apart.
+    target_height: float = 0.42
 
     @property
     def dim(self) -> int:

@@ -37,6 +37,7 @@ def main() -> None:
     parser.add_argument("--balance_tilt_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_tilt_rate_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_height_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--target_height", type=float, default=None, help="Must match what the checkpoint was trained with")
     args = parser.parse_args()
 
     os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
@@ -59,6 +60,8 @@ def main() -> None:
         reward_cfg_overrides["balance_tilt_rate_coef"] = args.balance_tilt_rate_coef
     if args.balance_height_coef is not None:
         reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
+    if args.target_height is not None:
+        reward_cfg_overrides["target_height"] = args.target_height
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg()
@@ -76,7 +79,7 @@ def main() -> None:
     print(f"loaded checkpoint (t={trainer._t})")
     print(f"config: tilt_coef={reward_cfg.balance_tilt_coef} tilt_rate_coef={reward_cfg.balance_tilt_rate_coef} "
           f"height_coef={reward_cfg.balance_height_coef} alive_bonus={reward_cfg.alive_bonus} "
-          f"fall_penalty={reward_cfg.fall_penalty} target_height={0.42}")
+          f"fall_penalty={reward_cfg.fall_penalty} target_height={reward_cfg.target_height}")
 
     trainer.w = np.tile(np.array(args.w, dtype=np.float32) / sum(args.w), (args.num_envs, 1)).astype(np.float32)
 
@@ -102,7 +105,7 @@ def main() -> None:
         sums["tilt_penalty"] += float((-reward_cfg.balance_tilt_coef * np.sum(roll_pitch ** 2, axis=-1)).mean())
         sums["tilt_rate_penalty"] += float((-reward_cfg.balance_tilt_rate_coef * np.sum(roll_pitch_rate ** 2, axis=-1)).mean())
         sums["v_z_penalty"] += float((-(v_z ** 2)).mean())
-        sums["height_penalty"] += float((-reward_cfg.balance_height_coef * (height - 0.42) ** 2).mean())
+        sums["height_penalty"] += float((-reward_cfg.balance_height_coef * (height - reward_cfg.target_height) ** 2).mean())
         sums["alive_bonus"] += reward_cfg.alive_bonus
         sums["fall_penalty"] += float((-terminal_fall * reward_cfg.fall_penalty).mean())
         sums["v_x"] += float(transition["v_actual"][:, 0].mean())
@@ -118,7 +121,7 @@ def main() -> None:
         print(f"  {k:<20}{v:>10.4f}")
     print(f"  {'TOTAL balance_reward':<20}{total:>10.4f}")
     print(f"\n  mean v_x: {sums['v_x']/n:.4f}  (command was {args.command[0]})")
-    print(f"  mean height: {sums['height']/n:.4f}  (target 0.42)")
+    print(f"  mean height: {sums['height']/n:.4f}  (target {reward_cfg.target_height})")
 
 
 if __name__ == "__main__":

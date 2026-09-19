@@ -134,6 +134,15 @@ def main() -> None:
              "coefficient is too small (dynamic range ~0.04 at typical error) next to fall_penalty "
              "(-25) and alive_bonus (+1) for the policy to prefer standing tall. Sweep candidates 5, 10.",
     )
+    parser.add_argument(
+        "--target_height", type=float, default=None,
+        help="Override RewardVectorCfg.target_height (default 0.42, UNITREE_A1_CFG's spawn height). "
+             "Exposed 2026-09-20 for a pure-RL h=0.25-vs-0.42 feasibility experiment (no scripted/MPC "
+             "controller -- this repo has none, and the thesis objective is RL learning locomotion "
+             "itself, not a controller-assisted one): two otherwise-identical runs differing only here "
+             "tell us whether crouching under h=0.42 is a learning-difficulty/feasibility issue or a "
+             "reward-landscape/local-optimum one.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -205,6 +214,8 @@ def main() -> None:
         reward_cfg_overrides["balance_tilt_rate_coef"] = args.balance_tilt_rate_coef
     if args.balance_height_coef is not None:
         reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
+    if args.target_height is not None:
+        reward_cfg_overrides["target_height"] = args.target_height
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single
