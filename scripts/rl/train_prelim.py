@@ -91,6 +91,16 @@ def main() -> None:
         "--torch_compile", action="store_true",
         help="Compile the CUDA actor-critic with torch.compile to reduce Python/kernel overhead.",
     )
+    parser.add_argument(
+        "--mean_reg_coef", type=float, default=1e-3,
+        help="L2 penalty on the raw (pre-tanh) actor_mean output (MOPPOConfig's own default, the "
+             "standard SAC starting point, not swept against this task). Exposed as a CLI override "
+             "2026-09-19 to test whether it's too weak to counter persistent action saturation "
+             "(~75-95% of joints near ACTION_CLIP across every checkpoint tested that day, unmoved "
+             "by any preference-vector fix) -- Loss/mean_reg was still ~7-8 at iteration 1000 with "
+             "the 1e-3 default, dwarfed by Loss/value (100s-1000s), so its gradient influence in "
+             "practice is likely negligible at that coefficient.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -172,6 +182,7 @@ def main() -> None:
     moppo_cfg = MOPPOConfig(
         device="cuda" if args.env == "isaac_lab" else "cpu",
         torch_compile=args.torch_compile,
+        mean_reg_coef=args.mean_reg_coef,
     )
     extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" and not args.no_encoder else None
 
