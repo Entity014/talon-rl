@@ -25,8 +25,23 @@ from .config import RewardVectorCfg
 def progress_reward(
     v_actual: np.ndarray, v_command: np.ndarray, std: float,
     foot_air_time_reward: np.ndarray | None = None,
+    terminal_fall: np.ndarray | None = None,
 ) -> np.ndarray:
     """Go-anywhere navigation: exp-kernel velocity tracking. (N, 3), (N, 3) -> (N,).
+
+    `terminal_fall` (added 2026-09-19, zeroes this step's reward entirely
+    where True): `v_actual` is `root_lin_vel_b`, BODY-frame velocity
+    (a1_env.py) -- on the exact step a lane topples over, its body-frame
+    forward velocity spikes from the fall/rotation itself, which can
+    happen to align with v_command and score a high tracking reward for a
+    step that was falling, not walking. Found via a live training run
+    (`phase1_allfixes_2026-09-19`) showing Episode_Reward/progress rising
+    while episode length collapsed and termination hit 100% fall -- the
+    opposite of real locomotion improving. Same "no credit on the step you
+    stopped" principle balance_reward's alive_bonus already applies to
+    fall_penalty (see its own docstring); short episodes made this worse
+    since a same-size spike dominates a larger fraction of a short
+    episode's averaged reward than a long one's.
 
     `foot_air_time_reward` (added 2026-09-18, legged_gym/Rudin et al. 2022,
     "Learning to Walk in Minutes"): Sigma_feet (air_time_at_touchdown - 0.5),
@@ -54,6 +69,8 @@ def progress_reward(
     reward = np.exp(-err / (std**2))
     if foot_air_time_reward is not None:
         reward = reward + 0.04 * foot_air_time_reward.astype(np.float32)
+    if terminal_fall is not None:
+        reward = reward * (1.0 - np.asarray(terminal_fall, dtype=np.float32))
     return reward.astype(np.float32)
 
 
@@ -274,7 +291,7 @@ def efficiency_reward(
 
 _TERM_FUNCS = {
     "progress": lambda t, cfg: progress_reward(
-        t["v_actual"], t["v_command"], cfg.progress_std, t.get("foot_air_time_reward")
+        t["v_actual"], t["v_command"], cfg.progress_std, t.get("foot_air_time_reward"), t.get("terminal_fall")
     ),
     "clearance": lambda t, cfg: clearance_reward(t["obstacle_dist"]),
     "impact": lambda t, cfg: impact_reward(

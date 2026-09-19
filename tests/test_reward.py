@@ -36,6 +36,24 @@ def test_progress_reward_gives_positive_bonus_for_a_proper_touchdown():
     assert r_with_bonus[1] == r_no_bonus[1]  # no touchdown event this step: unchanged
 
 
+def test_progress_reward_zeroes_out_on_terminal_fall_step():
+    """Found 2026-09-19 via a live training run (phase1_allfixes):
+    Episode_Reward/progress rose while episode length collapsed and
+    termination hit 100% fall. v_actual is root_lin_vel_b (BODY-frame,
+    a1_env.py) -- a lane toppling forward spikes its body-frame forward
+    velocity from the fall/rotation itself, which can align with
+    v_command and score a high tracking reward on the exact step it was
+    falling, not walking. Same "no credit on the step you stopped"
+    principle as balance_reward's fall_penalty/alive_bonus."""
+    v = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
+    terminal_fall = np.array([True, False])
+
+    reward = progress_reward(v, v, std=0.5, terminal_fall=terminal_fall)
+
+    assert reward[0] == 0.0  # fell this step: tracking spike zeroed out
+    assert reward[1] == 1.0  # didn't fall: normal tracking reward stands
+
+
 def test_clearance_reward_clips_to_unit_interval():
     dist = np.array([10.0, 0.0])
     r = clearance_reward(dist, safe_dist=0.5)
