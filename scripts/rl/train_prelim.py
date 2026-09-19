@@ -119,6 +119,13 @@ def main() -> None:
              "0.02, dwarfed by alive_bonus's flat +1.0) to distinguish normal walking pitch from "
              "pre-fall pitch. Sweep candidates 5, 10.",
     )
+    parser.add_argument(
+        "--balance_tilt_rate_coef", type=float, default=None,
+        help="Override RewardVectorCfg.balance_tilt_rate_coef (default 0.0 = disabled). A "
+             "438-fall-event calibration (prefall_window_analysis.py) found |pitch_rate| separates "
+             "pre-fall from normal-walking states ~3.2-3.6x (p50/p90), sharper than |pitch|'s own "
+             "~2x -- candidates 0.004, 0.008.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -186,6 +193,8 @@ def main() -> None:
         reward_cfg_overrides["progress_std"] = args.progress_std
     if args.balance_tilt_coef is not None:
         reward_cfg_overrides["balance_tilt_coef"] = args.balance_tilt_coef
+    if args.balance_tilt_rate_coef is not None:
+        reward_cfg_overrides["balance_tilt_rate_coef"] = args.balance_tilt_rate_coef
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single

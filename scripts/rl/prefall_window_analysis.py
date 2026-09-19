@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Pre-fall vs normal-window comparison: for every fall in a rollout, looks
-at [t_fall-window, t_fall) and compares |pitch|, |pitch_rate|,
-balance_reward, and action_magnitude against the same quantities elsewhere
-in the trajectory (the complement of all pre-fall windows) -- calibrates
-what tilt-angle/tilt-rate range balance_tilt_coef (or a future pitch-rate
-term) should actually target, rather than guessing candidate values with
-no grounding in what pre-fall states look like.
+at [t_fall-window, t_fall) and compares |pitch|, |pitch_rate| (real
+body-frame angular velocity from a1_env.py's transition dict, not a
+finite-difference approximation), balance_reward, and action_magnitude
+against the same quantities elsewhere in the trajectory (the complement
+of all pre-fall windows) -- calibrates what tilt-angle/tilt-rate range
+balance_tilt_coef/balance_tilt_rate_coef should actually target, rather
+than guessing candidate values with no grounding in what pre-fall states
+look like. Also reports a lead-time snapshot (value at fixed offsets
+before each fall) to check whether pitch_rate is a genuine early-warning
+signal or only spikes in the last step or two.
 
 Reuses the same rollout mechanics as balance_progress_trace.py (deterministic
 act_inference under a forced w/command) but aggregates over ALL lanes'
@@ -74,6 +78,7 @@ def main() -> None:
 
     pitch = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     roll = np.zeros((args.steps, args.num_envs), dtype=np.float32)
+    pitch_rate = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     r_balance = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     action_mag = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     fell = np.zeros((args.steps, args.num_envs), dtype=bool)
@@ -89,12 +94,13 @@ def main() -> None:
         reward_vec = compute_reward_vector(transition, reward_cfg)
         roll[t] = transition["roll_pitch"][:, 0]
         pitch[t] = transition["roll_pitch"][:, 1]
+        # Real body-frame angular velocity (root_ang_vel_b), not a
+        # finite-difference approximation of pitch across steps -- see
+        # a1_env.py's transition dict / balance_reward's tilt_rate_coef.
+        pitch_rate[t] = transition["roll_pitch_rate"][:, 1]
         r_balance[t] = reward_vec[:, balance_idx]
         action_mag[t] = np.abs(action).mean(axis=-1)
         fell[t] = transition.get("terminal_fall", done)
-
-    dt = env.step_dt
-    pitch_rate = np.gradient(pitch, dt, axis=0)
 
     pre_fall_mask = np.zeros_like(fell)
     for t in range(args.steps):
@@ -124,6 +130,32 @@ def main() -> None:
         print(f"{name}:")
         print(f"  pre-fall: {stats(pre_fall_mask, arr)}")
         print(f"  normal:   {stats(normal_mask, arr)}")
+
+    # Lead-time check: is pitch_rate an EARLY warning signal (rising steadily
+    # before the fall) or does it only spike in the last step or two (i.e.
+    # a symptom of falling, not a precursor)? Snapshots |pitch| and
+    # |pitch_rate| at fixed offsets before each fall, not windowed averages.
+    print("\nlead-time snapshot (value AT exactly N steps before each fall, not windowed):")
+    print(f"{'steps before fall':<20}{'|pitch|':>14}{'|pitch_rate|':>16}")
+    for offset in (50, 30, 20, 10, 5, 1):
+        p_vals, pr_vals = [], []
+        for t in range(args.steps):
+            if not fell[t].any():
+                continue
+            src_t = t - offset
+            if src_t < 0:
+                continue
+            lanes = fell[t]
+            p_vals.append(np.abs(pitch[src_t, lanes]))
+            pr_vals.append(np.abs(pitch_rate[src_t, lanes]))
+        if not p_vals:
+            print(f"{-offset:<20}{'n/a':>14}{'n/a':>16}")
+            continue
+        p_all, pr_all = np.concatenate(p_vals), np.concatenate(pr_vals)
+        print(f"{-offset:<20}{np.median(p_all):>14.4f}{np.median(pr_all):>16.4f}")
+    p_all_normal = np.abs(pitch)[normal_mask]
+    pr_all_normal = np.abs(pitch_rate)[normal_mask]
+    print(f"{'(normal, ref)':<20}{np.median(p_all_normal):>14.4f}{np.median(pr_all_normal):>16.4f}")
 
     # k_theta suggestion: solve k * p90(|pitch|)^2 = target_penalty for a
     # couple of target penalty magnitudes, using the PRE-FALL p90 (not max)

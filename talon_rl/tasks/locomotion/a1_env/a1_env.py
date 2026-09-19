@@ -225,6 +225,14 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
             # spawn point, which is what the probe actually showed.
             "height": (robot.data.root_pos_w[:, 2] - self.scene.env_origins[:, 2]).cpu().numpy(),
             "roll_pitch": _roll_pitch(self).cpu().numpy(),  # balance_reward's dense anti-fall signal
+            # root_ang_vel_b's x/y components (2026-09-19) -- real physics
+            # angular velocity, not a finite-difference approximation of
+            # roll_pitch. Added after a 438-fall-event calibration
+            # (prefall_window_analysis.py) found |pitch_rate| separates
+            # pre-fall from normal-walking states ~3.2-3.6x (p50/p90),
+            # substantially more than |pitch| itself (~2x) -- balance_reward's
+            # own tilt_rate_coef term.
+            "roll_pitch_rate": robot.data.root_ang_vel_b[:, 0:2].cpu().numpy(),
             # root_pos_w is world-frame; subtract env_origins.x so this is
             # distance-to-obstacle from the env's own spawn, not absolute
             # world x (same fix as mdp/terminations.py's obstacle_reached —

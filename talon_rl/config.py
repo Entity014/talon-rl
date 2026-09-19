@@ -161,6 +161,14 @@ class RewardVectorCfg:
     # touching any other term -- see talon-thesis/03_Daily_Notes/
     # 2026-09-19.md for the sweep's own reasoning.
     balance_tilt_coef: float = 1.0
+    # Coefficient on balance_reward's -sum(roll_pitch_rate^2) term. Default
+    # 0.0 = disabled (old behavior). Calibrated against the same
+    # 438-fall-event distribution as balance_tilt_coef above:
+    # |pitch_rate| separates pre-fall from normal states ~3.2-3.6x
+    # (p50/p90), a sharper signal than |pitch|'s own ~2x -- candidates
+    # 0.004/0.008 (p90(|pitch_rate|)=5.037 rad/s at pre-fall -> k*5.037^2
+    # ~= 0.10/0.20).
+    balance_tilt_rate_coef: float = 0.0
 
     @property
     def dim(self) -> int:

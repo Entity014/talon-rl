@@ -214,6 +214,7 @@ def balance_reward(
     roll_pitch: np.ndarray, terminal_fall: np.ndarray | None = None, fall_penalty: float = 0.0,
     alive_bonus: float = 0.0, v_z: np.ndarray | None = None, height: np.ndarray | None = None,
     target_height: float = 0.42, tilt_coef: float = 1.0,
+    roll_pitch_rate: np.ndarray | None = None, tilt_rate_coef: float = 0.0,
 ) -> np.ndarray:
     """Penalizes trunk tilt directly -- a dense, per-step gradient against
     falling. Not in chapter3.tex's original table 3.3; added because none of
@@ -237,7 +238,23 @@ def balance_reward(
     penalty's own coefficient (implicitly 1) is too small for its
     quadratic-in-radians scale to matter next to a bonus of that
     magnitude. Exposed as a preference-orthogonal scale knob to calibrate
-    against, not a fixed multiplier chosen a priori.
+    against, not a fixed multiplier chosen a priori. Calibrated 2026-09-19
+    against a 438-fall-event distribution (prefall_window_analysis.py):
+    pre-fall p90(|pitch|)=0.374 rad vs normal p90=0.168 -- 3.5 solves
+    `k * 0.374**2 ~= 0.49`, a penalty magnitude judged meaningful without
+    dominating the raw (pre-normalize_per_objective) return.
+
+    `tilt_rate_coef`/`roll_pitch_rate` (added 2026-09-19, `-tilt_rate_coef *
+    sum(roll_pitch_rate**2)`): the SAME 438-fall-event calibration found
+    |pitch_rate| separates pre-fall from normal-walking states far more
+    sharply than |pitch| itself -- p50 0.394->1.262 rad/s (~3.2x) and p90
+    1.379->5.037 rad/s (~3.6x), versus pitch's own ~2x at both percentiles.
+    `roll_pitch_rate` is body-frame angular velocity's x/y components
+    (`robot.data.root_ang_vel_b[:, 0:2]`, a1_env.py) -- real physics, not a
+    finite-difference approximation of roll_pitch across steps. Optional
+    (defaults to None with tilt_rate_coef unused, i.e. old behavior),
+    same reasoning as v_z/height above (DummyTalonEnv has no angular
+    velocity to report).
 
     `alive_bonus` (added 2026-09-18): a flat positive reward every step the
     lane hasn't fallen, matching AMOR's constant survival bonus c_alive and
@@ -276,6 +293,8 @@ def balance_reward(
     built to stand at, not a swept/tuned value. Optional, same reasoning as
     v_z above (DummyTalonEnv has no terrain to measure height above)."""
     reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus
+    if roll_pitch_rate is not None:
+        reward = reward - tilt_rate_coef * np.sum(roll_pitch_rate.astype(np.float32) ** 2, axis=-1)
     if v_z is not None:
         reward = reward - v_z.astype(np.float32) ** 2
     if height is not None:
@@ -336,6 +355,7 @@ _TERM_FUNCS = {
     "balance": lambda t, cfg: balance_reward(
         t["roll_pitch"], t.get("terminal_fall"), cfg.fall_penalty, cfg.alive_bonus,
         t.get("v_z"), t.get("height"), tilt_coef=cfg.balance_tilt_coef,
+        roll_pitch_rate=t.get("roll_pitch_rate"), tilt_rate_coef=cfg.balance_tilt_rate_coef,
     ),
 }
 
