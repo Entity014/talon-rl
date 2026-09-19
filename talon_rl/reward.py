@@ -95,7 +95,7 @@ def impact_reward(
     0.01 weight as smoothness's joint_speed/acc terms (both raw
     velocity-scale physical quantities, not action-scale ones).
 
-    `undesired_contact_count` (added 2026-09-19, `-0.2*count`, (N,) ->
+    `undesired_contact_count` (added 2026-09-19, `-0.5*count`, (N,) ->
     already a scalar count per lane, no axis to sum over): legged_gym's
     "Collisions" term (Rudin et al. 2022, `-n_collision`), grouped into
     `impact` since it's the same "ground contact quality" family as
@@ -107,11 +107,15 @@ def impact_reward(
     force threshold here deliberately -- unlike a foot, a calf touching
     anything at all is undesired regardless of magnitude, so the env
     passes a raw contact COUNT already thresholded at the sensor level
-    (see a1_env.py's `undesired_contact_count` field). 0.2 weight is a
-    stronger deterrent than the other grouped sub-penalties (0.01-scale)
-    since this should be closer to a hard constraint than a soft
-    preference -- untuned, like every other weight introduced this
-    session."""
+    (see a1_env.py's `undesired_contact_count` field). Weight raised
+    0.2->0.5 (2026-09-19, second pass): repeated-trial validate on a
+    `mean_reg_coef=0.01` checkpoint still showed calf contact on 91.7% of
+    steps under the original 0.2 -- deliberately still a penalty weight,
+    not a per-foot clearance reward (docs/mdp.md documents that omission
+    as intentional, to keep the reward vector posture-agnostic for
+    MOPPO's preference-negotiation rather than prescribing a specific
+    gait/clearance trajectory); this only makes ANY calf contact cost
+    more, it doesn't reward any particular leg trajectory."""
     if foot_contact_force.shape[-1] == 0:
         return np.zeros(foot_contact_force.shape[0], dtype=np.float32)
     peak = np.max(np.abs(foot_contact_force), axis=-1)
@@ -121,7 +125,7 @@ def impact_reward(
         foot_speed_sq = np.sum(foot_vel**2, axis=-1)
         reward = reward - 0.01 * np.sum(contact * foot_speed_sq, axis=-1)
     if undesired_contact_count is not None:
-        reward = reward - 0.2 * undesired_contact_count.astype(np.float32)
+        reward = reward - 0.5 * undesired_contact_count.astype(np.float32)
     return reward.astype(np.float32)
 
 
