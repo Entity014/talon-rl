@@ -22,6 +22,8 @@ import os
 
 import numpy as np
 
+from talon_rl.reward import energy_reward, smoothness_reward
+
 A1_TORQUE_LIMIT_NM = 33.5  # Unitree A1 datasheet peak joint torque
 
 
@@ -40,10 +42,23 @@ class PhysicsValidator:
         self._v_command_x: list[float] = []
         self._tracking_err: list[float] = []
         self._undesired_contact: list[np.ndarray] = []
+        self._energy_mag: list[float] = []
+        self._smoothness_mag: list[float] = []
 
     def record(self, transition: dict, action: np.ndarray, done: np.ndarray) -> None:
         alive = self.fall_step < 0
         if alive.any():
+            if all(k in transition for k in ("joint_torque", "joint_vel", "action", "prev_action", "joint_acc")):
+                # energy has no scaling coefficient unlike smoothness's own
+                # sub-terms (0.01*acc, 0.01*joint_speed) -- checking whether
+                # it silently dominates the merged `efficiency` term post-2026-09-19.
+                e = np.abs(energy_reward(transition["joint_torque"][alive], transition["joint_vel"][alive]))
+                s = np.abs(smoothness_reward(
+                    transition["action"][alive], transition["prev_action"][alive],
+                    transition["joint_acc"][alive], transition["joint_vel"][alive],
+                ))
+                self._energy_mag.append(float(e.mean()))
+                self._smoothness_mag.append(float(s.mean()))
             sat = np.abs(action[alive]) >= 0.95 * self.action_clip
             self._action_sat_frac.append(float(sat.mean()))
             if "joint_torque" in transition:
@@ -93,6 +108,9 @@ class PhysicsValidator:
             contacts = np.array(self._undesired_contact)
             out["mean_undesired_contact_count"] = float(contacts.mean())
             out["frac_steps_with_undesired_contact"] = float(np.mean(contacts > 0))
+        if self._energy_mag:
+            out["mean_energy_mag"] = float(np.mean(self._energy_mag))
+            out["mean_smoothness_mag"] = float(np.mean(self._smoothness_mag))
         return out
 
     def print_summary(self) -> None:
@@ -125,6 +143,12 @@ class PhysicsValidator:
             print(f"\n=== undesired (non-foot) contact ===")
             print(f"mean count: {s['mean_undesired_contact_count']:.4f}  "
                   f"fraction of steps with any: {s['frac_steps_with_undesired_contact']:.4f}")
+
+        if "mean_energy_mag" in s:
+            e, sm = s["mean_energy_mag"], s["mean_smoothness_mag"]
+            ratio = e / sm if sm else float("inf")
+            print(f"\n=== efficiency sub-term balance (energy vs smoothness, pre-merge |raw|) ===")
+            print(f"mean |energy|: {e:.4f}  mean |smoothness|: {sm:.4f}  energy/smoothness ratio: {ratio:.2f}x")
 
     def save_plots(self, out_dir: str) -> None:
         """One PNG per per-step series already collected in record() — same

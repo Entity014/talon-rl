@@ -232,6 +232,9 @@ def balance_reward(
     return reward.astype(np.float32)
 
 
+_ENERGY_COEF = 0.1  # see docstring below -- without this, energy silently swallows smoothness inside the merge
+
+
 def efficiency_reward(
     joint_torque: np.ndarray, joint_vel: np.ndarray,
     action: np.ndarray, prev_action: np.ndarray, joint_acc: np.ndarray,
@@ -239,10 +242,30 @@ def efficiency_reward(
     """`energy` and `smoothness` merged into one preference dimension
     (2026-09-19) -- see RewardVectorCfg's own docstring for why (0.91
     measured correlation between their Episode_Reward curves, plus easing
-    the 5-dimension Dirichlet coverage problem). Just the sum of the same
-    two formulas below, unchanged -- no new tuning, only no longer
-    independently weighted by w. (N, 12) each -> (N,)."""
-    return energy_reward(joint_torque, joint_vel) + smoothness_reward(action, prev_action, joint_acc, joint_vel)
+    the 5-dimension Dirichlet coverage problem).
+
+    Originally an unweighted sum ("no new tuning"). Found 2026-09-19 via
+    PhysicsValidator's energy-vs-smoothness breakdown (added the same day)
+    on a trained checkpoint: mean|energy|=951.9 vs mean|smoothness|=98.6,
+    a 9.66x raw-scale gap -- energy (raw torque*vel power, no coefficient
+    of its own) was silently dominating the merged term's variance, so
+    RunningMeanStd's per-term normalization (which normalizes `efficiency`
+    as one merged scalar, not its two inputs separately) effectively
+    tracked energy alone. `action_magnitude`, the sub-term inside
+    `smoothness` added specifically to fix action saturation, was being
+    diluted to near-zero effective gradient inside the merge as a result.
+    `_ENERGY_COEF=0.1` brings energy down to smoothness's own raw scale
+    (matches the existing 0.01-weight convention smoothness_reward already
+    uses on its own acc/joint_speed sub-terms for the same reason) --
+    chosen as a fixed constant, not adaptive per-sub-term normalization,
+    to stay consistent with how every other grouped multi-scale term in
+    this file (e.g. impact_reward's peak-force/foot-slip/contact-count
+    mix) is already balanced: hand-tuned constants, not stateful
+    normalizers, since reward.py is pure/stateless throughout. (N, 12)
+    each -> (N,)."""
+    return _ENERGY_COEF * energy_reward(joint_torque, joint_vel) + smoothness_reward(
+        action, prev_action, joint_acc, joint_vel
+    )
 
 
 _TERM_FUNCS = {

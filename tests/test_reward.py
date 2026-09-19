@@ -146,8 +146,14 @@ def test_smoothness_reward_penalizes_a_large_action_held_steady():
 def test_efficiency_reward_is_energy_plus_smoothness():
     """energy and smoothness merged into one preference dimension
     2026-09-19 (0.91 measured correlation, eases the 5-dim Dirichlet
-    coverage problem) -- efficiency_reward must be exactly their sum, not
-    a new formula, so neither term's own tuning silently changed."""
+    coverage problem). Found the same day via PhysicsValidator's
+    energy-vs-smoothness breakdown: unweighted, energy (raw torque*vel
+    power) dominated smoothness by 9.66x raw scale on a trained
+    checkpoint, drowning out action_magnitude (added specifically to fix
+    action saturation) inside the merge -- so efficiency_reward applies
+    energy_reward's own 0.1 coefficient (_ENERGY_COEF) before summing,
+    matching the 0.01-weight convention smoothness_reward already uses on
+    its own acc/joint_speed sub-terms for the identical reason."""
     torque = np.full((2, 12), 3.0)
     vel = np.full((2, 12), 1.0)
     action = np.full((2, 12), 0.5)
@@ -158,7 +164,7 @@ def test_efficiency_reward_is_energy_plus_smoothness():
     r_smoothness = smoothness_reward(action, prev_action, acc, vel)
     r_efficiency = efficiency_reward(torque, vel, action, prev_action, acc)
 
-    assert np.allclose(r_efficiency, r_energy + r_smoothness)
+    assert np.allclose(r_efficiency, 0.1 * r_energy + r_smoothness)
 
 
 def test_balance_reward_is_max_at_zero_tilt():

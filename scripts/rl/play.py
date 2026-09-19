@@ -71,10 +71,10 @@ def main() -> None:
     parser.add_argument("--plot", action="store_true", help="With --analyze and/or --validate: save one PNG per recorded key next to the checkpoint (or ./exported/ for --checkpoint).")
     parser.add_argument("--video", action="store_true", help="Record an .mp4 of the rollout (--env isaac_lab only -- DummyTalonEnv has no scene to render).")
     parser.add_argument(
-        "--w", type=float, nargs=5, default=None, metavar="W",
-        help="Force a fixed preference vector (progress energy impact smoothness balance), overriding the "
-             "trainer's random Dirichlet init -- does NOT go through preference.floor_clip, so pass floor-respecting "
-             "values yourself if that matters for your test.",
+        "--w", type=float, nargs="+", default=None, metavar="W",
+        help="Force a fixed preference vector, one value per RewardVectorCfg.term_names entry in order, "
+             "overriding the trainer's random Dirichlet init -- does NOT go through preference.floor_clip, so "
+             "pass floor-respecting values yourself if that matters for your test.",
     )
     parser.add_argument(
         "--command", type=float, nargs=3, default=None, metavar=("VX", "VY", "WZ"),
