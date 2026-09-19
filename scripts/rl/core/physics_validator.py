@@ -28,10 +28,13 @@ A1_TORQUE_LIMIT_NM = 33.5  # Unitree A1 datasheet peak joint torque
 
 
 class PhysicsValidator:
-    def __init__(self, num_envs: int, action_clip: float, torque_limit_nm: float = A1_TORQUE_LIMIT_NM):
+    def __init__(
+        self, num_envs: int, action_clip: float, torque_limit_nm: float = A1_TORQUE_LIMIT_NM, target_height: float = 0.42,
+    ):
         self.num_envs = num_envs
         self.action_clip = action_clip
         self.torque_limit_nm = torque_limit_nm
+        self.target_height = target_height  # UNITREE_A1_CFG's own spawn height, matches balance_reward's default
         self.fall_step = np.full(num_envs, -1, dtype=np.int32)
         self._step = 0
         self._action_sat_frac: list[float] = []
@@ -44,6 +47,10 @@ class PhysicsValidator:
         self._undesired_contact: list[np.ndarray] = []
         self._energy_mag: list[float] = []
         self._smoothness_mag: list[float] = []
+        self._pitch: list[float] = []
+        self._pitch_rate: list[float] = []
+        self._height: list[float] = []
+        self._v_z: list[float] = []
 
     def record(self, transition: dict, action: np.ndarray, done: np.ndarray) -> None:
         alive = self.fall_step < 0
@@ -68,6 +75,13 @@ class PhysicsValidator:
             if "roll_pitch" in transition:
                 rp = np.abs(transition["roll_pitch"][alive])
                 self._roll_pitch_max_per_step.append(float(rp.max()))
+                self._pitch.append(float(rp[:, 1].mean()))
+            if "roll_pitch_rate" in transition:
+                self._pitch_rate.append(float(np.abs(transition["roll_pitch_rate"][alive, 1]).mean()))
+            if "height" in transition:
+                self._height.append(float(transition["height"][alive].mean()))
+            if "v_z" in transition:
+                self._v_z.append(float(np.abs(transition["v_z"][alive]).mean()))
             if "v_actual" in transition and "v_command" in transition:
                 self._v_actual_x.append(float(transition["v_actual"][alive, 0].mean()))
                 self._v_command_x.append(float(transition["v_command"][alive, 0].mean()))
@@ -111,6 +125,15 @@ class PhysicsValidator:
         if self._energy_mag:
             out["mean_energy_mag"] = float(np.mean(self._energy_mag))
             out["mean_smoothness_mag"] = float(np.mean(self._smoothness_mag))
+        if self._pitch:
+            out["mean_abs_pitch"] = float(np.mean(self._pitch))
+        if self._pitch_rate:
+            out["mean_abs_pitch_rate"] = float(np.mean(self._pitch_rate))
+        if self._height:
+            out["mean_height"] = float(np.mean(self._height))
+            out["mean_height_error"] = float(np.mean(self._height) - self.target_height)
+        if self._v_z:
+            out["mean_abs_v_z"] = float(np.mean(self._v_z))
         return out
 
     def print_summary(self) -> None:
@@ -149,6 +172,18 @@ class PhysicsValidator:
             ratio = e / sm if sm else float("inf")
             print(f"\n=== efficiency sub-term balance (energy vs smoothness, pre-merge |raw|) ===")
             print(f"mean |energy|: {e:.4f}  mean |smoothness|: {sm:.4f}  energy/smoothness ratio: {ratio:.2f}x")
+
+        if "mean_height" in s or "mean_abs_pitch" in s:
+            print(f"\n=== posture (crouch/standing-still loophole check) ===")
+            if "mean_abs_pitch" in s:
+                print(f"mean |pitch|: {s['mean_abs_pitch']:.4f} rad")
+            if "mean_abs_pitch_rate" in s:
+                print(f"mean |pitch_rate|: {s['mean_abs_pitch_rate']:.4f} rad/s")
+            if "mean_height" in s:
+                print(f"mean height: {s['mean_height']:.4f} m  (target {self.target_height} m, "
+                      f"error {s['mean_height_error']:+.4f} m)")
+            if "mean_abs_v_z" in s:
+                print(f"mean |v_z|: {s['mean_abs_v_z']:.4f} m/s")
 
     def save_plots(self, out_dir: str) -> None:
         """One PNG per per-step series already collected in record() — same
