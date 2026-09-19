@@ -65,7 +65,26 @@ def progress_reward(
     legged_gym's own calibration for this exact term -- their step size is
     the same 0.02s, so the scale carries over directly, unlike the other
     grouped terms' weights which were reasoned from scratch."""
-    err = np.sum((v_actual - v_command) ** 2, axis=-1)
+    # Forward-velocity (x) error only (2026-09-19, was sum over all 3 axes:
+    # v_x, v_y, yaw-rate). Found via a reward/evaluation-metric mismatch --
+    # play.py's PhysicsValidator tracking_ratio only ever measured v_x, but
+    # this kernel was also scored on v_y/yaw-rate error, which the
+    # evaluation never cared about and (under a forced straight-ahead
+    # v_command=[0.5,0,0]) the policy had no reason to zero out on its own.
+    # At std=0.5, the resulting kernel was forgiving enough that standing
+    # still (v_x=0, err=0.25) scored 0.368 and drifting backward (v_x=-0.04,
+    # err~0.29) scored 0.312 -- both close to a policy that actually tracks
+    # (1.0), while tracking_ratio scored those same three cases 0%, -8%,
+    # 100% respectively: barely any daylight in the training signal for
+    # behavior the evaluation considered night-and-day different. Restricting
+    # to v_x alone removes the v_y/yaw-rate dilution (not the std-magnitude
+    # issue, which is separate -- see RewardVectorCfg.progress_std). Tradeoff
+    # noted, not fixed here: v_y/yaw-rate tracking now has NO reward
+    # incentive at all when v_command samples a nonzero lateral/turn
+    # component (mdp/events.py's randomize_velocity_command can do this) --
+    # acceptable for now since Phase 1's own scope is forward-velocity
+    # tracking (chapter3.tex), not general omnidirectional command-following.
+    err = (v_actual[..., 0] - v_command[..., 0]) ** 2
     reward = np.exp(-err / (std**2))
     if foot_air_time_reward is not None:
         reward = reward + 0.04 * foot_air_time_reward.astype(np.float32)

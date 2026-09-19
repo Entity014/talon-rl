@@ -101,6 +101,16 @@ def main() -> None:
              "the 1e-3 default, dwarfed by Loss/value (100s-1000s), so its gradient influence in "
              "practice is likely negligible at that coefficient.",
     )
+    parser.add_argument(
+        "--progress_std", type=float, default=None,
+        help="Override RewardVectorCfg.progress_std (default 0.5). Exposed 2026-09-19 for a "
+             "reward-vs-tracking_ratio proxy-mismatch ablation, found alongside restricting "
+             "progress_reward's exp-kernel to v_x only (see that function's docstring): at std=0.5, "
+             "standing still (v_x error=0.5) scored 0.368 and drifting backward (error~0.54) scored "
+             "0.312, both close to a policy that actually tracks (1.0) -- not enough dynamic range "
+             "for PPO to strongly prefer real tracking over those. Sweep candidates 0.5/0.35/0.2, "
+             "one seed each first (shape test) before committing seeds to a specific value.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -163,7 +173,7 @@ def main() -> None:
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
-    reward_cfg = RewardVectorCfg()
+    reward_cfg = RewardVectorCfg() if args.progress_std is None else RewardVectorCfg(progress_std=args.progress_std)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single
     # source of truth for reward order" invariant). See --w_curriculum_updates'
@@ -213,7 +223,7 @@ def main() -> None:
             "Reward/composition",
             "| term | formula | inputs |\n"
             "|---|---|---|\n"
-            "| progress | exp(-\\|\\|v_actual - v_command\\|\\|^2 / progress_std^2) | v_actual, v_command: (v_x, v_y, omega_z) |\n"
+            "| progress | exp(-(v_x - v_cmd_x)^2 / progress_std^2) | v_x only (2026-09-19, was all 3 axes) |\n"
             "| efficiency | -sum\\|joint_torque * joint_vel\\| - (sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | energy+smoothness merged 2026-09-19 (0.91 correlated) |\n"
             "| impact | -max(0, peak_foot_contact_force - threshold) / threshold | only force above threshold is penalized |\n"
             "| balance | -sum(roll_pitch^2) | dense anti-fall orientation penalty |\n",
