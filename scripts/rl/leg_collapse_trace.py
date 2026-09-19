@@ -86,6 +86,16 @@ def main() -> None:
 
     cfg = IsaacLabTalonEnvCfg()
     cfg.scene.num_envs = args.num_envs
+    # Seeds python random/numpy/torch CPU+CUDA/warp/replicator BEFORE the
+    # scene (terrain, initial randomization events) is constructed --
+    # ManagerBasedEnv.__init__ checks this field and calls
+    # isaacsim.core.utils.torch.set_seed. --seed alone (passed to
+    # MOPPOTrainer below) only seeds its own preference-sampling rng, NOT
+    # env creation -- without this, two launches with identical --seed
+    # still produce different trajectories (confirmed 2026-09-20: A and
+    # h025 traces from separate launches showed qualitatively different
+    # fall/settle patterns despite identical CLI args).
+    cfg.seed = args.seed
     env = gym.make("Isaac-Talon-A1-v0", cfg=cfg, render_mode=None).unwrapped
 
     trainer = MOPPOTrainer(
@@ -93,7 +103,7 @@ def main() -> None:
         extrinsics_cfg=extrinsics_cfg, seed=args.seed,
     )
     trainer.load(args.checkpoint)
-    print(f"loaded checkpoint (t={trainer._t})")
+    print(f"loaded checkpoint (t={trainer._t}), env seed={args.seed}")
 
     trainer.w = np.tile(np.array(args.w, dtype=np.float32) / sum(args.w), (args.num_envs, 1)).astype(np.float32)
 
