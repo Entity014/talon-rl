@@ -9,6 +9,20 @@ that transient: does each checkpoint settle into a walking gait, a
 stationary crouch, a repeated collapse-reset cycle, or recover into
 locomotion?
 
+2026-09-20 (Experiment 2A, locomotion baseline): also reports v_x
+tracking MAE/RMSE against the forced command (not just mean v_x --
+comparable mean can hide oscillation around the target) and action
+saturation fraction (|action|>=95% of ACTION_CLIP, same convention as
+PhysicsValidator) alongside the existing torque saturation fraction --
+action saturation is a policy-output-scale question, torque saturation
+is an actuator-authority question, and conflating them was exactly what
+this arc's decision tree (spawn/transient -> locomotion establishment ->
+long-horizon stability, each branch pointing at a different root cause:
+actuator/domain-randomization, balance control/reward, action
+authority/dynamics, or locomotion learning) is trying to avoid. Also
+reports max (not just mean) |pitch|/|pitch_rate| per phase, since a
+runaway is a peak/escalation question a windowed mean can dilute away.
+
 Splits a full rollout (same paired cfg.seed mechanism as
 initial_drop_metrics.py -- see that module's docstring for why bare
 torch.manual_seed() after env creation doesn't reproduce trajectories)
@@ -122,7 +136,8 @@ def main() -> None:
         extrinsics_cfg=extrinsics_cfg, seed=args.seed,
     )
     trainer.load(args.checkpoint)
-    print(f"loaded checkpoint (t={trainer._t}), env seed={args.seed}")
+    action_clip = trainer.model.ACTION_CLIP
+    print(f"loaded checkpoint (t={trainer._t}), env seed={args.seed}, ACTION_CLIP={action_clip}")
 
     trainer.w = np.tile(np.array(args.w, dtype=np.float32) / sum(args.w), (args.num_envs, 1)).astype(np.float32)
 
@@ -133,6 +148,7 @@ def main() -> None:
     pitch = np.zeros((T, N), dtype=np.float32)
     pitch_rate = np.zeros((T, N), dtype=np.float32)
     action_mag = np.zeros((T, N), dtype=np.float32)
+    action_sat = np.zeros((T, N), dtype=bool)
     torque_sat = np.zeros((T, N), dtype=bool)
     terminal_fall = np.zeros((T, N), dtype=bool)
     tilt_penalty = np.zeros((T, N), dtype=np.float32)
@@ -158,6 +174,7 @@ def main() -> None:
         pitch[t] = transition["roll_pitch"][:, 1]
         pitch_rate[t] = transition["roll_pitch_rate"][:, 1]
         action_mag[t] = np.abs(action).mean(axis=-1)
+        action_sat[t] = (np.abs(action) >= 0.95 * action_clip).any(axis=-1)
         torque = transition["joint_torque"]
         torque_sat[t] = (np.abs(torque) >= 0.95 * A1_TORQUE_LIMIT_NM).any(axis=-1)
         terminal_fall[t] = transition.get("terminal_fall", done).astype(bool)
@@ -185,12 +202,20 @@ def main() -> None:
         def s(arr: np.ndarray) -> float:
             return float(arr[lo:hi][mask].std())
 
+        v_x_err = v_x[lo:hi] - args.command[0]
+        v_x_mae = float(np.abs(v_x_err)[mask].mean())
+        v_x_rmse = float(np.sqrt((v_x_err[mask] ** 2).mean()))
+        abs_pitch = np.abs(pitch[lo:hi])
+        abs_pitch_rate = np.abs(pitch_rate[lo:hi])
+
         print(f"  mean height (std)        {m(height):.4f} ({s(height):.4f})")
         print(f"  mean v_z                 {m(v_z):.4f}")
         print(f"  mean v_x (cmd {args.command[0]})       {m(v_x):.4f}")
-        print(f"  mean |pitch|              {float(np.abs(pitch[lo:hi])[mask].mean()):.4f}")
-        print(f"  mean |pitch_rate|         {float(np.abs(pitch_rate[lo:hi])[mask].mean()):.4f}")
+        print(f"  v_x tracking MAE / RMSE   {v_x_mae:.4f} / {v_x_rmse:.4f}")
+        print(f"  mean/max |pitch|          {float(abs_pitch[mask].mean()):.4f} / {float(abs_pitch[mask].max()):.4f}")
+        print(f"  mean/max |pitch_rate|     {float(abs_pitch_rate[mask].mean()):.4f} / {float(abs_pitch_rate[mask].max()):.4f}")
         print(f"  torque saturation frac    {m(torque_sat.astype(np.float32)):.4f}")
+        print(f"  action saturation frac    {m(action_sat.astype(np.float32)):.4f}")
         print(f"  mean action magnitude     {m(action_mag):.4f}")
         falls_in_window = terminal_fall[lo:hi]
         print(f"  falls per lane (mean)     {falls_in_window.sum(axis=0).mean():.4f}")
@@ -200,6 +225,15 @@ def main() -> None:
               f"alive_bonus={reward_cfg.alive_bonus:.4f}")
         print(f"  mean progress_reward      {m(r_progress):.4f}")
         print(f"  mean balance_reward       {m(r_balance):.4f}")
+
+    # Whole-rollout survival (first-fall time, capped at T) -- distinct from
+    # per-phase "falls per lane" (which counts every fall/reset cycle within
+    # a window); this is the classic "how long before it first goes down"
+    # number, same convention as PhysicsValidator.mean_survival.
+    first_fall = np.where(terminal_fall.any(axis=0), terminal_fall.argmax(axis=0), T)
+    print(f"\n=== survival (first fall, capped at {T}) ===")
+    print(f"  mean={first_fall.mean():.1f}  median={np.median(first_fall):.1f}  "
+          f"pct_never_fell={(first_fall == T).mean() * 100:.1f}%")
 
     phase_stats(*args.phase_b, "Phase B (post-transient)")
     phase_stats(*args.phase_c, "Phase C (long-horizon attractor)")
