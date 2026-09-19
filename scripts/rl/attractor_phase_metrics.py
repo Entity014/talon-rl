@@ -57,6 +57,7 @@ import torch
 from talon_rl.config import (
     ActionSpaceCfg, ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg,
 )
+from talon_rl.reward import compute_reward_vector
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
 
@@ -137,6 +138,11 @@ def main() -> None:
     tilt_penalty = np.zeros((T, N), dtype=np.float32)
     v_z_penalty = np.zeros((T, N), dtype=np.float32)
     height_penalty = np.zeros((T, N), dtype=np.float32)
+    r_progress = np.zeros((T, N), dtype=np.float32)
+    r_balance = np.zeros((T, N), dtype=np.float32)
+
+    progress_idx = reward_cfg.term_names.index("progress")
+    balance_idx = reward_cfg.term_names.index("balance")
 
     trainer.model.eval()
     for t in range(T):
@@ -160,6 +166,10 @@ def main() -> None:
         tilt_penalty[t] = -reward_cfg.balance_tilt_coef * np.sum(roll_pitch ** 2, axis=-1)
         v_z_penalty[t] = -(transition["v_z"] ** 2)
         height_penalty[t] = -reward_cfg.balance_height_coef * (transition["height"] - reward_cfg.target_height) ** 2
+
+        reward_vec = compute_reward_vector(transition, reward_cfg)
+        r_progress[t] = reward_vec[:, progress_idx]
+        r_balance[t] = reward_vec[:, balance_idx]
 
     def phase_stats(lo: int, hi: int, label: str) -> None:
         mask = ~terminal_fall[lo:hi]  # exclude only the instantaneous fall/reset step, not everything after
@@ -188,6 +198,8 @@ def main() -> None:
         print(f"  balance sub-terms: tilt_penalty={m(tilt_penalty):.4f}  "
               f"v_z_penalty={m(v_z_penalty):.4f}  height_penalty={m(height_penalty):.4f}  "
               f"alive_bonus={reward_cfg.alive_bonus:.4f}")
+        print(f"  mean progress_reward      {m(r_progress):.4f}")
+        print(f"  mean balance_reward       {m(r_balance):.4f}")
 
     phase_stats(*args.phase_b, "Phase B (post-transient)")
     phase_stats(*args.phase_c, "Phase C (long-horizon attractor)")
