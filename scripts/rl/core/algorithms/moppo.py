@@ -514,6 +514,19 @@ class MOPPOTrainer:
         values_with_final = np.concatenate([r["values"], r["final_value"][None]], axis=0)  # (T+1, N, K)
         adv = gae_per_objective(r["rewards"], values_with_final, r["dones"], self.cfg.gamma, self.cfg.gae_lambda)
         returns = adv + r["values"]
+        # RAW (pre-normalize_per_objective) mean |advantage| per objective --
+        # diagnostic only, added 2026-09-19. normalize_per_objective forces
+        # every column to unit std before it ever reaches d3po_actor_loss, so
+        # comparing objectives AFTER that point is meaningless by
+        # construction (they're rescaled to be equal). This raw magnitude is
+        # what actually determines how much GAE's own reward-scale/variance
+        # differences across objectives show up before the D3PO normalizer
+        # corrects for them -- a large raw gap here would mean one
+        # objective's return signal is noisier/larger before correction, not
+        # after, which per-objective normalization already neutralizes at
+        # the loss level (see losses.py's normalize_per_objective) but is
+        # still worth seeing directly rather than assuming it's fine.
+        adv_mag_per_objective = np.abs(adv).mean(axis=(0, 1))  # (K,)
 
         T, N = r["dones"].shape
         # w is the last reward_cfg.dim columns of the stored actor_obs (see
@@ -668,6 +681,7 @@ class MOPPOTrainer:
             "penalty_curriculum_k": penalty_k,
             "log_std_max": log_std_max,
             "mean_reward_vec": mean_reward_vec,
+            "adv_mag_per_objective": adv_mag_per_objective,
             "mean_episode_len": mean_episode_len,
             "done_count": r["done_count"],
             **term_reason_frac,

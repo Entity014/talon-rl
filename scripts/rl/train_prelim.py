@@ -288,6 +288,13 @@ def main() -> None:
                 writer.add_scalar(f"Termination/{name}_frac", stats.get(f"term_frac_{name}", 0.0), i)
             for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
                 writer.add_scalar(f"Reward/{name}", value, i)
+            # RAW (pre-normalize_per_objective) mean |advantage| per
+            # objective -- see MOPPOTrainer.update()'s adv_mag_per_objective
+            # comment for why this is measured before, not after, D3PO's
+            # per-objective normalization.
+            if "adv_mag_per_objective" in stats:
+                for name, value in zip(reward_cfg.term_names, stats["adv_mag_per_objective"]):
+                    writer.add_scalar(f"Advantage/{name}", value, i)
 
         if save_path and args.save_every and i % args.save_every == 0:
             trainer.save(save_path)
