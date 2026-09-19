@@ -110,18 +110,38 @@ def main() -> None:
         vals = arr[mask]
         if vals.size == 0:
             return "n/a"
-        return f"{np.mean(vals):.4f} +/- {np.std(vals):.4f} (n={vals.size})"
+        p50, p90, p95 = np.percentile(vals, [50, 90, 95])
+        return f"mean={np.mean(vals):.4f} p50={p50:.4f} p90={p90:.4f} p95={p95:.4f} (n={vals.size})"
 
     n_falls = int(fell.sum())
     print(f"\ntotal fall events across {args.num_envs} lanes x {args.steps} steps: {n_falls}")
     print(f"pre-fall window: last {args.window} steps before each fall\n")
-    print(f"{'quantity':<20}{'pre-fall':>35}{'normal (elsewhere)':>35}")
     for name, arr in [
         ("|pitch|", np.abs(pitch)), ("|roll|", np.abs(roll)),
         ("|pitch_rate|", np.abs(pitch_rate)),
         ("balance_reward", r_balance), ("action_magnitude", action_mag),
     ]:
-        print(f"{name:<20}{stats(pre_fall_mask, arr):>35}{stats(normal_mask, arr):>35}")
+        print(f"{name}:")
+        print(f"  pre-fall: {stats(pre_fall_mask, arr)}")
+        print(f"  normal:   {stats(normal_mask, arr)}")
+
+    # k_theta suggestion: solve k * p90(|pitch|)^2 = target_penalty for a
+    # couple of target penalty magnitudes, using the PRE-FALL p90 (not max)
+    # as the "this level of tilt should matter" anchor -- p90 rather than
+    # p50 since we want the coefficient to register before most of the
+    # pre-fall population, not only the median case.
+    pitch_p90_prefall = np.percentile(np.abs(pitch)[pre_fall_mask], 90) if pre_fall_mask.any() else None
+    if pitch_p90_prefall:
+        print(f"\nk_theta suggestions (solving k * pre-fall_p90(|pitch|)^2 = target penalty, pre-fall p90(|pitch|)={pitch_p90_prefall:.4f}):")
+        for target in (0.1, 0.2, 0.5):
+            k = target / (pitch_p90_prefall ** 2)
+            print(f"  target penalty={target}: k_theta ~= {k:.2f}")
+    pitch_rate_p90_prefall = np.percentile(np.abs(pitch_rate)[pre_fall_mask], 90) if pre_fall_mask.any() else None
+    if pitch_rate_p90_prefall:
+        print(f"\nk_theta_dot suggestions (pre-fall p90(|pitch_rate|)={pitch_rate_p90_prefall:.4f} rad/s):")
+        for target in (0.1, 0.2, 0.5):
+            k = target / (pitch_rate_p90_prefall ** 2)
+            print(f"  target penalty={target}: k_theta_dot ~= {k:.4f}")
 
 
 if __name__ == "__main__":
