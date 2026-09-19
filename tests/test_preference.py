@@ -143,13 +143,51 @@ def test_floor_clip_terms_is_never_negative_across_many_random_draws():
     """Broader sweep, not just the one hand-built adversarial case --
     samples real Dirichlet(1,1,1,1,1) draws (matching PreferenceCfg's own
     alpha) through the real floors this repo actually uses
-    (impact_floor_eps=0.05, balance_floor_eps=0.15, RewardVectorCfg's
-    defaults) and checks none of 50,000 draws ever go negative."""
+    (impact_floor_eps=0.05, balance_floor_eps=0.15, progress_floor_eps=0.15,
+    RewardVectorCfg's defaults) and checks none of 50,000 draws ever go
+    negative."""
     names = ("progress", "energy", "impact", "smoothness", "balance")
     rng = np.random.default_rng(42)
     w = rng.dirichlet(np.ones(5), size=50_000).astype(np.float32)
 
-    clipped = floor_clip_terms(w, names, {"impact": 0.05, "balance": 0.15})
+    clipped = floor_clip_terms(w, names, {"impact": 0.05, "balance": 0.15, "progress": 0.15})
 
     assert np.all(clipped >= 0.0), f"found {np.sum(clipped < 0)} negative entries"
     assert np.allclose(clipped.sum(axis=-1), 1.0, atol=1e-4)
+
+
+def test_floor_clip_terms_never_undershoots_its_own_floor():
+    """Regression for the exact bug fixed 2026-09-19: with only impact+
+    balance floored, a floored term ending up slightly BELOW its own floor
+    after the final renormalize was rare (~0.01% per draw, only 3 adjustable
+    terms funding 2 floors). Adding progress_floor_eps left only 2
+    adjustable terms (energy, smoothness) to fund 3 floors, and the OLD
+    "only shrink adjustable terms, proportional to their own value"
+    algorithm's undershoot rate jumped to ~1.8% of draws (worst case 0.118
+    vs a 0.15 floor) -- a real, frequent invariant violation, not a rare
+    edge case. The water-filling rewrite (floored terms with slack above
+    their own floor also give theirs up) must hold every floor exactly,
+    every draw."""
+    names = ("progress", "energy", "impact", "smoothness", "balance")
+    floors = {"impact": 0.05, "balance": 0.15, "progress": 0.15}
+    rng = np.random.default_rng(1)
+    w = rng.dirichlet(np.ones(5), size=200_000).astype(np.float32)
+
+    clipped = floor_clip_terms(w, names, floors)
+
+    for name, eps in floors.items():
+        idx = names.index(name)
+        assert np.all(clipped[:, idx] >= eps - 1e-4), (
+            f"{name} undershot its {eps} floor: worst={clipped[:, idx].min():.6f}"
+        )
+    assert np.allclose(clipped.sum(axis=-1), 1.0, atol=1e-4)
+
+    # the adversarial case from floor_clip_terms's own history: one term
+    # (impact) holds most of the simplex, well above its own floor, and
+    # must give up its slack to fund the other two floors' rise.
+    w_adversarial = np.array([[0.05, 0.02, 0.90, 0.02, 0.01]], dtype=np.float32)
+    c = floor_clip_terms(w_adversarial, names, floors)
+    assert c[0, names.index("impact")] >= floors["impact"] - 1e-4
+    assert c[0, names.index("balance")] >= floors["balance"] - 1e-4
+    assert c[0, names.index("progress")] >= floors["progress"] - 1e-4
+    assert np.isclose(c.sum(), 1.0, atol=1e-4)

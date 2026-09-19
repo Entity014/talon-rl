@@ -95,6 +95,21 @@ class RewardVectorCfg:
     progress_std: float = 0.5  # exp-kernel std for velocity tracking
     impact_floor_eps: float = 0.05  # w_impact >= eps, per chapter3.tex §3.2.3
     balance_floor_eps: float = 0.15  # keep anti-fall learning signal present during every preference episode
+    # Added 2026-09-19: unlike impact/balance, progress previously had NO
+    # floor -- an unfavorable Dirichlet(1,...,1) draw could dilute it to
+    # near-zero in any episode, with nothing preventing it. A same-day
+    # preference-curriculum experiment (anneal alpha toward progress early,
+    # back to uniform later) tried to work around this and made things
+    # WORSE, not better: training-time progress reward climbed during the
+    # anneal but reversed the moment alpha returned to flat uniform
+    # Dirichlet(1) -- the curriculum's protection was temporary and faded,
+    # re-exposing the exact same starvation it was meant to fix (see
+    # talon-thesis/03_Daily_Notes/2026-09-19.md for the full ablation:
+    # curriculum underperformed a plain-uniform baseline on both survival
+    # and tracking ratio under repeated-trial eval). A permanent floor,
+    # same mechanism as impact/balance, doesn't have a "fade" failure mode
+    # -- this is the untried next step that motivated it.
+    progress_floor_eps: float = 0.15  # w_progress >= eps, permanent (not a curriculum) -- see above
     # 5.0 (was) is dwarfed by what surviving would have earned: progress_reward
     # alone averages ~0.75/step across every run so far regardless of episode
     # length, so gamma=0.99 discounted over the ~200-step horizon is worth

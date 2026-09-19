@@ -152,7 +152,16 @@ def test_sample_diversity_w_respects_floor_clip_invariant():
 
     w_prime = trainer._sample_diversity_w(100)
     impact_idx = reward_cfg.term_names.index("impact")
+    balance_idx = reward_cfg.term_names.index("balance")
+    progress_idx = reward_cfg.term_names.index("progress")
     assert np.all(w_prime[:, impact_idx] >= reward_cfg.impact_floor_eps - 1e-6)
+    assert np.all(w_prime[:, balance_idx] >= reward_cfg.balance_floor_eps - 1e-6)
+    # progress_floor_eps (2026-09-19) — without this floor, progress could be
+    # diluted to near-zero by an unfavorable Dirichlet draw with nothing
+    # preventing it (unlike impact/balance, which already had floors); a
+    # same-day curriculum experiment that tried a temporary fix instead made
+    # things worse once it faded, see talon-thesis/03_Daily_Notes/2026-09-19.md.
+    assert np.all(w_prime[:, progress_idx] >= reward_cfg.progress_floor_eps - 1e-6)
     assert np.allclose(w_prime.sum(axis=-1), 1.0, atol=1e-5)
 
 

@@ -685,7 +685,11 @@ class MOPPOTrainer:
         return floor_clip_terms(
             preference,
             self.reward_cfg.term_names,
-            {"impact": self.reward_cfg.impact_floor_eps, "balance": self.reward_cfg.balance_floor_eps},
+            {
+                "impact": self.reward_cfg.impact_floor_eps,
+                "balance": self.reward_cfg.balance_floor_eps,
+                "progress": self.reward_cfg.progress_floor_eps,
+            },
         )
 
     def act_inference(self) -> np.ndarray:

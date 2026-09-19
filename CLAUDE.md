@@ -28,12 +28,19 @@ invariants" shape as this one.)
   moppo.py) indexes by name via this tuple, never a hardcoded position. If
   you add a 6th term, add it to `term_names` + `active` + `_TERM_FUNCS` in
   `reward.py` together — nowhere else needs to change.
-- **$w$ always sums to 1 and never violates the impact floor.** Phase-1 MOPPO
-  produces it through `preference.sample_preference_vector` ->
-  `preference.floor_clip` once per episode. A future HLP/manual scheduler
-  additionally applies `preference.rate_limit` before the floor clip. Don't
-  construct or mutate a preference vector by hand anywhere else — it's the
-  one invariant the Multi-Objective Module depends on.
+- **$w$ always sums to 1 and never violates the impact/balance/progress
+  floors** (`RewardVectorCfg.impact_floor_eps`/`balance_floor_eps`/
+  `progress_floor_eps`). Phase-1 MOPPO produces it through
+  `preference.sample_preference_vector` -> `MOPPOTrainer._clip_preference`
+  (`preference.floor_clip_terms`) once per episode. A future HLP/manual
+  scheduler additionally applies `preference.rate_limit` before the floor
+  clip. Don't construct or mutate a preference vector by hand anywhere
+  else — it's the one invariant the Multi-Objective Module depends on.
+  `progress_floor_eps` (added 2026-09-19) exists because a same-day
+  preference-curriculum experiment that tried to fix progress starvation
+  via temporary Dirichlet-alpha annealing made things worse once the
+  anneal faded back to uniform — a permanent floor was the untried
+  alternative (see talon-thesis/03_Daily_Notes/2026-09-19.md).
 - **`BaseTalonEnv.obs_dim` excludes $w$.** The preference vector is appended
   to the observation inside `scripts/rl/core/algorithms/moppo.py`, not by the environment. Any
   new env (including the eventual Isaac Lab one) must NOT put $w$ into its

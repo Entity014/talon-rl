@@ -74,52 +74,82 @@ def floor_clip(
 def floor_clip_terms(
     w: np.ndarray, term_names: tuple[str, ...], floors: dict[str, float]
 ) -> np.ndarray:
-    """Enforce several non-zero preference floors and renormalize once.
+    """Enforce several non-zero preference floors and renormalize -- a
+    water-filling projection onto the simplex-with-lower-bounds
+    {w' : sum(w')=1, w'_i >= lb_i}, lb_i = floors.get(term_names[i], 0).
 
     Balance is safety-critical for locomotion, so it needs the same invariant
     treatment as impact instead of disappearing in a random Dirichlet episode.
 
     Found 2026-09-18 (sampling 200k draws from the actual training
-    distribution): the non-floored ("adjustable") terms could go NEGATIVE.
-    The reduction that pays for raising a deficient floored term is
-    subtracted from the adjustable terms proportionally, but was
-    unclamped -- e.g. a Dirichlet draw with impact already at ~0.90 (well
-    above its own 0.05 floor, so untouched) and balance near 0 (needing
-    to jump to its 0.15 floor) leaves progress+energy+smoothness combined
-    with only ~0.10 of mass to give up, but paying for balance's rise
-    needs ~0.14 -- every adjustable term's reduction exceeds its own
-    value, driving all three negative at once. This silently violated the
-    invariant CLAUDE.md documents this pipeline as existing to guarantee
-    ("w always sums to 1 and never violates the impact floor"). Clamping
-    each adjustable term to >= 0 before the final renormalize fixes the
-    negative-weight case, which is the more severe one (a nonsensical
-    value under any interpretation) -- but note it's a trade, not a full
-    fix: in this same over-constrained regime, the final renormalize can
-    still leave a floored term (e.g. balance) slightly BELOW its nominal
-    floor, since dividing by a total > 1 shrinks every surviving
-    component, floors included. Reaching that residual edge case needs
-    one component to already hold most of the simplex's mass -- rare
-    under Dirichlet(1) (~0.01% per draw for a >0.9 single-component
-    marginal) but not impossible over a long training run. A fully
-    correct fix would let over-floor terms like impact give up mass down
-    to their OWN floor too, not just the adjustable terms; not implemented
-    here since the current trade (never negative, floor occasionally
-    undershot by a small amount in a rare case) is a strictly smaller
-    problem than the bug it replaces."""
-    w = w.copy()
-    indices = {name: term_names.index(name) for name in floors}
-    floor_values = np.array([floors[name] for name in floors], dtype=np.float32)
+    distribution, then just impact+balance floored): a naive "raise deficient
+    floors, pay for it by shrinking only the UNFLOORED ('adjustable') terms
+    proportionally to their own current value" produced negative adjustable
+    weights whenever the adjustable terms combined didn't have enough mass to
+    give up -- e.g. impact already at ~0.90 (above its own floor, untouched)
+    and balance near 0 (needing to jump to 0.15) leaves progress+energy+
+    smoothness only ~0.10 combined to pay balance's ~0.14 rise. That
+    version's fix (clamp adjustable to >= 0) stopped the negative-weight case
+    but left a residual: dividing by a total > 1 at the final renormalize
+    could still shrink an already-raised floor term below its own floor --
+    "rare" (~0.01% per draw) with only 2 floors sharing 3 adjustable terms to
+    draw from, but jumped to ~1.8% once `progress_floor_eps` (2026-09-19)
+    left only 2 adjustable terms (energy, smoothness) to fund 3 floors --
+    a straight-up invariant violation CLAUDE.md documents this pipeline as
+    existing to guarantee ("w never violates the impact/balance/progress
+    floors").
+
+    This version fixes it properly: floored terms that hold MORE than their
+    own floor (e.g. impact=0.90 above its 0.05 floor) also give up their
+    slack to pay for other terms' floors, not just the always-unfloored
+    ("adjustable") ones -- the "fully correct fix" the previous version's
+    docstring flagged as not implemented. Iterative (bounded by `dim`
+    rounds): each round, split the remaining excess proportionally across
+    every term's current slack (value above ITS OWN lower bound, 0 for an
+    unfloored term); any term whose share would push it below its own lower
+    bound is capped there instead (consuming exactly its slack, not its
+    proportional share) and excluded from the next round; terms unaffected
+    by a cap this round are fully resolved. Terminates in at most `dim`
+    rounds since each round with any capping permanently retires at least
+    one term. `test_floor_clip_terms_never_undershoots_its_own_floor` covers
+    the exact regression this fixes."""
+    w = w.astype(np.float64)  # water-filling iterates a few times; avoid float32 drift
+    dim = w.shape[1]
+    floor_values = np.array(list(floors.values()), dtype=np.float64)
     if np.any(floor_values < 0) or floor_values.sum() >= 1:
         raise ValueError("preference floors must be non-negative and sum to less than 1")
-    for name, index in indices.items():
-        w[:, index] = np.maximum(w[:, index], floors[name])
 
-    total = w.sum(axis=-1, keepdims=True)
-    excess = np.maximum(total - 1.0, 0.0)
-    adjustable = np.ones(w.shape[1], dtype=bool)
-    adjustable[list(indices.values())] = False
-    adjustable_values = w[:, adjustable]
-    adjustable_sum = adjustable_values.sum(axis=-1, keepdims=True)
-    reduction = excess * adjustable_values / np.maximum(adjustable_sum, 1e-8)
-    w[:, adjustable] = np.maximum(adjustable_values - reduction, 0.0)
-    return (w / w.sum(axis=-1, keepdims=True)).astype(np.float32)
+    lb = np.zeros(dim, dtype=np.float64)
+    for name, eps in floors.items():
+        lb[term_names.index(name)] = eps
+
+    result = np.maximum(w, lb[None, :])
+    remaining_excess = result.sum(axis=-1, keepdims=True) - 1.0  # always >= 0, sum(w)==1 pre-floor
+    active = result > lb[None, :] + 1e-12  # terms with slack, still eligible to be reduced
+
+    for _ in range(dim):
+        if not active.any():
+            break
+        slack = np.where(active, result - lb[None, :], 0.0)
+        slack_sum = slack.sum(axis=-1, keepdims=True)
+        safe_slack_sum = np.where(slack_sum > 1e-12, slack_sum, 1.0)
+        share = remaining_excess * slack / safe_slack_sum
+        would_be = result - share
+        newly_capped = active & (would_be < lb[None, :] - 1e-9)
+        row_has_cap = newly_capped.any(axis=-1, keepdims=True)
+
+        # rows with a cap this round: only settle the capped terms at their
+        # floor (consuming exactly their own slack); everything else in that
+        # row is deferred to the next round with the freed-up excess.
+        absorbed = np.where(newly_capped, slack, 0.0).sum(axis=-1, keepdims=True)
+        result = np.where(newly_capped, lb[None, :], result)
+        remaining_excess = np.where(row_has_cap, remaining_excess - absorbed, remaining_excess)
+        active = active & ~newly_capped
+
+        # rows with no cap this round: the proportional reduction is exact, resolve them now.
+        clean = active & ~row_has_cap
+        result = np.where(clean, would_be, result)
+        remaining_excess = np.where(row_has_cap, remaining_excess, 0.0)
+
+    result = np.maximum(result, 0.0)  # numerical safety only, should already hold from the loop
+    return (result / result.sum(axis=-1, keepdims=True)).astype(np.float32)
