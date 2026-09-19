@@ -44,22 +44,22 @@ def test_curriculum_alpha_interpolates_linearly_then_clamps_to_flat_end():
 def test_curriculum_alpha_orders_balance_above_progress_above_smoothness_impact_above_energy():
     """The ordering this curriculum exists to encode (2026-09-19 diagnosis:
     balance must come first or the robot never survives long enough for
-    progress to matter, energy is the least urgent per legged_gym/IsaacLab's
-    own reference config's negligible torque-penalty weight)."""
+    progress to matter; efficiency -- energy+smoothness merged the same day,
+    0.91 correlated -- is the least urgent per legged_gym/IsaacLab's own
+    reference config's negligible torque-penalty weight)."""
     reward_cfg = RewardVectorCfg()
-    by_name = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "smoothness": 1.5, "energy": 0.5}
+    by_name = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "efficiency": 0.5}
     start = tuple(by_name[name] for name in reward_cfg.term_names)
     idx = {name: i for i, name in enumerate(reward_cfg.term_names)}
     assert start[idx["balance"]] > start[idx["progress"]]
-    assert start[idx["progress"]] > start[idx["smoothness"]]
+    assert start[idx["progress"]] > start[idx["efficiency"]]
     assert start[idx["progress"]] > start[idx["impact"]]
-    assert start[idx["smoothness"]] > start[idx["energy"]]
-    assert start[idx["impact"]] > start[idx["energy"]]
+    assert start[idx["impact"]] > start[idx["efficiency"]]
 
 
 def test_sample_preference_vector_still_valid_simplex_under_curriculum():
     reward_cfg = RewardVectorCfg()
-    by_name = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "smoothness": 1.5, "energy": 0.5}
+    by_name = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "efficiency": 0.5}
     pref_cfg = PreferenceCfg(
         curriculum_alpha_start=tuple(by_name[name] for name in reward_cfg.term_names), curriculum_updates=100,
     )

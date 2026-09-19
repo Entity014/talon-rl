@@ -85,10 +85,25 @@ class RewardVectorCfg:
     produces a meaningful obstacle signal, sampling a preference weight for a
     zero-valued objective would create policy contexts with no learning signal.
     Add it back as a sixth objective only together with that signal.
-    """
 
-    term_names: tuple[str, ...] = ("progress", "energy", "impact", "smoothness", "balance")
-    active: tuple[bool, ...] = field(default_factory=lambda: (True, True, True, True, True))
+    `energy` and `smoothness` merged into a single `efficiency` term
+    2026-09-19: measured 0.91 correlation between their Episode_Reward
+    curves across a live training run (energy_reward penalizes torque*vel,
+    smoothness_reward's action_magnitude/joint_speed sub-penalties penalize
+    largely the same raw motion-intensity signal from a different angle) --
+    not two orthogonal preference axes in practice. Reducing 5 preference
+    dimensions to 4 also directly eases the Dirichlet(1,...,1) coverage
+    problem `preference.floor_clip_terms`'s own docstring and the
+    smoothness_reward docstring both flag ("already struggles at 5
+    dimensions"): fewer dims sharing the simplex means every term,
+    including the newly-floored `progress`, gets diluted less often by an
+    unfavorable draw. See `efficiency_reward` in reward.py -- it's the sum
+    of the same `energy_reward`/`smoothness_reward` functions, not a new
+    formula, so nothing about either term's own tuning changed, only that
+    they're no longer independently weighted."""
+
+    term_names: tuple[str, ...] = ("progress", "efficiency", "impact", "balance")
+    active: tuple[bool, ...] = field(default_factory=lambda: (True, True, True, True))
 
     # Reward-shaping constants (rough starting points, not tuned — expect to
     # retune once running on the real terrain curriculum, not the dummy env).

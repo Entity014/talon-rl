@@ -154,11 +154,13 @@ def main() -> None:
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
     reward_cfg = RewardVectorCfg()
-    # Balance > progress > smoothness/impact > energy -- by NAME through
+    # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single
     # source of truth for reward order" invariant). See --w_curriculum_updates'
     # own help text and PreferenceCfg's docstring for why this ordering.
-    _W_CURRICULUM_ALPHA_START = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "smoothness": 1.5, "energy": 0.5}
+    # `efficiency` (energy+smoothness merged 2026-09-19) takes over
+    # smoothness's old alpha -- it's the same "physical gentleness" family.
+    _W_CURRICULUM_ALPHA_START = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "efficiency": 1.5}
     pref_cfg = PreferenceCfg(
         curriculum_alpha_start=(
             tuple(_W_CURRICULUM_ALPHA_START[name] for name in reward_cfg.term_names)
@@ -201,9 +203,8 @@ def main() -> None:
             "| term | formula | inputs |\n"
             "|---|---|---|\n"
             "| progress | exp(-\\|\\|v_actual - v_command\\|\\|^2 / progress_std^2) | v_actual, v_command: (v_x, v_y, omega_z) |\n"
-            "| energy | -sum\\|joint_torque * joint_vel\\| | negated raw mechanical power |\n"
+            "| efficiency | -sum\\|joint_torque * joint_vel\\| - (sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | energy+smoothness merged 2026-09-19 (0.91 correlated) |\n"
             "| impact | -max(0, peak_foot_contact_force - threshold) / threshold | only force above threshold is penalized |\n"
-            "| smoothness | -(sum((action - prev_action)^2) + 0.01 * sum(joint_acc^2)) | action-rate and acceleration penalty |\n"
             "| balance | -sum(roll_pitch^2) | dense anti-fall orientation penalty |\n",
             0,
         )

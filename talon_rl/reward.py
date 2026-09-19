@@ -232,17 +232,31 @@ def balance_reward(
     return reward.astype(np.float32)
 
 
+def efficiency_reward(
+    joint_torque: np.ndarray, joint_vel: np.ndarray,
+    action: np.ndarray, prev_action: np.ndarray, joint_acc: np.ndarray,
+) -> np.ndarray:
+    """`energy` and `smoothness` merged into one preference dimension
+    (2026-09-19) -- see RewardVectorCfg's own docstring for why (0.91
+    measured correlation between their Episode_Reward curves, plus easing
+    the 5-dimension Dirichlet coverage problem). Just the sum of the same
+    two formulas below, unchanged -- no new tuning, only no longer
+    independently weighted by w. (N, 12) each -> (N,)."""
+    return energy_reward(joint_torque, joint_vel) + smoothness_reward(action, prev_action, joint_acc, joint_vel)
+
+
 _TERM_FUNCS = {
     "progress": lambda t, cfg: progress_reward(
         t["v_actual"], t["v_command"], cfg.progress_std, t.get("foot_air_time_reward")
     ),
     "clearance": lambda t, cfg: clearance_reward(t["obstacle_dist"]),
-    "energy": lambda t, cfg: energy_reward(t["joint_torque"], t["joint_vel"]),
     "impact": lambda t, cfg: impact_reward(
         t["foot_contact_force"], foot_vel=t.get("foot_vel"),
         undesired_contact_count=t.get("undesired_contact_count"),
     ),
-    "smoothness": lambda t, cfg: smoothness_reward(t["action"], t["prev_action"], t["joint_acc"], t["joint_vel"]),
+    "efficiency": lambda t, cfg: efficiency_reward(
+        t["joint_torque"], t["joint_vel"], t["action"], t["prev_action"], t["joint_acc"]
+    ),
     "balance": lambda t, cfg: balance_reward(
         t["roll_pitch"], t.get("terminal_fall"), cfg.fall_penalty, cfg.alive_bonus,
         t.get("v_z"), t.get("height"),

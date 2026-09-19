@@ -5,6 +5,7 @@ from talon_rl.reward import (
     balance_reward,
     clearance_reward,
     compute_reward_vector,
+    efficiency_reward,
     energy_reward,
     impact_reward,
     progress_reward,
@@ -142,6 +143,24 @@ def test_smoothness_reward_penalizes_a_large_action_held_steady():
     assert np.all(r_large_steady < r_small_steady), "a large steady action must cost more than a small steady one"
 
 
+def test_efficiency_reward_is_energy_plus_smoothness():
+    """energy and smoothness merged into one preference dimension
+    2026-09-19 (0.91 measured correlation, eases the 5-dim Dirichlet
+    coverage problem) -- efficiency_reward must be exactly their sum, not
+    a new formula, so neither term's own tuning silently changed."""
+    torque = np.full((2, 12), 3.0)
+    vel = np.full((2, 12), 1.0)
+    action = np.full((2, 12), 0.5)
+    prev_action = np.zeros((2, 12))
+    acc = np.zeros((2, 12))
+
+    r_energy = energy_reward(torque, vel)
+    r_smoothness = smoothness_reward(action, prev_action, acc, vel)
+    r_efficiency = efficiency_reward(torque, vel, action, prev_action, acc)
+
+    assert np.allclose(r_efficiency, r_energy + r_smoothness)
+
+
 def test_balance_reward_is_max_at_zero_tilt():
     # comment says which failure this prevents: a sign error here would
     # reward tipping over instead of penalizing it, silently undoing the
@@ -213,7 +232,7 @@ def test_alive_bonus_adds_flat_reward_only_while_not_fallen():
 
 
 def test_compute_reward_vector_respects_active_mask_and_order():
-    cfg = RewardVectorCfg(active=(True, False, True, False, True))
+    cfg = RewardVectorCfg(active=(True, False, True, False))
     n = 4
     transition = {
         "obs": np.zeros((n, 1)),  # only used by compute_reward_vector to infer N
@@ -225,7 +244,7 @@ def test_compute_reward_vector_respects_active_mask_and_order():
         "roll_pitch": np.zeros((n, 2)),
     }
     r = compute_reward_vector(transition, cfg)
-    assert r.shape == (n, 5)
-    assert np.allclose(r[:, 1], 0.0)  # energy masked off
-    assert np.allclose(r[:, 3], 0.0)  # smoothness masked off
+    assert r.shape == (n, 4)
+    assert np.allclose(r[:, 1], 0.0)  # efficiency (energy+smoothness merged) masked off
+    assert np.allclose(r[:, 3], 0.0)  # balance masked off
     assert np.all(r[:, 0] != 0.0)     # progress active

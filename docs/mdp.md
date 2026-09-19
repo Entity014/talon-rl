@@ -39,22 +39,33 @@ place that indexes by position (there currently isn't one; everything goes
 through the name, but a raw index would silently break if this changes):
 
 1. `progress` — exp-kernel velocity tracking (go-anywhere navigation)
-2. `energy` — negative raw power (efficiency)
+2. `efficiency` — negative raw power (energy) plus action-rate,
+   joint-acceleration, action-magnitude, and joint-speed penalty
+   (smoothness/hardware wear; see "Grouped sub-penalties" below). Merged
+   from separate `energy`/`smoothness` terms 2026-09-19 — measured 0.91
+   correlation between their Episode_Reward curves on a live training run,
+   not two orthogonal preference axes in practice; merging also eases the
+   Dirichlet(1,...,1) coverage problem noted below (5 dims -> 4).
 3. `impact` — continuous impact mitigation \cite{strauch2025crashcourse},
    penalizes peak contact force above a threshold, not just falls, plus
    foot-slip and undesired-contact sub-penalties (see "Grouped
    sub-penalties" below)
-4. `smoothness` — action-rate, joint-acceleration, action-magnitude, and
-   joint-speed penalty (hardware wear; see "Grouped sub-penalties" below)
-5. `balance` — negative squared trunk roll/pitch (a dense anti-fall signal
+4. `balance` — negative squared trunk roll/pitch (a dense anti-fall signal
    before the contact-based fall termination fires), plus an `alive_bonus`
    and a vertical-bounce sub-penalty (see "Grouped sub-penalties" below)
 
-All five are dimensions of the Phase-1 preference vector $w$. This follows
+All four are dimensions of the Phase-1 preference vector $w$. This follows
 AMOR's use of smoothness and root orientation as separately weighted
 objectives: the policy can negotiate tracking, wear, and stability rather
 than hard-coding one simulator-specific trade-off. Fall termination and the
 eventual hardware safety supervisor remain independent hard safety layers.
+
+`progress`, `impact`, and `balance` each carry a permanent preference floor
+(`RewardVectorCfg.progress_floor_eps`/`impact_floor_eps`/`balance_floor_eps`,
+enforced by `preference.floor_clip_terms`) so none of them can be diluted to
+near-zero by an unfavorable Dirichlet draw — `efficiency` deliberately does
+not (see `preference.py`'s own docstring on the water-filling projection
+this requires once 3+ terms are floored).
 
 `clearance` is intentionally absent for now. Its current scripted obstacle
 distance is not a meaningful training signal; putting a zero-valued channel
