@@ -169,6 +169,23 @@ class RewardVectorCfg:
     # 0.004/0.008 (p90(|pitch_rate|)=5.037 rad/s at pre-fall -> k*5.037^2
     # ~= 0.10/0.20).
     balance_tilt_rate_coef: float = 0.0
+    # Coefficient on balance_reward's -(height-target_height)^2 term.
+    # Default 1.0 = old unscaled behavior. Added 2026-09-20 after
+    # balance_decomposition.py showed checkpoints A/B/D (balance_tilt_coef
+    # swept 1.0/3.5/2.0) all settled around height~0.21-0.25 vs
+    # target_height=0.42 regardless of tilt strength -- crouching is a
+    # height-reward loophole orthogonal to the tilt_coef sweep. Calibrated
+    # against a 2026-09-20 normal-vs-pre-fall height distribution
+    # (prefall_window_analysis.py, checkpoints A and B): p90(|height-0.42|)
+    # ~0.26-0.27 across the whole (non-fall) trajectory, giving
+    # `k * 0.27**2 ~= target_penalty` -> k~1.3-3.0 for target 0.1-0.2,
+    # k~6.6-7.6 for target 0.5. The SAME data also showed the "normal"
+    # (non-pre-fall) window's height median sits at ~0.39-0.40, close to
+    # target -- confirming 0.42 is a physically reachable steady-state
+    # height for this gait, not an unrealistic target being forced onto a
+    # policy that can only walk crouched. Swept 5/10 (H2/H3) on top of the
+    # k_theta=1.0/k_dot=0 baseline (A), isolated from the tilt sweep.
+    balance_height_coef: float = 1.0
 
     @property
     def dim(self) -> int:

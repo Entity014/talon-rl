@@ -126,6 +126,14 @@ def main() -> None:
              "pre-fall from normal-walking states ~3.2-3.6x (p50/p90), sharper than |pitch|'s own "
              "~2x -- candidates 0.004, 0.008.",
     )
+    parser.add_argument(
+        "--balance_height_coef", type=float, default=None,
+        help="Override RewardVectorCfg.balance_height_coef (default 1.0). Exposed 2026-09-20: "
+             "checkpoints A/B/D (balance_tilt_coef swept 1.0/3.5/2.0) all crouched to "
+             "height~0.21-0.25 vs target 0.42 regardless of tilt strength -- height_penalty's own "
+             "coefficient is too small (dynamic range ~0.04 at typical error) next to fall_penalty "
+             "(-25) and alive_bonus (+1) for the policy to prefer standing tall. Sweep candidates 5, 10.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -195,6 +203,8 @@ def main() -> None:
         reward_cfg_overrides["balance_tilt_coef"] = args.balance_tilt_coef
     if args.balance_tilt_rate_coef is not None:
         reward_cfg_overrides["balance_tilt_rate_coef"] = args.balance_tilt_rate_coef
+    if args.balance_height_coef is not None:
+        reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single

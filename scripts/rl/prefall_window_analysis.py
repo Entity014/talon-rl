@@ -2,14 +2,24 @@
 """Pre-fall vs normal-window comparison: for every fall in a rollout, looks
 at [t_fall-window, t_fall) and compares |pitch|, |pitch_rate| (real
 body-frame angular velocity from a1_env.py's transition dict, not a
-finite-difference approximation), balance_reward, and action_magnitude
-against the same quantities elsewhere in the trajectory (the complement
-of all pre-fall windows) -- calibrates what tilt-angle/tilt-rate range
-balance_tilt_coef/balance_tilt_rate_coef should actually target, rather
-than guessing candidate values with no grounding in what pre-fall states
-look like. Also reports a lead-time snapshot (value at fixed offsets
-before each fall) to check whether pitch_rate is a genuine early-warning
-signal or only spikes in the last step or two.
+finite-difference approximation), height, balance_reward, and
+action_magnitude against the same quantities elsewhere in the trajectory
+(the complement of all pre-fall windows) -- calibrates what tilt-angle/
+tilt-rate/height range balance_tilt_coef/balance_tilt_rate_coef/
+height_coef should actually target, rather than guessing candidate values
+with no grounding in what pre-fall states look like. Also reports a
+lead-time snapshot (value at fixed offsets before each fall) to check
+whether pitch_rate is a genuine early-warning signal or only spikes in
+the last step or two.
+
+height is tracked unconditionally (not just pre-fall/normal split) so
+this same script run against a checkpoint already known to crouch
+(2026-09-20: A/B/D all settle around height 0.21-0.25 vs target 0.42
+regardless of balance_tilt_coef) gives that checkpoint's own height
+percentiles -- comparing a genuinely-walking baseline's normal-window
+height against a crouching checkpoint's height tells us whether
+target_height=0.42 is even a physically-reachable region for this gait,
+before picking a height_coef strong enough to push toward it.
 
 Reuses the same rollout mechanics as balance_progress_trace.py (deterministic
 act_inference under a forced w/command) but aggregates over ALL lanes'
@@ -44,6 +54,7 @@ def main() -> None:
     parser.add_argument("--window", type=int, default=10, help="How many steps before each fall counts as 'pre-fall'")
     parser.add_argument("--command", type=float, nargs=3, default=(0.5, 0.0, 0.0), metavar=("VX", "VY", "WZ"))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--target_height", type=float, default=0.42)
     args = parser.parse_args()
 
     os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
@@ -79,6 +90,7 @@ def main() -> None:
     pitch = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     roll = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     pitch_rate = np.zeros((args.steps, args.num_envs), dtype=np.float32)
+    height = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     r_balance = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     action_mag = np.zeros((args.steps, args.num_envs), dtype=np.float32)
     fell = np.zeros((args.steps, args.num_envs), dtype=bool)
@@ -98,6 +110,7 @@ def main() -> None:
         # finite-difference approximation of pitch across steps -- see
         # a1_env.py's transition dict / balance_reward's tilt_rate_coef.
         pitch_rate[t] = transition["roll_pitch_rate"][:, 1]
+        height[t] = transition["height"]
         r_balance[t] = reward_vec[:, balance_idx]
         action_mag[t] = np.abs(action).mean(axis=-1)
         fell[t] = transition.get("terminal_fall", done)
@@ -124,12 +137,14 @@ def main() -> None:
     print(f"pre-fall window: last {args.window} steps before each fall\n")
     for name, arr in [
         ("|pitch|", np.abs(pitch)), ("|roll|", np.abs(roll)),
-        ("|pitch_rate|", np.abs(pitch_rate)),
+        ("|pitch_rate|", np.abs(pitch_rate)), ("height", height),
         ("balance_reward", r_balance), ("action_magnitude", action_mag),
     ]:
         print(f"{name}:")
         print(f"  pre-fall: {stats(pre_fall_mask, arr)}")
         print(f"  normal:   {stats(normal_mask, arr)}")
+        if name == "height":
+            print(f"  all:      {stats(~fell, arr)}")
 
     # Lead-time check: is pitch_rate an EARLY warning signal (rising steadily
     # before the fall) or does it only spike in the last step or two (i.e.
@@ -174,6 +189,19 @@ def main() -> None:
         for target in (0.1, 0.2, 0.5):
             k = target / (pitch_rate_p90_prefall ** 2)
             print(f"  target penalty={target}: k_theta_dot ~= {k:.4f}")
+
+    # height_coef suggestion: same p90-solve method, but anchored on the
+    # non-fall window's height ERROR (not pre-fall -- crouching isn't a
+    # fall-precursor, it's a steady-state loophole, so the whole
+    # surviving trajectory is the relevant population here).
+    height_err_all = np.abs(height - args.target_height)[~fell]
+    if height_err_all.size:
+        height_err_p90 = np.percentile(height_err_all, 90)
+        print(f"\nheight_coef suggestions (solving k * p90(|height-target|)^2 = target penalty, "
+              f"p90(|height-{args.target_height}|)={height_err_p90:.4f}):")
+        for target in (0.1, 0.2, 0.5):
+            k = target / (height_err_p90 ** 2)
+            print(f"  target penalty={target}: height_coef ~= {k:.2f}")
 
 
 if __name__ == "__main__":

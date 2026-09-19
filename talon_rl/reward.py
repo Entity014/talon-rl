@@ -215,6 +215,7 @@ def balance_reward(
     alive_bonus: float = 0.0, v_z: np.ndarray | None = None, height: np.ndarray | None = None,
     target_height: float = 0.42, tilt_coef: float = 1.0,
     roll_pitch_rate: np.ndarray | None = None, tilt_rate_coef: float = 0.0,
+    height_coef: float = 1.0,
 ) -> np.ndarray:
     """Penalizes trunk tilt directly -- a dense, per-step gradient against
     falling. Not in chapter3.tex's original table 3.3; added because none of
@@ -291,14 +292,26 @@ def balance_reward(
     `target_height=0.42` is UNITREE_A1_CFG's own spawn height
     (isaaclab_assets/robots/unitree.py) -- the pose the robot is already
     built to stand at, not a swept/tuned value. Optional, same reasoning as
-    v_z above (DummyTalonEnv has no terrain to measure height above)."""
+    v_z above (DummyTalonEnv has no terrain to measure height above).
+
+    `height_coef` (added 2026-09-20, default 1.0 = old unscaled behavior):
+    found via balance_decomposition.py that checkpoints A/B/D (tilt_coef
+    swept 1.0/3.5/2.0, tilt_rate_coef 0/0.004/0) ALL settled around
+    height~0.21-0.25 vs target_height=0.42 regardless of tilt strength --
+    crouching is a height-reward loophole orthogonal to the tilt sweep, not
+    caused by it. At a typical ~0.20 height error, `-(0.20)**2 = -0.04` is
+    tiny next to fall_penalty=-25 on termination and alive_bonus=+1 for
+    surviving in the crouched pose -- same "coefficient too small for its
+    quadratic scale to register" issue tilt_coef fixed for pitch, now
+    applied to height. Exposed as its own scale knob rather than folded
+    into a larger constant, same pattern as tilt_coef/tilt_rate_coef."""
     reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus
     if roll_pitch_rate is not None:
         reward = reward - tilt_rate_coef * np.sum(roll_pitch_rate.astype(np.float32) ** 2, axis=-1)
     if v_z is not None:
         reward = reward - v_z.astype(np.float32) ** 2
     if height is not None:
-        reward = reward - (height.astype(np.float32) - target_height) ** 2
+        reward = reward - height_coef * (height.astype(np.float32) - target_height) ** 2
     if terminal_fall is not None:
         reward = reward - np.asarray(terminal_fall, dtype=np.float32) * fall_penalty
     return reward.astype(np.float32)
@@ -356,6 +369,7 @@ _TERM_FUNCS = {
         t["roll_pitch"], t.get("terminal_fall"), cfg.fall_penalty, cfg.alive_bonus,
         t.get("v_z"), t.get("height"), tilt_coef=cfg.balance_tilt_coef,
         roll_pitch_rate=t.get("roll_pitch_rate"), tilt_rate_coef=cfg.balance_tilt_rate_coef,
+        height_coef=cfg.balance_height_coef,
     ),
 }
 
