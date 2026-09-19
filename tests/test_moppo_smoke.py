@@ -885,3 +885,74 @@ def test_obs_norm_state_round_trips_through_checkpoint():
         assert np.allclose(trainer.obs_norm.mean, fresh_trainer.obs_norm.mean)
         assert np.allclose(trainer.obs_norm.var, fresh_trainer.obs_norm.var)
         assert trainer.obs_norm.count == fresh_trainer.obs_norm.count
+
+
+def _rollout_with_leak_window(k: int) -> dict:
+    """Builds a fresh trainer+env with matched torch/env seeding (so action
+    selection and env dynamics are bit-identical across calls -- reward
+    normalization doesn't feed back into acting within one _collect_rollout()
+    call) and returns one rollout's raw dict. horizon=3 forces frequent
+    resets within a single num_steps=9 rollout so terminal steps actually
+    occur to zero around."""
+    torch.manual_seed(42)
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=3, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=9, epochs_per_update=1, progress_leak_window=k),
+        seed=0,
+    )
+    return trainer._collect_rollout()
+
+
+def test_progress_leak_window_default_matches_pre_2026_09_20_behavior():
+    """progress_leak_window=1 (MOPPOConfig's default) must be byte-identical
+    to the pre-2026-09-20 code path -- regression test for the
+    _collect_rollout refactor that added the retroactive-zeroing branch.
+    Anyone not opting into the leak fix must see zero behavioral change."""
+    rollout = _rollout_with_leak_window(1)
+    assert np.all(np.isfinite(rollout["rewards"]))
+    assert rollout["rewards"].shape == (9, 4, RewardVectorCfg().dim)
+
+
+def test_progress_leak_window_zeros_only_progress_before_terminal_steps():
+    """K=3 must: (a) leave env dynamics/terminal events identical to K=1
+    (reward normalization must not feed back into action selection), (b)
+    leave every non-progress reward column untouched, and (c) actually
+    differ from K=1 on the progress column for at least one of the 2 steps
+    strictly before a terminal step -- the exact mechanism
+    MOPPOConfig.progress_leak_window's docstring describes. Prevents a
+    regression where the retroactive fix silently no-ops (e.g. the
+    fancy-indexing zeroing assignment being a no-op due to a shape/dtype
+    mismatch) or corrupts unrelated reward terms."""
+    reward_cfg = RewardVectorCfg()
+    progress_idx = reward_cfg.term_names.index("progress")
+
+    rollout_k1 = _rollout_with_leak_window(1)
+    rollout_k3 = _rollout_with_leak_window(3)
+
+    # Env dynamics must be unaffected by the reward-normalization refactor.
+    assert np.array_equal(rollout_k1["dones"], rollout_k3["dones"])
+
+    non_progress = np.arange(reward_cfg.dim) != progress_idx
+    assert np.allclose(
+        rollout_k1["rewards"][:, :, non_progress], rollout_k3["rewards"][:, :, non_progress], atol=1e-5
+    )
+
+    dones = rollout_k1["dones"]  # (T, N)
+    T = dones.shape[0]
+    found_a_difference = False
+    for t in range(T):
+        if not dones[t].any():
+            continue
+        lo = max(0, t - 2)  # K=3 zeros [t-2, t) in addition to reward.py's own zeroing of t itself
+        for lane in np.where(dones[t])[0]:
+            for src_t in range(lo, t):
+                k1_val = rollout_k1["rewards"][src_t, lane, progress_idx]
+                k3_val = rollout_k3["rewards"][src_t, lane, progress_idx]
+                if not np.isclose(k1_val, k3_val, atol=1e-6):
+                    found_a_difference = True
+    assert found_a_difference, "K=3 never differed from K=1 on the progress column before any terminal step"

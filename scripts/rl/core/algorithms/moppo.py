@@ -152,6 +152,34 @@ class MOPPOConfig:
     # term ramped) — see reward.py's compute_reward_vector call site.
     penalty_curriculum_init: float = 0.03
     penalty_curriculum_growth: float = 0.997
+    # How many steps ending at (and including) each terminal_fall step get
+    # their RAW progress_reward zeroed before normalization. Default 1 =
+    # today's existing behavior (reward.py's progress_reward already zeros
+    # the exact terminal step via its own terminal_fall param) -- this
+    # field only ADDS retroactive zeroing for the (K-1) steps strictly
+    # BEFORE the fall, composing with reward.py's existing fix rather than
+    # replacing it. Added 2026-09-20 (Experiment 2A.3) after
+    # fall_cycle_analysis.py found v_x (and therefore progress_reward)
+    # consistently RISES in the last few steps before a fall across every
+    # seed tested -- a "falling forward" reward leak the exact-step-only
+    # fix (2026-09-19) explicitly left open pending evidence it was large
+    # enough to matter. progress_leak_counterfactual.py quantified it:
+    # Spearman rank correlation of per-lane total progress reward against
+    # the shipped K=1 formula drops to 0.36-0.62 by K=10 (not a uniform
+    # end-of-episode tax -- widening the zero-window meaningfully re-ranks
+    # which lanes look good), with the steepest single jump at K=1->K=2 in
+    # every seed and no clean knee before the ~13-15-step fall-cycle
+    # period itself starts confounding the analysis (a window approaching
+    # the cycle length starts zeroing the PREVIOUS fall's recovery period
+    # too, not just genuine pre-fall leak). K=5 chosen as a judgment call
+    # sitting past the sharp early jump and before that confound, not a
+    # sharp statistical optimum -- see talon-thesis 2026-09-20 daily note.
+    # Requires retroactively rewriting past buffered reward entries once a
+    # LATER step's fall becomes known, which the raw per-step
+    # compute_reward_vector() call (reward.py) has no way to do on its own
+    # since it only ever sees the current step -- see _collect_rollout's
+    # own comment at the zeroing call site for how this is applied.
+    progress_leak_window: int = 1
     # A performance-gated log_std mechanism (block log_std from decreasing
     # on any update() whose mean_episode_len underperforms an EMA baseline
     # of its own recent history) was tried 2026-09-18 and REMOVED the same
@@ -369,6 +397,7 @@ class MOPPOTrainer:
         actor_obs_list, critic_obs_list, act_list, logp_list, rew_list, val_list, terminal_list = (
             [], [], [], [], [], [], []
         )
+        raw_rew_list = []  # only populated when self.cfg.progress_leak_window > 1 -- see the per-step branch below
         extrinsics_list = []  # (T, N, extrinsics_dim) — the e_t used to build this step's z_t, for update()'s live re-encode
         # Termination-reason breakdown (2026-09-18) — mean_episode_length
         # alone can't say whether the ~6-13 step floor is falls, timeouts,
@@ -434,23 +463,42 @@ class MOPPOTrainer:
             reward_vec = reward_vec.copy()
             non_progress = np.arange(reward_vec.shape[-1]) != self._progress_idx
             reward_vec[:, non_progress] *= self._penalty_k
-            self.reward_norm.update(reward_vec)
-            # center=True (2026-09-18) -- see running_norm.py's own
-            # docstring on this default for the full derivation, but
-            # briefly: an uncentered term carries a constant additive bias
-            # (mean/std) into every reward sample, which GAE then amplifies
-            # unevenly across a rollout window (bias accumulates over
-            # ~1/(1-gamma*lambda) steps of lookahead, so samples near an
-            # episode boundary or near the end of the num_steps window
-            # carry less accumulated bias than samples in the middle) --
-            # normalize_per_objective's later per-batch mean-subtraction
-            # only removes the AVERAGE of that position-dependent bias, not
-            # its sample-to-sample variation, leaving a spurious
-            # "how-close-to-a-boundary" signal baked into the advantage
-            # that has nothing to do with policy quality. Measured on this
-            # reward vector: energy's raw mean/std ratio alone was -1.06 --
-            # comparable in size to the term's own std, not a small effect.
-            reward_vec = self.reward_norm.normalize(reward_vec, center=True)
+
+            if self.cfg.progress_leak_window <= 1:
+                # Default path, byte-identical to pre-2026-09-20 behavior:
+                # normalize inline, using running stats as they stand at
+                # THIS step (a true online/incremental normalizer). Kept as
+                # a separate branch rather than always deferring to the
+                # end-of-rollout replay below so progress_leak_window=1
+                # (the default) carries zero risk of changing training
+                # behavior for anyone not opting into the leak fix.
+                self.reward_norm.update(reward_vec)
+                # center=True (2026-09-18) -- see running_norm.py's own
+                # docstring on this default for the full derivation, but
+                # briefly: an uncentered term carries a constant additive bias
+                # (mean/std) into every reward sample, which GAE then amplifies
+                # unevenly across a rollout window (bias accumulates over
+                # ~1/(1-gamma*lambda) steps of lookahead, so samples near an
+                # episode boundary or near the end of the num_steps window
+                # carry less accumulated bias than samples in the middle) --
+                # normalize_per_objective's later per-batch mean-subtraction
+                # only removes the AVERAGE of that position-dependent bias, not
+                # its sample-to-sample variation, leaving a spurious
+                # "how-close-to-a-boundary" signal baked into the advantage
+                # that has nothing to do with policy quality. Measured on this
+                # reward vector: energy's raw mean/std ratio alone was -1.06 --
+                # comparable in size to the term's own std, not a small effect.
+                reward_vec = self.reward_norm.normalize(reward_vec, center=True)
+            else:
+                # progress_leak_window > 1: this step's raw reward can't be
+                # normalized yet -- whether ITS OWN progress value needs
+                # retroactive zeroing depends on whether a fall happens up
+                # to (progress_leak_window - 1) steps LATER, which isn't
+                # known until future steps are collected. Stash the raw
+                # vector; the retroactive fix + deferred update()/
+                # normalize() replay happens once the full rollout is in
+                # hand, see below the loop.
+                raw_rew_list.append(reward_vec)
 
             self._lane_step_count += 1
             self._lane_step_count[done] = 0
@@ -464,12 +512,51 @@ class MOPPOTrainer:
             critic_obs_list.append(critic_obs_w)
             act_list.append(action)
             logp_list.append(logp_t.cpu().numpy())
-            rew_list.append(reward_vec)
+            if self.cfg.progress_leak_window <= 1:
+                rew_list.append(reward_vec)  # already normalized above
+            # else: rew_list is populated in the post-loop replay pass below
             val_list.append(value_t.cpu().numpy())
             terminal_list.append(terminal)
 
             self._prev_done = done
             self._t += 1
+
+        if self.cfg.progress_leak_window > 1:
+            # Retroactive progress-reward-leak fix (Experiment 2A.3,
+            # 2026-09-20) -- see MOPPOConfig.progress_leak_window's own
+            # docstring for the evidence this responds to. Zeros RAW
+            # progress reward for the (progress_leak_window - 1) steps
+            # STRICTLY BEFORE each terminal_fall step, on top of
+            # reward.py's own existing exact-step zeroing (which already
+            # ran inside compute_reward_vector, per-step, above) --
+            # composing the two rather than duplicating reward.py's logic
+            # here. Zeroing RAW values (not the normalized ones) matters:
+            # letting reward_norm.update()/normalize() run on the FIXED
+            # raw values (not the leaky ones) means a zeroed step gets a
+            # genuinely negative (below running-average) normalized
+            # reward after center=True, the same way reward.py's existing
+            # exact-step zeroing already does -- forcing the POST-
+            # normalized value to a bare 0.0 instead would be a weaker,
+            # inconsistent fix (0.0 in mean-centered space means "average",
+            # not "none"). This is exactly progress_leak_counterfactual.py's
+            # own zeroed_reward(k) windowing (lo=max(0,t-(k-1)),
+            # inclusive of t) applied only to [lo, t) since t itself is
+            # already handled by reward.py.
+            raw_rewards = np.stack(raw_rew_list)  # (T, N, K)
+            terminal_arr = np.stack(terminal_list)  # (T, N)
+            k = self.cfg.progress_leak_window
+            for t in range(len(terminal_list)):
+                if terminal_arr[t].any():
+                    lo = max(0, t - (k - 1))
+                    raw_rewards[lo:t, terminal_arr[t], self._progress_idx] = 0.0
+            # Replay update()/normalize() in original per-step order --
+            # preserves the online/incremental normalization behavior
+            # running_norm.py's own docstring explains matters for GAE
+            # bias (see the K<=1 branch's identical comment above), just
+            # deferred until after the fix is applied instead of inline.
+            for t in range(raw_rewards.shape[0]):
+                self.reward_norm.update(raw_rewards[t])
+                rew_list.append(self.reward_norm.normalize(raw_rewards[t], center=True))
 
         with torch.no_grad():
             final_critic_obs_w = self._critic_obs()

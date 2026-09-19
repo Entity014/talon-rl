@@ -102,6 +102,16 @@ def main() -> None:
              "practice is likely negligible at that coefficient.",
     )
     parser.add_argument(
+        "--progress_leak_window", type=int, default=1,
+        help="MOPPOConfig.progress_leak_window (default 1 = today's existing behavior). Exposed "
+             "2026-09-20 (Experiment 2A.3) after progress_leak_counterfactual.py quantified a "
+             "pre-fall progress-reward leak (v_x, and therefore progress_reward, rises in the last "
+             "few steps before a fall) large enough to re-rank which lanes look good (Spearman rho "
+             "vs the shipped K=1 formula drops to 0.36-0.62 by K=10). K=5 chosen as a one-factor "
+             "retrain candidate -- see MOPPOConfig's own docstring for the full reasoning and why "
+             "K=5 specifically.",
+    )
+    parser.add_argument(
         "--progress_std", type=float, default=None,
         help="Override RewardVectorCfg.progress_std (default 0.5). Exposed 2026-09-19 for a "
              "reward-vs-tracking_ratio proxy-mismatch ablation, found alongside restricting "
@@ -236,6 +246,7 @@ def main() -> None:
         device="cuda" if args.env == "isaac_lab" else "cpu",
         torch_compile=args.torch_compile,
         mean_reg_coef=args.mean_reg_coef,
+        progress_leak_window=args.progress_leak_window,
     )
     extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" and not args.no_encoder else None
 
