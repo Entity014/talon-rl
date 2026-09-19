@@ -28,6 +28,12 @@ behavior exactly) and reports:
     means closing the leak would meaningfully re-rank which behavior
     gets reinforced, i.e. the leak is large enough to matter for
     training, not just an end-of-episode rounding error.
+  - (2026-09-20, Experiment 2A.3) consecutive-K rank correlation and
+    marginal reward removed, K vs K+1 across a finer grid -- locates the
+    minimal effective leak window: the smallest K past which extending
+    the zero-window further barely changes the ranking or removes much
+    more reward. That K, not an arbitrarily round number, is what should
+    actually be zeroed if this leak gets fixed and retrained.
 
 Uses the SAME v_actual/v_command/terminal_fall data reward.py's real
 progress_reward reads -- this is the exact formula (exp-kernel,
@@ -71,7 +77,11 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--command", type=float, nargs=3, default=(0.5, 0.0, 0.0), metavar=("VX", "VY", "WZ"))
     parser.add_argument("--seed", type=int, default=0, help="Sets cfg.seed BEFORE env creation (not just trainer.rng)")
-    parser.add_argument("--leak_windows", type=int, nargs="+", default=[0, 1, 3, 5, 10], help="K values to compare (K=0: no zeroing at all, the pre-2026-09-19 formula; K=1: today's shipped fix)")
+    parser.add_argument(
+        "--leak_windows", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20],
+        help="K values to compare (K=0: no zeroing at all, the pre-2026-09-19 formula; K=1: today's shipped fix). "
+             "Fine-grained near the small end to locate the minimal-effective-window knee (Experiment 2A.3).",
+    )
     parser.add_argument("--progress_std", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_tilt_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_tilt_rate_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
@@ -168,6 +178,20 @@ def main() -> None:
             print(f"  K=1 vs K={k:<3}: rho={rho:.4f}")
     else:
         print("\n(K=1 not in --leak_windows, skipping rank-correlation-vs-shipped-formula section)")
+
+    # Minimal-effective-window knee (Experiment 2A.3): correlation between
+    # CONSECUTIVE K values, not just vs K=1 -- finds where extending the
+    # zero-window further stops changing the ranking (rho_consecutive -> 1),
+    # i.e. the smallest K that already contains most of the leak's effect
+    # on which lanes look good. The K=1-vs-K table above shows how far the
+    # ranking has drifted from today's shipped formula; this one shows
+    # where that drift stops accumulating.
+    sorted_ks = sorted(args.leak_windows)
+    print("\nconsecutive-K rank correlation (locates the minimal-effective-window knee):")
+    for k_lo, k_hi in zip(sorted_ks, sorted_ks[1:]):
+        rho = _spearman(totals[k_lo], totals[k_hi])
+        marginal_reward = totals[k_lo].mean() - totals[k_hi].mean()
+        print(f"  K={k_lo:<3} vs K={k_hi:<3}: rho={rho:.4f}  marginal reward removed={marginal_reward:.4f}")
 
 
 if __name__ == "__main__":
