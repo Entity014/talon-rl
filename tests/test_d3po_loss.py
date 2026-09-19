@@ -4,6 +4,7 @@ MOPPOTrainer wires this in place of AMOR's early-scalarization.
 """
 
 import numpy as np
+import pytest
 import torch
 
 from rl.core.losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
@@ -83,3 +84,40 @@ def test_diversity_loss_positive_when_kl_and_l1_mismatch():
     w_prime = torch.tensor([[0.1]])  # far apart -> alpha*L1 > 0
     loss = diversity_regularizer_loss(mean_w, mean_w_prime, w, w_prime, std, alpha=5.0)
     assert loss.item() > 0.0
+
+
+def test_diversity_loss_stays_bounded_when_std_is_collapsed_near_the_exploration_floor():
+    """Found 2026-09-18: re-enabling diversity_lambda (0 -> 0.05) while the
+    policy's actual std sat near ActorCritic.LOG_STD_MIN (~0.2) produced a
+    policy loss in the billions within ~10 updates -- 2*std**2 in this
+    formula's denominator is tiny at that std, so even a modest few-unit
+    gap between mean_w and mean_w' blows kl into the hundreds before it's
+    squared again. min_std (default 0.5) floors the denominator so this
+    term stays numerically sane regardless of how collapsed exploration
+    currently is -- this reproduces that incident's std (0.2) and a
+    realistic max mean gap (2*ACTION_CLIP=6 per dim) and checks the loss
+    stays in a PPO-sane range, not the millions."""
+    std = torch.full((12,), 0.2)  # matches ActorCritic std at LOG_STD_MIN
+    mean_w = torch.full((1, 12), -3.0)
+    mean_w_prime = torch.full((1, 12), 3.0)  # worst case: every dim at opposite ACTION_CLIP extremes
+    w = torch.tensor([[0.9, 0.025, 0.025, 0.025, 0.025]])
+    w_prime = torch.tensor([[0.025, 0.025, 0.025, 0.025, 0.9]])
+
+    loss = diversity_regularizer_loss(mean_w, mean_w_prime, w, w_prime, std, alpha=1.0)
+    assert torch.isfinite(loss)
+    assert loss.item() <= 100.0, f"loss={loss.item()} -- exceeds max_loss, the hard safety net"
+
+
+def test_diversity_loss_max_loss_clamp_engages_even_with_min_std_already_applied():
+    """max_loss is a second, independent safety net on top of min_std (see
+    that param's docstring) -- proves it actually clamps, not just that
+    min_std alone happens to keep things bounded, by using a mean gap wide
+    enough to exceed max_loss=100 even at min_std's floor of 0.5."""
+    std = torch.full((12,), 0.2)
+    mean_w = torch.full((1, 12), -3.0)
+    mean_w_prime = torch.full((1, 12), 3.0)
+    w = torch.tensor([[0.9, 0.025, 0.025, 0.025, 0.025]])
+    w_prime = torch.tensor([[0.025, 0.025, 0.025, 0.025, 0.9]])
+
+    loss = diversity_regularizer_loss(mean_w, mean_w_prime, w, w_prime, std, alpha=1.0, max_loss=100.0)
+    assert loss.item() == pytest.approx(100.0)

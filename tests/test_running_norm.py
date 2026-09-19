@@ -26,9 +26,11 @@ def test_two_sequential_batches_match_combined_numpy_stats():
 
 
 def test_normalize_scales_by_std_without_centering():
-    # A term whose running mean is far from zero must NOT get shifted toward
-    # zero by normalize() — only scaled — so a bounded [0,1] term like
-    # clearance_reward keeps its 0-boundary meaning.
+    # center=False's actual behavior (divide by std, no mean-subtraction) --
+    # a mechanism-level test of the default, independent of which callers
+    # use it. As of 2026-09-18 neither of this class's real call sites
+    # (reward, extrinsics) actually use this default anymore -- see the
+    # class docstring -- this only guards center=False itself not changing.
     rms = RunningMeanStd(dim=1)
     rms.update(np.array([[10.0], [10.0], [10.0], [10.0]], dtype=np.float32))
     out = rms.normalize(np.array([[10.0]], dtype=np.float32))
@@ -51,9 +53,9 @@ def test_center_true_subtracts_mean_before_scaling():
     """Found 2026-09-18: MOPPOTrainer's extrinsics e_t reuses this class,
     but several extrinsics channels have a large nonzero mean with no
     special zero-meaning (e.g. motor stiffness Kp, running mean ~55 to
-    match RMA's Kp=55) -- normalize()'s default (no centering, correct for
-    REWARD terms) left those channels near the clip boundary on every
-    single sample regardless of training progress, which cascaded through
+    match RMA's Kp=55) -- normalize()'s center=False default left those
+    channels near the clip boundary on every single sample regardless of
+    training progress, which cascaded through
     EnvFactorEncoder into an oversized z_t and saturated the policy's tanh
     output (physics validation rollout: 86% of joints saturated, every env
     fell at nearly the same step). center=True must recover the value a
@@ -77,15 +79,30 @@ def test_center_true_collapses_a_zero_variance_channel_to_zero_not_the_clip():
     assert out == 0.0
 
 
-def test_center_false_default_still_matches_pre_2026_09_18_reward_behavior():
-    """Guards against accidentally flipping the default -- reward
-    normalization (docs/mdp.md's running per-objective normalization) must
-    keep its original no-centering behavior untouched by this change."""
+def test_center_false_stays_the_default_regardless_of_who_uses_it():
+    """Guards against accidentally flipping normalize()'s default itself --
+    center=False must still mean "divide by std, no subtraction," even
+    though no real caller in this codebase currently relies on that
+    default (both reward and extrinsics now pass center=True explicitly,
+    see the class docstring's 2026-09-18 note)."""
     rms = RunningMeanStd(dim=1)
     rms.update(np.array([[8.0], [10.0], [12.0]], dtype=np.float32))  # mean=10
     std = np.sqrt(rms.var[0] + 1e-8)
     out = rms.normalize(np.array([[10.0]], dtype=np.float32))[0, 0]
     assert np.isclose(out, 10.0 / std, atol=1e-3)
+
+
+def test_reward_normalization_now_centers():
+    """MOPPOTrainer._collect_rollout calls reward_norm.normalize(...,
+    center=True) as of 2026-09-18 -- see running_norm.py's normalize()
+    docstring for the GAE-amplification derivation that motivated this.
+    A sample equal to the running mean must normalize to ~0, matching
+    what the reward pipeline now actually gets, not the old
+    divide-by-std-only value."""
+    rms = RunningMeanStd(dim=1)
+    rms.update(np.array([[-800.0], [-844.0], [-900.0]], dtype=np.float32))  # ~energy's real scale
+    out = rms.normalize(np.array([[-844.0]], dtype=np.float32), center=True)[0, 0]
+    assert abs(out) < 0.5, "a sample at the running mean should normalize near 0 when centered"
 
 
 def test_state_dict_round_trip_preserves_stats():

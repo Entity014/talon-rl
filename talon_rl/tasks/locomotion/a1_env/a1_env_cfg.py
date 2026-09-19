@@ -88,6 +88,16 @@ class A1SceneCfg(InteractiveSceneCfg):
 
     contact_sensor = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*_foot", history_length=1)
     trunk_contact_sensor = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/trunk", history_length=1)
+    # impact_reward's undesired-contact sub-term (2026-09-19) -- found via
+    # a fixed-command video export that the policy drags its CALF (shin)
+    # segment along the ground to move instead of stepping with the foot.
+    # No existing sensor could see this: contact_sensor above only covers
+    # "*_foot" bodies, so a calf touching the ground produces contact force
+    # on a body neither this env nor its reward vector monitors at all --
+    # a genuine zero-cost loophole (unlike foot_slip, which only fires
+    # while the FOOT is in contact) that lets the policy make progress
+    # without ever paying foot_slip or peak-impact-force cost.
+    undesired_contact_sensor = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*_calf", history_length=1)
 
     dome_light = AssetBaseCfg(
         prim_path="/World/DomeLight",

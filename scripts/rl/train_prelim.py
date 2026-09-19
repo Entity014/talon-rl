@@ -55,9 +55,14 @@ def _format_iteration_log(
         f"{'Computation:':>{pad}} {timesteps_per_iter / max(iter_time, 1e-9):.0f} steps/s (iteration {iter_time:.3f}s)",
         f"{'Mean policy loss:':>{pad}} {stats['policy_loss']:.4f}",
         f"{'Mean value loss:':>{pad}} {stats['value_loss']:.4f}",
-        f"{'Mean entropy:':>{pad}} {stats['entropy']:.4f}",
+        f"{'Mean entropy:':>{pad}} {stats['entropy']:.8f}",
+        f"{'Mean-magnitude reg (raw actor_mean^2):':>{pad}} {stats.get('mean_reg', 0.0):.4f}",
         f"{'Penalty curriculum k:':>{pad}} {stats['penalty_curriculum_k']:.4f}",
+        f"{'log_std ceiling (annealing):':>{pad}} {stats.get('log_std_max', 0.0):.4f}",
         f"{'Mean episode length:':>{pad}} {stats['mean_episode_len']:.2f}",
+        f"{'Termination (fall/timeout/obstacle):':>{pad}} "
+        f"{stats.get('term_frac_base_contact', 0):.2f}/{stats.get('term_frac_time_out', 0):.2f}/"
+        f"{stats.get('term_frac_obstacle_reached', 0):.2f} (n={stats.get('done_count', 0)})",
         "",
     ]
     for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
@@ -87,6 +92,16 @@ def main() -> None:
         help="Compile the CUDA actor-critic with torch.compile to reduce Python/kernel overhead.",
     )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
+    parser.add_argument(
+        "--w_curriculum_updates", type=int, default=0,
+        help="Anneal the preference Dirichlet alpha from a balance>progress>smoothness/impact>energy-biased "
+             "start to the flat, full-simplex-uniform PreferenceCfg.dirichlet_alpha over this many updates, "
+             "instead of sampling uniformly from update 0 (the default, 0 = curriculum disabled). Found "
+             "necessary 2026-09-19: fromscratch_v2's uniform-from-start run plateaued ~10k updates with "
+             "near-zero forced-command velocity tracking -- progress has no preference floor (unlike "
+             "impact/balance) so a Dirichlet draw can dilute it to near-nothing before the policy reliably "
+             "learns to track at all. See PreferenceCfg's own docstring.",
+    )
     parser.add_argument("--stand_phase_s", type=float, default=2.0, help="Seconds of zero velocity command before locomotion commands are enabled.")
     parser.add_argument("--num_policy_stacks", type=int, default=1, help="History frames the actor sees (Flamingo-style stacking, see obs_stack.py).")
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="History frames the critic sees — can differ from --num_policy_stacks.")
@@ -139,7 +154,18 @@ def main() -> None:
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
     reward_cfg = RewardVectorCfg()
-    pref_cfg = PreferenceCfg()
+    # Balance > progress > smoothness/impact > energy -- by NAME through
+    # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single
+    # source of truth for reward order" invariant). See --w_curriculum_updates'
+    # own help text and PreferenceCfg's docstring for why this ordering.
+    _W_CURRICULUM_ALPHA_START = {"balance": 4.0, "progress": 3.0, "impact": 1.5, "smoothness": 1.5, "energy": 0.5}
+    pref_cfg = PreferenceCfg(
+        curriculum_alpha_start=(
+            tuple(_W_CURRICULUM_ALPHA_START[name] for name in reward_cfg.term_names)
+            if args.w_curriculum_updates > 0 else None
+        ),
+        curriculum_updates=args.w_curriculum_updates,
+    )
     stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
     moppo_cfg = MOPPOConfig(
         device="cuda" if args.env == "isaac_lab" else "cpu",
@@ -154,7 +180,14 @@ def main() -> None:
         run_dir = make_run_dir(args.logs_root, run_name=args.run_name)
         dump_config(run_dir, obs=obs_cfg, action=action_cfg, reward=reward_cfg, preference=pref_cfg, stack=stack_cfg, moppo=moppo_cfg)
         log_dir = os.path.join(run_dir, "tensorboard")
-        save_path = os.path.join(run_dir, "checkpoint.pt")
+        # checkpoints/ subdir, not flat in run_dir -- a long run dumps dozens
+        # of checkpoint_t*.pt files (see the save_every block below) that
+        # would otherwise clutter run_dir alongside config.yaml/tensorboard/
+        # exported. resolve_checkpoint() and play.py's checkpoint_run_dir()
+        # know this convention (and fall back to the old flat layout for
+        # runs created before it).
+        save_path = os.path.join(run_dir, "checkpoints", "checkpoint.pt")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         print(f"run directory: {run_dir}")
 
     writer = None
@@ -234,14 +267,38 @@ def main() -> None:
             writer.add_scalar("Loss/policy", stats["policy_loss"], i)
             writer.add_scalar("Loss/value", stats["value_loss"], i)
             writer.add_scalar("Loss/entropy", stats["entropy"], i)
+            writer.add_scalar("Loss/mean_reg", stats.get("mean_reg", 0.0), i)
             writer.add_scalar("Train/penalty_curriculum_k", stats["penalty_curriculum_k"], i)
+            writer.add_scalar("Train/log_std_max", stats.get("log_std_max", 0.0), i)
             writer.add_scalar("Train/mean_episode_length", stats["mean_episode_len"], i)
+            writer.add_scalar("Train/done_count", stats.get("done_count", 0), i)
+            for name in ("base_contact", "time_out", "obstacle_reached"):
+                writer.add_scalar(f"Termination/{name}_frac", stats.get(f"term_frac_{name}", 0.0), i)
             for name, value in zip(reward_cfg.term_names, stats["mean_reward_vec"]):
                 writer.add_scalar(f"Reward/{name}", value, i)
 
         if save_path and args.save_every and i % args.save_every == 0:
             trainer.save(save_path)
             print(f"checkpoint saved to {save_path} (update {i})")
+            # A numbered copy per save_every interval, never overwritten --
+            # found 2026-09-18 needing to compare checkpoints from different
+            # points in a single run (e.g. before/after a plateau) with
+            # save_path only ever holding the latest update's weights, any
+            # earlier point was already gone by the time it seemed worth
+            # comparing against. Named with trainer._t (the persistent,
+            # checkpoint-round-tripped step counter), NOT the loop variable
+            # `i` -- found the same day, the hard way: `i` restarts at 1
+            # every time this script is invoked (a fresh `for i in
+            # range(1, args.updates+1)` loop), so a --resume'd run's
+            # checkpoint_iter500.pt/_iter1000.pt/etc silently overwrote an
+            # earlier run's history files of the same name in the same run
+            # directory -- several were lost before this was caught.
+            # trainer._t survives save()/load() (see MOPPOTrainer.save's
+            # own checkpoint dict) so it keeps climbing across resumes,
+            # same convention already used for the "(t=...)" resume log line
+            # above and in play.py.
+            history_path = f"{root}_t{trainer._t}{ext}"
+            trainer.save(history_path)
 
         if best_path and stats["mean_episode_len"] > best_episode_len:
             best_episode_len = stats["mean_episode_len"]

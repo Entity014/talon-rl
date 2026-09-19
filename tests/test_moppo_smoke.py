@@ -11,6 +11,7 @@ import os
 import tempfile
 
 import numpy as np
+import pytest
 import torch
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
@@ -625,3 +626,253 @@ def test_penalty_curriculum_ramps_up_each_update_and_survives_checkpoint():
         trainer2 = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=cfg, seed=1)
         trainer2.load(path)
         assert trainer2._penalty_k == k_after_many
+
+
+def test_termination_reason_counts_fall_back_to_terminal_for_envs_without_the_keys():
+    """DummyTalonEnv has no term_time_out/term_obstacle_reached/
+    term_base_contact keys (only IsaacLabTalonEnv provides the real
+    breakdown, added 2026-09-18 -- see a1_env.py) -- _collect_rollout must
+    not crash on a `.get()` miss, and its fallback (treat any unattributed
+    `done` as base_contact, since that's the historical default before this
+    breakdown existed) must actually fire, not silently drop the count."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=3, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        seed=0,
+    )
+    r = trainer._collect_rollout()
+    assert r["done_count"] > 0
+    assert r["term_reason_counts"]["base_contact"] == r["done_count"]
+    assert r["term_reason_counts"]["time_out"] == 0
+    assert r["term_reason_counts"]["obstacle_reached"] == 0
+
+
+def test_update_stats_include_termination_fractions_that_sum_to_at_most_one():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=3, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1),
+        seed=0,
+    )
+    stats = trainer.update()
+    total_frac = (
+        stats["term_frac_base_contact"] + stats["term_frac_time_out"] + stats["term_frac_obstacle_reached"]
+    )
+    assert 0.0 <= total_frac <= 1.0 + 1e-6
+
+
+def test_log_std_is_clamped_to_LOG_STD_MIN_after_update():
+    """Found 2026-09-18: an in-graph clamp/softplus floor (tried twice,
+    once as a hard clamp, once as a differentiable double-softplus) either
+    dead-gradients or distorts the whole usable range (see
+    ActorCritic.LOG_STD_MIN's docstring). Bounding moved to a post-step
+    clamp on the raw parameter instead -- this checks the floor half:
+    however far below LOG_STD_MIN a gradient step pushes log_std, the
+    value must be restored to at least LOG_STD_MIN before the next forward
+    pass reads it."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0,
+    )
+    with torch.no_grad():
+        trainer.model.log_std.fill_(-5.0)  # already below LOG_STD_MIN
+    trainer.update()
+    assert torch.all(trainer.model.log_std >= trainer.model.LOG_STD_MIN)
+
+
+def test_log_std_is_clamped_to_LOG_STD_MAX_after_update():
+    """Ceiling half of the same fix -- found 2026-09-18 (phase1_longrun5,
+    resumed8): the performance-gated log_std mechanism blocks log_std from
+    DECREASING on any update() whose mean_episode_len underperforms its own
+    baseline, with nothing stopping an INCREASE once that gate is
+    perpetually triggered (mean_episode_len was declining every update for
+    ~750 updates straight) -- entropy climbed past +4.3 and kept rising,
+    the mirror-image runaway of the original collapse-to-the-floor bug."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1), seed=0,
+    )
+    with torch.no_grad():
+        trainer.model.log_std.fill_(5.0)  # already above LOG_STD_MAX
+    trainer.update()
+    assert torch.all(trainer.model.log_std <= trainer.model.LOG_STD_MAX)
+
+
+def test_mean_reg_penalizes_and_shrinks_a_large_raw_actor_mean():
+    """Found 2026-09-18: actor_body's hidden-layer activations and
+    actor_mean's raw output kept growing through training (activation max
+    5->10->15+, raw mean max up to 24) even with weight_decay=1e-4 on
+    every parameter -- a generic weight penalty wasn't targeted at the
+    actual symptom. mean_reg_coef adds an SAC-style direct penalty on
+    mean.pow(2). Starting actor_mean's bias artificially large and running
+    a few update() calls with a healthy mean_reg_coef must pull the raw
+    mean's magnitude down, not leave it where weight_decay alone couldn't."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1, mean_reg_coef=1e-1, weight_decay=0.0, lr=1e-2),
+        seed=0,
+    )
+    with torch.no_grad():
+        trainer.model.actor_mean.bias.fill_(10.0)  # artificially large raw mean
+
+    obs = torch.zeros(1, trainer.stack.policy_obs_dim + trainer.reward_cfg.dim)
+    raw_mean_before = trainer.model.raw_mean(obs).abs().mean().item()
+    for _ in range(20):
+        trainer.update()
+    raw_mean_after = trainer.model.raw_mean(obs).abs().mean().item()
+    assert raw_mean_after < raw_mean_before
+
+
+def test_log_std_max_anneals_toward_final_each_update_call():
+    """Replacement for the removed performance-gated log_std mechanism
+    (2026-09-18): instead of blocking log_std from shrinking, the CEILING
+    itself now decays on a fixed schedule -- log_std stays free to use any
+    value below whatever the current ceiling is."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    cfg = MOPPOConfig(
+        num_steps=5, epochs_per_update=1,
+        log_std_max_anneal_final=-0.5, log_std_max_anneal_decay=0.9,
+    )
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=cfg, seed=0)
+
+    ceiling_before = trainer._log_std_max
+    assert ceiling_before == trainer.model.LOG_STD_MAX  # starts un-annealed
+    stats = trainer.update()
+    assert stats["log_std_max"] == ceiling_before  # reports the value USED this call, pre-advance
+    expected_after = cfg.log_std_max_anneal_final + (ceiling_before - cfg.log_std_max_anneal_final) * cfg.log_std_max_anneal_decay
+    assert trainer._log_std_max == pytest.approx(expected_after)
+    assert trainer._log_std_max < ceiling_before  # moved toward final (which is lower)
+
+    for _ in range(50):
+        trainer.update()
+    assert trainer._log_std_max < expected_after  # kept decaying
+    assert trainer._log_std_max > cfg.log_std_max_anneal_final  # asymptotic, never overshoots
+
+
+def test_log_std_never_exceeds_the_annealed_ceiling_after_update():
+    """The post-step clamp must use the CURRENT (possibly-annealed)
+    ceiling, not the un-annealed ActorCritic.LOG_STD_MAX constant --
+    forces log_std above the constant-but-already-annealed-below ceiling
+    and checks it gets clamped to the lower, annealed value."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    cfg = MOPPOConfig(num_steps=5, epochs_per_update=1, log_std_max_anneal_final=-0.5, log_std_max_anneal_decay=0.9)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=cfg, seed=0)
+    trainer._log_std_max = -0.5  # simulate having already annealed down
+    with torch.no_grad():
+        trainer.model.log_std.fill_(0.0)  # above the annealed ceiling, at the un-annealed one
+
+    trainer.update()
+    assert torch.all(trainer.model.log_std <= -0.5 + 1e-6)
+
+
+def test_log_std_max_survives_checkpoint_round_trip():
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, reward_cfg, pref_cfg,
+        moppo_cfg=MOPPOConfig(num_steps=5, epochs_per_update=1, log_std_max_anneal_decay=0.5), seed=0,
+    )
+    trainer.update()
+    ceiling_after_update = trainer._log_std_max
+    assert ceiling_after_update != trainer.model.LOG_STD_MAX
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "ckpt.pt")
+        trainer.save(path)
+        trainer2 = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=1)
+        trainer2.load(path)
+        assert trainer2._log_std_max == ceiling_after_update
+
+
+def test_push_obs_normalizes_before_pushing_onto_the_stack():
+    """Found 2026-09-18: reward_norm/extrinsics_norm normalized their inputs
+    but the actual policy observation never went through any normalizer at
+    all -- "What Matters in On-Policy RL" (Andrychowicz et al. 2021) found
+    this the single strongest lever in their whole study. push_obs must be
+    the one place every caller normalizes through, so self.stack never
+    holds a raw (unnormalized) frame."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=MOPPOConfig(), seed=0)
+
+    raw_obs = np.full((4, env.obs_dim), 1000.0, dtype=np.float32)  # far outside any real obs's scale
+    trainer.push_obs(raw_obs, done_mask=np.zeros(4, dtype=bool))
+    pushed = trainer.stack.policy_obs
+    assert not np.allclose(pushed, raw_obs.reshape(pushed.shape))
+    assert np.all(np.abs(pushed) <= 10.0 + 1e-4)  # RunningMeanStd's default clip
+
+
+def test_obs_norm_state_round_trips_through_checkpoint():
+    """Same resume-shouldn't-shock-the-input-scale reasoning as
+    reward_norm/extrinsics_norm's own round-trip tests -- a resumed run
+    must keep the SAME obs_norm running stats, not reset them."""
+    obs_cfg = ObservationSpaceCfg()
+    action_cfg = ActionSpaceCfg()
+    reward_cfg = RewardVectorCfg()
+    pref_cfg = PreferenceCfg()
+    moppo_cfg = MOPPOConfig(num_steps=5, epochs_per_update=1)
+
+    env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(env, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=0)
+    trainer.update()
+    trainer.update()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        ckpt_path = os.path.join(tmp_dir, "checkpoint.pt")
+        trainer.save(ckpt_path)
+
+        env2 = DummyTalonEnv(obs_cfg, action_cfg, num_envs=4, horizon=40, seed=1)
+        fresh_trainer = MOPPOTrainer(env2, obs_cfg, reward_cfg, pref_cfg, moppo_cfg=moppo_cfg, seed=1)
+        assert not np.allclose(trainer.obs_norm.mean, fresh_trainer.obs_norm.mean)
+
+        fresh_trainer.load(ckpt_path)
+        assert np.allclose(trainer.obs_norm.mean, fresh_trainer.obs_norm.mean)
+        assert np.allclose(trainer.obs_norm.var, fresh_trainer.obs_norm.var)
+        assert trainer.obs_norm.count == fresh_trainer.obs_norm.count

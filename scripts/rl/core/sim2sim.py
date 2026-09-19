@@ -13,12 +13,35 @@ whatever policy is available (including a meaningless dummy-env-trained
 one) — see scripts/rl/core/wrapper/exporter.py for how a policy gets
 exported.
 
-Unverified assumptions (this machine has no Isaac Sim to cross-check
-against — flag and confirm before trusting sim2sim results for real):
-- Joint order: MuJoCo's a1.xml actuator order (FR_hip, FR_thigh, FR_calf,
-  FL_*, RR_*, RL_*) is ASSUMED to match Isaac Lab's UNITREE_A1_CFG /
-  talon_rl.config.ActionSpaceCfg's 12-dim action order. If Isaac Lab uses a
-  different joint ordering, actions will drive the wrong joints.
+Checked against a live Isaac Sim 2026-09-18 (this machine now has one) --
+one assumption below was WRONG and is now fixed; the rest remain open:
+- Joint order: this module used to ASSUME MuJoCo's a1.xml actuator order
+  (FR_hip, FR_thigh, FR_calf, FL_*, RR_*, RL_*, confirmed correct for
+  MuJoCo itself -- data.qpos/data.ctrl both use this leg-grouped order)
+  matched Isaac Lab's action order. Queried directly
+  (env.action_manager.get_term("joint_pos")._joint_names against a live
+  IsaacLabTalonEnv): Isaac Lab's actual order is TYPE-grouped, not
+  leg-grouped -- [FL_hip, FR_hip, RL_hip, RR_hip, FL_thigh, FR_thigh,
+  RL_thigh, RR_thigh, FL_calf, FR_calf, RL_calf, RR_calf]. A policy
+  exported from Isaac Lab training and driven straight into MuJoCo's
+  data.ctrl (or fed MuJoCo's data.qpos straight as joint_pos) would send
+  every action to the wrong joint and read every joint's own state as a
+  different joint's. Fixed via ISAAC_TO_MUJOCO_PERM /
+  MUJOCO_TO_ISAAC_PERM below, built from the two joint-name lists rather
+  than hardcoded indices, so a real name mismatch fails loudly (.index()
+  raises) instead of silently permuting wrong.
+- Sign convention: a first live-env attempt (one joint's action held at
+  +1.0 for 20 steps, checking data.joint_pos's sign of change) was
+  inconclusive -- whole-body contact/gravity dynamics confound an isolated
+  actuator reading that short. Re-tested isolated (base pinned rigid every
+  step, MuJoCo-only, see test_sim2sim.py's
+  test_mujoco_position_actuators_move_every_joint_in_the_commanded_sign):
+  all 12 of MuJoCo's own position actuators move their joint in the
+  commanded sign, cleanly. This confirms MuJoCo's own convention is sane;
+  it does NOT independently re-confirm Isaac Lab's side uses the same
+  sign for the same physical direction (both presumably derive joint axes
+  from the same source URDF, so they should agree, but that hasn't been
+  checked with an equally isolated Isaac Lab test).
 - Foot contact: a1.xml has no named foot geoms (only an unnamed `class="foot"`
   default) — approximated here as "does any contact touch this leg's *_calf
   body," not the actual foot geom specifically. Isaac Lab's real
@@ -36,6 +59,30 @@ import numpy as np
 import torch
 
 _LEG_CALF_BODIES = ("FR_calf", "FL_calf", "RR_calf", "RL_calf")
+
+# MuJoCo's own order (confirmed live, 2026-09-18: both data.qpos[7:19] and
+# data.ctrl follow this -- a1.xml declares/actuates joints leg-by-leg).
+_MUJOCO_JOINT_ORDER = (
+    "FR_hip", "FR_thigh", "FR_calf",
+    "FL_hip", "FL_thigh", "FL_calf",
+    "RR_hip", "RR_thigh", "RR_calf",
+    "RL_hip", "RL_thigh", "RL_calf",
+)
+# Isaac Lab's order (confirmed live against IsaacLabTalonEnv, 2026-09-18:
+# env.action_manager.get_term("joint_pos")._joint_names, same order
+# robot.data.joint_pos/joint_names use) -- type-grouped, not leg-grouped.
+# This is the order talon-rl's trained policies actually expect/produce.
+_ISAAC_LAB_JOINT_ORDER = (
+    "FL_hip", "FR_hip", "RL_hip", "RR_hip",
+    "FL_thigh", "FR_thigh", "RL_thigh", "RR_thigh",
+    "FL_calf", "FR_calf", "RL_calf", "RR_calf",
+)
+# obs[MUJOCO_TO_ISAAC_PERM] reorders a MuJoCo-order array (e.g. data.qpos's
+# joint slice) into Isaac Lab order, for building the policy's observation.
+MUJOCO_TO_ISAAC_PERM = [_MUJOCO_JOINT_ORDER.index(name) for name in _ISAAC_LAB_JOINT_ORDER]
+# action[ISAAC_TO_MUJOCO_PERM] reorders a policy's Isaac-Lab-order action
+# into MuJoCo order, for writing to data.ctrl.
+ISAAC_TO_MUJOCO_PERM = [_ISAAC_LAB_JOINT_ORDER.index(name) for name in _MUJOCO_JOINT_ORDER]
 
 
 def quat_to_roll_pitch(quat_wxyz: np.ndarray) -> tuple[float, float]:
@@ -92,8 +139,11 @@ def build_a1_actor_obs(
     appended, exactly matching MOPPOTrainer._collect_rollout's
     `np.concatenate([stack.policy_obs, w])` composition with
     num_policy_stacks=1 (see module docstring)."""
-    joint_pos = data.qpos[7:19].astype(np.float32)  # skip the 7-dim free joint (pos+quat)
-    joint_vel = data.qvel[6:18].astype(np.float32)  # skip the 6-dim free joint (linvel+angvel)
+    # data.qpos/qvel's joint slice is MuJoCo order (leg-grouped); the
+    # policy expects Isaac Lab order (type-grouped) -- see module
+    # docstring's 2026-09-18 joint-order finding.
+    joint_pos = data.qpos[7:19][MUJOCO_TO_ISAAC_PERM].astype(np.float32)  # skip the 7-dim free joint (pos+quat)
+    joint_vel = data.qvel[6:18][MUJOCO_TO_ISAAC_PERM].astype(np.float32)  # skip the 6-dim free joint (linvel+angvel)
     quat_wxyz = data.qpos[3:7]
     roll, pitch = quat_to_roll_pitch(quat_wxyz)
     roll_pitch = np.array([roll, pitch], dtype=np.float32)
@@ -136,7 +186,11 @@ def rollout(
         obs = build_a1_actor_obs(model, data, prev_action, command, preference)
         with torch.no_grad():
             action = policy(torch.from_numpy(obs).unsqueeze(0)).squeeze(0).numpy()
-        data.ctrl[:] = action
+        # action is in Isaac Lab order (what the policy natively produces
+        # and what prev_action must stay in, to match next step's
+        # build_a1_actor_obs / the policy's own training-time convention);
+        # reorder only the copy written to MuJoCo's actuators.
+        data.ctrl[:] = action[ISAAC_TO_MUJOCO_PERM]
         mujoco.mj_step(model, data)
         prev_action = action
         heights.append(float(data.qpos[2]))

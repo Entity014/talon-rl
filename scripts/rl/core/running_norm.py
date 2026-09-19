@@ -11,9 +11,16 @@ import numpy as np
 
 
 class RunningMeanStd:
-    """Tracks a running mean/variance per dimension. `normalize()` scales by
-    the running std only (no mean-centering) so a bounded term's 0-boundary
-    keeps its meaning — see docs/superpowers/specs for the reasoning."""
+    """Tracks a running mean/variance per dimension. `normalize(center=...)`
+    defaults to NOT mean-centering (divide by std only), originally so a
+    bounded term's 0-boundary would keep its meaning — see
+    docs/superpowers/specs for that reasoning. Found 2026-09-18: neither of
+    this class's two real call sites (MOPPOTrainer's reward normalization
+    and its extrinsics normalization) actually want that default anymore;
+    both now pass center=True explicitly (see normalize()'s docstring for
+    each incident). The uncentered default survives only as a safe
+    fallback for a hypothetical future bounded-[0,1]-term use case that
+    doesn't exist in this codebase yet -- nothing currently relies on it."""
 
     def __init__(self, dim: int):
         self.mean = np.zeros(dim, dtype=np.float64)
@@ -37,12 +44,32 @@ class RunningMeanStd:
         self.count = tot_count
 
     def normalize(self, x: np.ndarray, clip: float = 10.0, center: bool = False) -> np.ndarray:
-        """center=False (default): divide by std only, so a bounded term's
-        0-boundary keeps its meaning -- this is what reward normalization
-        (chapter3.tex Sec 3.2.3, the original use of this class) needs.
+        """center=False (default): divide by std only, preserving a bounded
+        term's 0-boundary. Not actually used by either of this class's real
+        call sites (see class docstring) -- kept as the default only for a
+        hypothetical future bounded-term use case.
 
-        center=True: standard (x-mean)/std. Needed for MOPPOTrainer's
-        extrinsics e_t (2026-09-18 fix) -- several extrinsics channels have
+        center=True, MOPPOTrainer's REWARD normalization (chapter3.tex Sec
+        3.2.3's original use of this class) -- switched 2026-09-18, on the
+        same day as the extrinsics fix below, after tracing through what an
+        uncentered reward actually does downstream: it's fed straight into
+        GAE (gae_per_objective), which ACCUMULATES a constant additive bias
+        (mean/std, baked into every uncentered sample) over roughly
+        1/(1-gamma*lambda) steps of lookahead (~19 steps at this task's
+        gamma=0.998, lambda=0.95) -- but that accumulation isn't uniform
+        across a rollout: it's cut short at episode boundaries and at the
+        edge of the num_steps rollout window, so samples near either
+        boundary carry LESS accumulated bias than samples mid-episode.
+        MOPPOTrainer.update()'s later normalize_per_objective only
+        subtracts the BATCH-AVERAGE of that position-dependent bias, not
+        its sample-to-sample variation -- leaving a spurious
+        "how-close-to-a-boundary" signal baked into the advantage that has
+        nothing to do with policy quality. Measured on this reward vector:
+        energy's raw running mean/std ratio alone was -1.06, comparable in
+        size to the term's own std, not a rounding-error-sized effect.
+
+        center=True, MOPPOTrainer's extrinsics e_t (2026-09-18, found
+        first, same day) -- several extrinsics channels have
         a large nonzero mean with no special zero-meaning (e.g. motor
         stiffness Kp, running mean ~55 to match RMA's own Kp=55), so
         dividing by std alone left them permanently near +/-`clip` every

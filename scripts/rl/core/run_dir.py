@@ -44,7 +44,13 @@ def resolve_checkpoint(logs_root: str, load_run: str) -> str:
     convenience the reference project's get_checkpoint_path() also offers,
     reimplemented here rather than ported since that helper lives in
     isaaclab_tasks.utils and is coupled to Isaac Lab's agent_cfg/hydra
-    conventions this repo doesn't use."""
+    conventions this repo doesn't use.
+
+    Prefers <run>/checkpoints/checkpoint.pt (current convention — a run
+    directory accumulates dozens of checkpoint_t*.pt files over a long
+    run, unreadable dumped flat alongside config.yaml/tensorboard/exported)
+    and falls back to the old flat <run>/checkpoint.pt layout so runs
+    created before this convention still resolve."""
     if load_run == "last":
         candidates = [d for d in os.listdir(logs_root) if os.path.isdir(os.path.join(logs_root, d))]
         if not candidates:
@@ -53,7 +59,21 @@ def resolve_checkpoint(logs_root: str, load_run: str) -> str:
         run_name = candidates[-1]
     else:
         run_name = load_run
-    path = os.path.join(logs_root, run_name, "checkpoint.pt")
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"no checkpoint.pt found at {path}")
-    return path
+    nested = os.path.join(logs_root, run_name, "checkpoints", "checkpoint.pt")
+    if os.path.isfile(nested):
+        return nested
+    flat = os.path.join(logs_root, run_name, "checkpoint.pt")
+    if not os.path.isfile(flat):
+        raise FileNotFoundError(f"no checkpoint.pt found at {nested} or {flat}")
+    return flat
+
+
+def checkpoint_run_dir(checkpoint_path: str) -> str:
+    """Returns the run directory a checkpoint belongs to — one level up
+    when the checkpoint lives in a checkpoints/ subdir (current
+    convention), otherwise the checkpoint's own directory (older flat-
+    layout runs). play.py uses this (not a bare os.path.dirname) to find
+    where a run's exported/ plots/videos belong, since those must land at
+    the run root either way, not inside checkpoints/."""
+    parent = os.path.dirname(checkpoint_path)
+    return os.path.dirname(parent) if os.path.basename(parent) == "checkpoints" else parent

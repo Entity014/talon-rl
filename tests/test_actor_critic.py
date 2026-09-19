@@ -77,35 +77,44 @@ def test_entropy_increases_with_log_std():
     assert torch.all(wide > narrow)
 
 
-def test_log_std_has_a_floor_below_which_it_cannot_shrink():
-    """Found 2026-09-17 (phase1_longrun, 20000 updates): entropy_coef alone
-    (moppo.py) slowed but didn't stop log_std shrinking to ~-2.66 (std~=0.07)
-    over a long run, after which the policy couldn't explore back to a much
-    better behavior it had briefly found (mean_episode_len 70.45 -> 6-8
-    floor, never recovered). Even if the parameter itself is driven far
-    below the floor, the std actually used for sampling/entropy must stay
-    close to exp(LOG_STD_MIN) -- softplus only asymptotes to the floor, so
-    this checks "close" (1e-3), not bitwise equal."""
+def test_pre_tanh_dist_does_not_bound_log_std_itself():
+    """ActorCritic deliberately does NOT clamp/squash log_std anywhere in
+    its forward pass (see LOG_STD_MIN/LOG_STD_MAX's shared docstring for
+    the two rejected in-graph approaches -- a hard clamp gave a dead
+    gradient one direction 2026-09-18, and a differentiable double-softplus
+    ceiling was tried and rejected the same day, both a middle-range
+    distortion and, at higher beta, the identical dead-gradient failure via
+    float32 underflow). Bounding is MOPPOTrainer.update()'s job, via a
+    post-optimizer-step clamp on the raw parameter -- see
+    test_moppo_smoke.py's log_std bound tests. This just locks in that
+    `std` tracks log_std directly (plain exp, no transform) so nobody
+    reintroduces an in-graph bound here without noticing this test breaks."""
     model = _make_model()
     with torch.no_grad():
-        model.log_std.fill_(-10.0)  # far below LOG_STD_MIN
+        model.log_std.fill_(-10.0)  # a value LOG_STD_MIN=-1.6 would normally floor
     dist = model._pre_tanh_dist(torch.zeros(2, 8))
-    expected_std = torch.tensor(ActorCritic.LOG_STD_MIN).exp()
-    assert torch.allclose(dist.stddev, expected_std.expand_as(dist.stddev), atol=1e-3)
+    assert torch.allclose(dist.stddev, torch.tensor(-10.0).exp().expand_as(dist.stddev))
 
 
-def test_log_std_gradient_is_nonzero_even_below_the_floor():
-    """Found 2026-09-18 (phase1_longrun5): a hard `torch.clamp` floor gives
-    exactly zero gradient outside its range, so once log_std overshot
-    LOG_STD_MIN (Adam momentum alone carried one dim to -1.89), BOTH the
-    policy-loss gradient and the entropy-bonus gradient into log_std became
-    permanently 0 -- entropy went dead flat at the floor's exact value for
-    7000+ iterations straight, unrecoverable no matter entropy_coef. A
-    softplus floor must keep a nonzero (if small) gradient past the
-    boundary so the entropy bonus can still pull log_std back up."""
+def test_log_std_gradient_is_always_nonzero():
+    """A plain exp() has a real, nonzero gradient at every input -- unlike
+    the hard-clamp floor this replaced (2026-09-18, see LOG_STD_MIN's
+    docstring), there's no value log_std can hold that zeroes this out."""
     model = _make_model()
     with torch.no_grad():
-        model.log_std.fill_(-10.0)  # far below LOG_STD_MIN
+        model.log_std.fill_(-10.0)
     entropy = model.entropy(torch.zeros(2, 8)).sum()
     entropy.backward()
     assert torch.all(model.log_std.grad != 0)
+
+
+def test_raw_mean_matches_act_inference_before_the_tanh_squash():
+    """raw_mean() feeds MOPPOTrainer's mean-magnitude regularizer
+    (MOPPOConfig.mean_reg_coef) -- must be the exact same pre-tanh value
+    act_inference() squashes, or the penalty would be regularizing a
+    different quantity than the one actually saturating."""
+    model = _make_model()
+    obs = torch.randn(5, 8)
+    raw = model.raw_mean(obs)
+    action = model.act_inference(obs)
+    assert torch.allclose(torch.tanh(raw) * ActorCritic.ACTION_CLIP, action)

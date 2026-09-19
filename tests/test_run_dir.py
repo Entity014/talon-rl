@@ -4,7 +4,7 @@ import pytest
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 
-from rl.core.run_dir import dump_config, make_run_dir, resolve_checkpoint
+from rl.core.run_dir import checkpoint_run_dir, dump_config, make_run_dir, resolve_checkpoint
 
 
 def test_make_run_dir_with_explicit_name(tmp_path):
@@ -60,3 +60,26 @@ def test_resolve_checkpoint_raises_when_missing(tmp_path):
     make_run_dir(str(tmp_path), run_name="run1")  # no checkpoint.pt written
     with pytest.raises(FileNotFoundError):
         resolve_checkpoint(str(tmp_path), "run1")
+
+
+def test_resolve_checkpoint_prefers_checkpoints_subdir(tmp_path):
+    # Current convention: checkpoint.pt lives in <run>/checkpoints/, not
+    # flat in <run>/ -- a long run's dozens of checkpoint_t*.pt files would
+    # otherwise clutter <run>/ alongside config.yaml/tensorboard/exported.
+    run_dir = make_run_dir(str(tmp_path), run_name="run1")
+    os.makedirs(os.path.join(run_dir, "checkpoints"))
+    open(os.path.join(run_dir, "checkpoints", "checkpoint.pt"), "w").close()
+
+    path = resolve_checkpoint(str(tmp_path), "run1")
+    assert path == os.path.join(run_dir, "checkpoints", "checkpoint.pt")
+
+
+def test_checkpoint_run_dir_unnests_checkpoints_subdir(tmp_path):
+    nested = os.path.join(str(tmp_path), "run1", "checkpoints", "checkpoint_t100.pt")
+    assert checkpoint_run_dir(nested) == os.path.join(str(tmp_path), "run1")
+
+
+def test_checkpoint_run_dir_flat_layout_unchanged(tmp_path):
+    # Older runs created before the checkpoints/ subdir convention.
+    flat = os.path.join(str(tmp_path), "run1", "checkpoint.pt")
+    assert checkpoint_run_dir(flat) == os.path.join(str(tmp_path), "run1")

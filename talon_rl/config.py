@@ -131,6 +131,29 @@ class PreferenceCfg:
     dirichlet_alpha: float = 1.0
     max_delta_per_step: float = 0.05  # rate-limiter cap on ||w_t - w_{t-1}||
 
+    # Preference-vector curriculum (2026-09-19) -- OFF by default (both
+    # fields below leave every existing default-constructed PreferenceCfg,
+    # and therefore every test/dummy-env run, byte-identical to before this
+    # was added). Found necessary via a real fromscratch_v2 run: 20000
+    # updates of uniform Dirichlet(1,...,1) from step 0 plateaued around
+    # ~10k updates with near-zero velocity-tracking under a forced command
+    # (see runs/phase1_fromscratch_v2_2026-09-19's own validation) --
+    # `progress` has no floor (unlike impact/balance, see
+    # preference.floor_clip_terms) so it gets diluted whenever a Dirichlet
+    # draw happens to undersample it, and a policy trained from scratch
+    # under that diluted signal never reliably learns to track a velocity
+    # command before the rest of training moves on to other w regions. This
+    # curriculum front-loads training on a `curriculum_alpha_start` that
+    # over-weights balance (must stand before anything else matters, see
+    # reward.py's balance_reward docstring on the ~12-14/200-step floor
+    # every run hit before balance existed) then progress (the actual
+    # locomotion objective), and linearly anneals every term's alpha back
+    # to the flat `dirichlet_alpha` (the real deployment-time distribution
+    # this repo's thesis contract requires covering) over
+    # `curriculum_updates` — see preference.curriculum_alpha().
+    curriculum_alpha_start: tuple[float, ...] | None = None  # per RewardVectorCfg.term_names order; None disables the curriculum
+    curriculum_updates: int = 0  # anneal to dirichlet_alpha over this many trainer._t steps; 0 disables the curriculum
+
 
 @dataclass(frozen=True)
 class ObservationStackCfg:

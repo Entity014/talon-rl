@@ -21,6 +21,20 @@ def test_progress_reward_is_max_at_zero_error():
     assert np.all(r_diff < 1.0)
 
 
+def test_progress_reward_gives_positive_bonus_for_a_proper_touchdown():
+    """Found 2026-09-18: every OTHER grouped sub-penalty this session taxes
+    bad behavior, but none give a POSITIVE incentive to actually take a
+    step -- a "stand still" policy pays every one of them their minimum.
+    feet_air_time_reward is different in kind: a foot airborne for close to
+    0.5s before landing (a proper stride, legged_gym/Rudin et al. 2022)
+    should beat a policy with the same tracking error but no such bonus."""
+    v = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
+    r_no_bonus = progress_reward(v, v, std=0.5)
+    r_with_bonus = progress_reward(v, v, std=0.5, foot_air_time_reward=np.array([2.0, 0.0]))
+    assert r_with_bonus[0] > r_no_bonus[0]  # proper stride: bonus applied
+    assert r_with_bonus[1] == r_no_bonus[1]  # no touchdown event this step: unchanged
+
+
 def test_clearance_reward_clips_to_unit_interval():
     dist = np.array([10.0, 0.0])
     r = clearance_reward(dist, safe_dist=0.5)
@@ -46,15 +60,86 @@ def test_impact_reward_penalizes_only_above_threshold():
     assert r[1] < 0.0
 
 
+def test_impact_reward_penalizes_foot_slip_only_while_in_contact():
+    """Found 2026-09-18: a foot sliding while swinging through the air is
+    normal and shouldn't be punished -- only slip WHILE planted (contact
+    force above contact_threshold) counts, matching the reference term's
+    binary contact-indicator gate."""
+    forces = np.array([[10.0, 0.0, 0.0, 0.0], [10.0, 0.0, 0.0, 0.0]])
+    vel_still = np.zeros((2, 4, 3))
+    vel_slipping = np.zeros((2, 4, 3))
+    vel_slipping[:, 0, 0] = 1.0  # foot 0 (in contact) moving sideways -> slip
+    vel_swinging = np.zeros((2, 4, 3))
+    vel_swinging[:, 1, 0] = 1.0  # foot 1 (NOT in contact, force=0) moving -> no slip penalty
+
+    r_still = impact_reward(forces, foot_vel=vel_still)
+    r_slipping = impact_reward(forces, foot_vel=vel_slipping)
+    r_swinging = impact_reward(forces, foot_vel=vel_swinging)
+
+    assert np.all(r_slipping < r_still)
+    assert np.allclose(r_swinging, r_still)
+
+
+def test_impact_reward_penalizes_undesired_contact_regardless_of_force_magnitude():
+    """Found 2026-09-19: a fixed-command video export showed the policy
+    dragging its CALF along the ground to move -- a zero-cost loophole,
+    since foot_slip only watches the foot and the peak-force term is built
+    for transient landing shocks, not sustained LOW-force dragging. Unlike
+    those two, undesired_contact_count must penalize ANY nonzero contact,
+    not just contact above some threshold -- a calf touching anything at
+    all is wrong regardless of how gently."""
+    forces = np.zeros((2, 4))
+    r_no_contact = impact_reward(forces, undesired_contact_count=np.array([0.0, 0.0]))
+    r_one_contact = impact_reward(forces, undesired_contact_count=np.array([1.0, 0.0]))
+    assert r_no_contact[0] == 0.0
+    assert r_one_contact[0] < 0.0
+    assert r_one_contact[1] == r_no_contact[1]  # lane 1 unaffected
+
+
 def test_smoothness_reward_penalizes_action_change():
     a = np.zeros((2, 12))
     b = np.ones((2, 12))
     acc = np.zeros((2, 12))
-    r_same = smoothness_reward(a, a, acc)
-    r_diff = smoothness_reward(b, a, acc)
+    vel = np.zeros((2, 12))
+    r_same = smoothness_reward(a, a, acc, vel)
+    r_diff = smoothness_reward(b, a, acc, vel)
     assert r_same.shape == (2,)
     assert np.allclose(r_same, 0.0)
     assert np.all(r_diff < 0.0)
+
+
+def test_smoothness_reward_penalizes_joint_speed():
+    """Found 2026-09-18: energy (torque*velocity) can stay small at high
+    joint speed if torque happens to be low at that instant -- joint_vel
+    must be penalized directly, independent of energy, matching the
+    reference reward vector's separate "Joint Speed" term."""
+    a = np.zeros((2, 12))
+    acc = np.zeros((2, 12))
+    vel_still = np.zeros((2, 12))
+    vel_fast = np.full((2, 12), 5.0)
+    r_still = smoothness_reward(a, a, acc, vel_still)
+    r_fast = smoothness_reward(a, a, acc, vel_fast)
+    assert np.all(r_fast < r_still)
+
+
+def test_smoothness_reward_penalizes_a_large_action_held_steady():
+    """Found 2026-09-18: action_rate alone only penalizes CHANGING the
+    action -- a policy that locks onto one saturated (near ACTION_CLIP)
+    action and barely changes it pays almost nothing under the old
+    formula, matching what a physics validation rollout found (84% of
+    joints saturated) and a forced-command test found (v_command pinned to
+    0.5 m/s, tracking ratio only 6.6% -- the policy stood mostly still
+    while holding near-maximal actions). A LARGE but UNCHANGING action
+    must now cost more than a small unchanging one, which action_rate
+    alone (zero for any unchanging action, regardless of its magnitude)
+    could never express."""
+    small = np.full((2, 12), 0.1)
+    large = np.full((2, 12), 2.9)  # near ACTION_CLIP=3.0
+    acc = np.zeros((2, 12))
+    vel = np.zeros((2, 12))
+    r_small_steady = smoothness_reward(small, small, acc, vel)  # unchanged -> action_rate=0
+    r_large_steady = smoothness_reward(large, large, acc, vel)  # unchanged -> action_rate=0
+    assert np.all(r_large_steady < r_small_steady), "a large steady action must cost more than a small steady one"
 
 
 def test_balance_reward_is_max_at_zero_tilt():
@@ -69,6 +154,35 @@ def test_balance_reward_is_max_at_zero_tilt():
     assert r_flat.shape == (3,)
     assert np.allclose(r_flat, 0.0)
     assert np.all(r_tilted < 0.0)
+
+
+def test_balance_reward_penalizes_crouching_below_target_height():
+    """Found 2026-09-18: v_z only penalizes vertical MOTION -- a lane that
+    crouches low and then holds perfectly still pays nothing under v_z
+    (matches a forced-command physics probe that found a checkpoint with
+    every other grouped sub-penalty active still crouched and stood still,
+    6.7% velocity-tracking ratio). height must be penalized directly,
+    relative to target_height, regardless of whether the lane is moving."""
+    flat = np.zeros((3, 2))
+    at_target = np.full(3, 0.42)
+    crouched = np.full(3, 0.20)
+    r_at_target = balance_reward(flat, height=at_target, target_height=0.42)
+    r_crouched = balance_reward(flat, height=crouched, target_height=0.42)
+    assert np.allclose(r_at_target, 0.0)
+    assert np.all(r_crouched < 0.0)
+
+
+def test_balance_reward_penalizes_vertical_bounce():
+    """Found 2026-09-18: none of the existing terms penalized bobbing --
+    roll/pitch alone can be zero (perfectly flat) while the trunk bounces
+    up and down every step. v_z is root_lin_vel_b's own z-component, so a
+    sign error here (rewarding bounce instead of penalizing it) would
+    silently encourage exactly the failure mode this term exists to stop."""
+    flat = np.zeros((3, 2))
+    r_still = balance_reward(flat, v_z=np.zeros(3))
+    r_bouncing = balance_reward(flat, v_z=np.full(3, 0.5))
+    assert np.allclose(r_still, 0.0)
+    assert np.all(r_bouncing < 0.0)
 
 
 def test_balance_reward_penalizes_terminal_fall_but_not_timeout():

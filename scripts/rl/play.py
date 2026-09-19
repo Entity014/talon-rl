@@ -5,6 +5,20 @@ inference, and optionally exports the policy for deployment/sim2sim.
     python scripts/rl/play.py --checkpoint <path> --steps 200
     python scripts/rl/play.py --load_run last --logs_root logs/talon_rl --export policy.pt
     python scripts/rl/play.py --checkpoint <path> --analyze joint_vel joint_torque --plot
+    python scripts/rl/play.py --checkpoint <path> --env isaac_lab --w 0.2 0.2 0.2 0.2 0.2 \
+        --command 0.5 0.0 0.0 --validate --video
+
+--w/--command/--validate formalize a ground-truth physics validation
+methodology repeated ad hoc via one-off scratchpad scripts throughout
+2026-09-18/19's debugging (see core/physics_validator.py's own docstring):
+training-time reward/episode-length numbers repeatedly looked good while
+the policy was actually standing nearly still, or gaming a reward term in
+some physically-implausible way a raw reward number can't reveal.
+--command in particular matters because v_command isn't fixed during
+training (mdp/events.py's randomize_velocity_command resamples it per
+episode, including a stand_phase_s window of zero command) -- a rollout
+without --command is testing under whatever command the env happens to
+sample, not necessarily a real sustained walking command.
 
 Uses MOPPOTrainer.act_inference() (deterministic mean, no sampling) rather
 than the stochastic action update() uses during training — see
@@ -17,6 +31,7 @@ import argparse
 import os
 
 import numpy as np
+import torch
 
 from talon_rl.config import (
     ActionSpaceCfg,
@@ -31,7 +46,8 @@ from talon_rl.reward import compute_reward_vector
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
 from rl.core.analyzer import Analyzer
 from rl.core.dummy_env import DummyTalonEnv
-from rl.core.run_dir import resolve_checkpoint
+from rl.core.physics_validator import PhysicsValidator
+from rl.core.run_dir import checkpoint_run_dir, resolve_checkpoint
 from rl.core.wrapper import export_policy_as_jit
 
 
@@ -52,14 +68,43 @@ def main() -> None:
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="Must match the value used when the checkpoint was trained.")
     parser.add_argument("--export", type=str, default=None, help="Export the loaded policy as TorchScript to this path.")
     parser.add_argument("--analyze", type=str, nargs="+", default=None, help="Transition-dict keys to record per step (e.g. joint_vel joint_torque).")
-    parser.add_argument("--plot", action="store_true", help="With --analyze: save one PNG per recorded key next to the checkpoint (or ./exported/ for --checkpoint).")
+    parser.add_argument("--plot", action="store_true", help="With --analyze and/or --validate: save one PNG per recorded key next to the checkpoint (or ./exported/ for --checkpoint).")
     parser.add_argument("--video", action="store_true", help="Record an .mp4 of the rollout (--env isaac_lab only -- DummyTalonEnv has no scene to render).")
+    parser.add_argument(
+        "--w", type=float, nargs=5, default=None, metavar="W",
+        help="Force a fixed preference vector (progress energy impact smoothness balance), overriding the "
+             "trainer's random Dirichlet init -- does NOT go through preference.floor_clip, so pass floor-respecting "
+             "values yourself if that matters for your test.",
+    )
+    parser.add_argument(
+        "--command", type=float, nargs=3, default=None, metavar=("VX", "VY", "WZ"),
+        help="Force v_command to this value every step, overriding whatever the env resamples on reset "
+             "(mdp/events.py's randomize_velocity_command, including its stand_phase_s zero-command window). "
+             "Without this, a rollout tests under whatever command the env happens to sample, not a real "
+             "sustained command.",
+    )
+    parser.add_argument(
+        "--validate", action="store_true",
+        help="Print a ground-truth physics validation summary (survival, action saturation, torque vs the A1's "
+             "limit, roll/pitch, velocity tracking ratio, undesired contact) instead of trusting Episode_Reward/* "
+             "alone -- see core/physics_validator.py's docstring.",
+    )
     args = parser.parse_args()
 
     if bool(args.checkpoint) == bool(args.load_run):
         raise SystemExit("pass exactly one of --checkpoint or --load_run")
     if args.video and args.env == "dummy":
         raise SystemExit("--video needs a real scene to render -- pass --env isaac_lab")
+    if (args.command is not None or args.validate) and args.env == "dummy":
+        # DummyTalonEnv has no locomotion physics at all (CLAUDE.md: "numbers
+        # mean nothing about locomotion") -- a ground-truth physics check
+        # against it would validate nothing real. It also doesn't expose
+        # v_command per-env the way IsaacLabTalonEnv's v_command_buf does
+        # (DummyTalonEnv wraps N single-env instances, each with its own
+        # scalar v_command -- forcing it uniformly needs its own plumbing
+        # this repo has no use for, since the real target is always
+        # isaac_lab).
+        raise SystemExit("--command/--validate need real physics -- pass --env isaac_lab")
     checkpoint_path = args.checkpoint or resolve_checkpoint(args.logs_root, args.load_run)
 
     obs_cfg = ObservationSpaceCfg()
@@ -67,6 +112,9 @@ def main() -> None:
     reward_cfg = RewardVectorCfg()
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
+
+    if args.w is not None and len(args.w) != reward_cfg.dim:
+        raise SystemExit(f"--w needs {reward_cfg.dim} values (RewardVectorCfg.term_names order), got {len(args.w)}")
 
     if args.env == "dummy":
         env = DummyTalonEnv(obs_cfg, action_cfg, num_envs=args.num_envs, horizon=200, seed=args.seed)
@@ -118,18 +166,32 @@ def main() -> None:
     trainer.load(checkpoint_path)
     print(f"loaded checkpoint from {checkpoint_path} (t={trainer._t})")
 
-    if args.export:
-        export_policy_as_jit(trainer.model, args.export)
-        print(f"exported policy to {args.export}")
+    if args.w is not None:
+        trainer.w = np.tile(np.array(args.w, dtype=np.float32), (args.num_envs, 1))
+        print(f"forcing w = {args.w}")
+
+    def force_command() -> None:
+        # v_command_buf only resamples on reset -- force it every step, not
+        # just once, or a lane that falls and auto-resets mid-rollout
+        # drifts back to whatever the env samples on its own
+        # (mdp/events.py's randomize_velocity_command, including its
+        # stand_phase_s zero-command window). (--env dummy is rejected
+        # above, before this closure is ever called.)
+        env.v_command_buf[:] = torch.tensor(args.command, device=env.device)
+
+    if args.command is not None:
+        force_command()
+        print(f"forcing v_command = {args.command}")
 
     analyzer = Analyzer(args.analyze) if args.analyze else None
+    validator = PhysicsValidator(args.num_envs, trainer.model.ACTION_CLIP) if args.validate else None
 
     video_writer = None
     video_path = None
     if args.video:
         import imageio
 
-        video_path = os.path.join(os.path.dirname(checkpoint_path), "exported", "play.mp4")
+        video_path = os.path.join(checkpoint_run_dir(checkpoint_path), "exported", "play.mp4")
         os.makedirs(os.path.dirname(video_path), exist_ok=True)
         fps = round(1.0 / env.step_dt)
         video_writer = imageio.get_writer(video_path, fps=fps)
@@ -142,16 +204,20 @@ def main() -> None:
     trainer.model.eval()
     total_reward = np.zeros(reward_cfg.dim, dtype=np.float32)
     for _ in range(args.steps):
+        if args.command is not None:
+            force_command()
         action = trainer.act_inference()
         transition, done = env.step(action)
         # This loop drives the env directly instead of MOPPOTrainer._collect_rollout,
         # which is the only other place _last_extrinsics normally advances -- without
         # this line z_t would stay frozen at the initial reset's value for every step.
         trainer._last_extrinsics = transition.get("extrinsics") if trainer.encoder else None
-        trainer.stack.push(transition["obs"], done_mask=done)
+        trainer.push_obs(transition["obs"], done_mask=done)
         total_reward += compute_reward_vector(transition, reward_cfg).mean(axis=0)
         if analyzer is not None:
             analyzer.record(transition)
+        if validator is not None:
+            validator.record(transition, action, done)
         if video_writer is not None:
             video_writer.append_data(env.render())
 
@@ -159,14 +225,22 @@ def main() -> None:
         video_writer.close()
         print(f"saved video to {video_path}")
 
+    if validator is not None:
+        validator.print_summary()
+
     mean_reward = total_reward / args.steps
     r = ", ".join(f"{n}={v:+.3f}" for n, v in zip(reward_cfg.term_names, mean_reward))
     print(f"mean reward over {args.steps} steps: {r}")
 
     if analyzer is not None and args.plot:
-        plot_dir = os.path.join(os.path.dirname(checkpoint_path), "exported")
+        plot_dir = os.path.join(checkpoint_run_dir(checkpoint_path), "exported")
         analyzer.save_plots(plot_dir)
         print(f"saved analysis plots to {plot_dir}")
+
+    if validator is not None and args.plot:
+        plot_dir = os.path.join(checkpoint_run_dir(checkpoint_path), "exported")
+        validator.save_plots(plot_dir)
+        print(f"saved validation plots to {plot_dir}")
 
     if args.env == "isaac_lab":
         import threading

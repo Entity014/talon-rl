@@ -5,6 +5,8 @@ scripts/rl/core/algorithms/moppo.py for how MOPPO builds and updates it.
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -57,50 +59,96 @@ class ActorCritic(nn.Module):
     # `typing.Final` annotation doesn't work here because this file uses
     # `from __future__ import annotations`, which makes annotations lazy
     # strings TorchScript can't introspect.
-    __constants__ = ["ACTION_CLIP", "_ATANH_EPS", "LOG_STD_MIN"]
+    __constants__ = ["ACTION_CLIP", "_ATANH_EPS", "LOG_STD_MIN", "LOG_STD_MAX"]
     ACTION_CLIP = 3.0
     _ATANH_EPS = 1e-6
-    # Floor under log_std, on top of the entropy bonus (moppo.py's
-    # entropy_coef) -- found 2026-09-17 (phase1_longrun, 20000 updates):
-    # entropy_coef=0.01 slowed collapse but didn't stop it. The run briefly
-    # reached mean_episode_len=70.45 around iteration 14501, then log_std
-    # kept shrinking (entropy ended at -14.92, implying std ~= 0.07) and the
-    # policy got stuck too deterministic to explore back to that behavior
-    # for the remaining 5500 iterations. -1.6 (std ~= 0.20 pre-tanh) still
-    # lets log_std shrink substantially from init (0.0, std=1.0) but never
-    # below a floor that still explores.
+    # Bounds on log_std, enforced OUTSIDE this forward pass entirely -- see
+    # MOPPOTrainer.update()'s post-optimizer-step clamp
+    # (`self.model.log_std.clamp_(LOG_STD_MIN, LOG_STD_MAX)` under
+    # `torch.no_grad()`), not anything in this class. `_pre_tanh_dist`
+    # below is deliberately a plain `self.log_std.exp()` with no
+    # clamp/softplus/squash of any kind in the computational graph.
     #
-    # First attempt used `self.log_std.clamp(min=LOG_STD_MIN).exp()` -- a
-    # hard clamp. Found 2026-09-18 (phase1_longrun5): entropy went
-    # perfectly flat at -2.1727 (== the floor's exact value) from iteration
-    # ~2500 onward and never moved by so much as a float ULP for the next
-    # 7000+ iterations, even though the entropy bonus should keep pushing
-    # std back up whenever the policy gradient lets it. Checkpoint
-    # inspection confirmed why: `torch.clamp`'s gradient is exactly zero
-    # outside the clamped range, so once log_std drifts <= LOG_STD_MIN
-    # (Adam momentum alone can carry it well past the boundary -- one dim
-    # was found at -1.89), BOTH the policy-loss gradient and the
-    # entropy-bonus gradient into log_std become 0 (entropy() reads the
-    # same clamped std). The parameter is then permanently frozen: no
-    # coefficient on the entropy bonus can matter once its gradient is
-    # exactly zero. Identical failure shape to the hard-clamp-before-logp
-    # bug documented above for actions -- same anti-pattern, different
-    # parameter. Fixed with a softplus floor: always differentiable, still
-    # asymptotes to LOG_STD_MIN from above, so the entropy bonus can pull
-    # log_std back up even after it overshoots the floor.
+    # History, why it ended up this simple: entropy_coef=0.01
+    # (moppo.py) alone didn't stop log_std collapsing (found 2026-09-17,
+    # phase1_longrun -- mean_episode_len briefly hit 70.45 then the policy
+    # got stuck too deterministic to explore back to it). First fix was
+    # `self.log_std.clamp(min=LOG_STD_MIN).exp()` INSIDE this forward pass
+    # -- found 2026-09-18 (phase1_longrun5): entropy went perfectly flat at
+    # the floor's exact value for 7000+ iterations, because `torch.clamp`'s
+    # gradient is exactly zero outside the clamped range, so once log_std
+    # drifted <= LOG_STD_MIN (Adam momentum alone carried it past the
+    # boundary), BOTH the policy-loss and entropy-bonus gradients into
+    # log_std became permanently 0 -- same anti-pattern as the
+    # hard-clamp-before-logp action bug above. Replaced with a softplus
+    # floor (differentiable everywhere) -- fixed that direction, but had no
+    # ceiling, and a same-day performance-gated log_std mechanism
+    # (MOPPOConfig.episode_len_baseline_decay -- blocks log_std from
+    # DECREASING on any update() whose mean_episode_len underperforms its
+    # own recent baseline) had nothing to push against once
+    # mean_episode_len started declining: log_std climbed unbounded
+    # (entropy hit +4.3 and rising, the mirror-image runaway). A second
+    # softplus composed as a smooth ceiling was tried next and rejected
+    # before ever training on it: LOG_STD_MAX-LOG_STD_MIN is only 1.6, well
+    # inside softplus's curved (non-identity) region at beta=1, so the
+    # composed function distorted values across the WHOLE usable range
+    # (log_std=0 mapped to bounded=-0.605, not ~0); raising beta to sharpen
+    # the transition just traded that for the original dead-gradient
+    # problem back via float32 underflow (beta=8 gave exactly 0.0 gradient
+    # by log_std=-10, same failure shape as the very first hard clamp).
+    # Clamping the raw parameter's VALUE after each optimizer step, instead
+    # of shaping a function inside the loss graph, sidesteps all of it: no
+    # clamp/softplus ever appears in ANY backward pass, so std=log_std.exp()
+    # has a real, well-defined, never-zero gradient at every value log_std
+    # can ever actually hold, and both bounds are exact (no asymptotic
+    # approximation to tune).
     LOG_STD_MIN = -1.6
+    # 0.0 matches log_std's own init value (std=1.0) -- exploration is
+    # capped at "as random as the untrained policy already was," a natural
+    # reference point that needs no new magic number.
+    LOG_STD_MAX = 0.0
 
     def _pre_tanh_dist(self, actor_obs_w: torch.Tensor) -> Normal:
         mean = self.actor_mean(self.actor_body(actor_obs_w))
-        std = (self.LOG_STD_MIN + F.softplus(self.log_std - self.LOG_STD_MIN)).exp()
+        std = self.log_std.exp()
         return Normal(mean, std)
+
+    def _log_det_jacobian(self, u: torch.Tensor) -> torch.Tensor:
+        """log|d(action)/d(u)| = log(ACTION_CLIP) + log(1 - tanh(u)^2).
+
+        Found 2026-09-18: the naive direct form,
+        `log(ACTION_CLIP*(1-tanh(u)**2) + _ATANH_EPS)`, has a reward-hacking
+        loophole. As |u| grows, `1-tanh(u)**2` underflows toward the eps
+        floor rather than continuing toward its true value of 0, so this
+        term's output STOPS DECREASING and plateaus at a fixed constant
+        (log(eps) ~= -13.8) once u is a few units past the tanh saturation
+        point -- verified numerically: logp for a fixed std went from
+        -0.57 (u=0.5) up to +14.1 (u=15) and stayed there for u=25, 50.
+        Since `logp = dist.log_prob(u) - log_det_jacobian` and
+        dist.log_prob(u) stays roughly constant whenever actor_mean tracks
+        u (which PPO's gradient has every incentive to do), pushing u
+        arbitrarily far from the origin was a free ~14-nat log-prob bonus
+        with NO connection to actual reward -- PPO's ratio=exp(logp_new-
+        logp_old) then rewards drifting deeper into saturation regardless
+        of what the robot actually did, a gradient signal that dwarfs a
+        typical policy_loss magnitude (~0.2) by roughly two orders of
+        magnitude. This is very likely why actor_body's hidden-layer
+        activations and actor_mean's raw output kept growing (activation
+        max 5->10->15+, raw mean max up to 24) even with weight_decay=1e-4
+        active -- weight_decay's pull can't compete with an artifact this
+        large.
+
+        Fixed with the standard numerically-stable SAC identity (Haarnoja
+        et al. 2018, appendix C): log(1-tanh(u)^2) = 2*(log(2) - u -
+        softplus(-2u)). This needs no epsilon and has no artificial floor
+        -- it correctly continues toward -inf as |u| grows, so there's no
+        free log-prob left to farm by saturating harder."""
+        return math.log(self.ACTION_CLIP) + 2.0 * (math.log(2.0) - u - F.softplus(-2.0 * u))
 
     def _squash(self, dist: Normal, u: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """u: pre-tanh Gaussian sample/value -> (bounded action, its log_prob)."""
         action = torch.tanh(u) * self.ACTION_CLIP
-        # d(action)/d(u) = ACTION_CLIP * (1 - tanh(u)^2); log|Jacobian| subtracted
-        # per the standard change-of-variables correction for a squashed policy.
-        log_det_jacobian = torch.log(self.ACTION_CLIP * (1 - torch.tanh(u) ** 2) + self._ATANH_EPS)
+        log_det_jacobian = self._log_det_jacobian(u)
         logp = (dist.log_prob(u) - log_det_jacobian).sum(-1)
         return action, logp
 
@@ -116,6 +164,20 @@ class ActorCritic(nn.Module):
         see scripts/rl/core/wrapper/exporter.py."""
         mean = self.actor_mean(self.actor_body(actor_obs_w))
         return torch.tanh(mean) * self.ACTION_CLIP
+
+    def raw_mean(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
+        """The pre-tanh actor_mean output, unsquashed -- for MOPPOTrainer's
+        mean-magnitude regularizer (MOPPOConfig.mean_reg_coef). Separate
+        from act_inference() (which squashes) because the whole point of
+        this term is to penalize the RAW magnitude before tanh hides it:
+        found 2026-09-18 that actor_body's hidden-layer activations and
+        actor_mean's raw output kept growing through training (activation
+        max 5->10->15+, raw mean max up to 24) even with weight_decay=1e-4
+        active on every parameter -- a generic weight penalty wasn't
+        targeted at the actual symptom (the OUTPUT saturating), so an
+        SAC-style direct penalty on mean.pow(2) was added instead (see
+        moppo.py's update())."""
+        return self.actor_mean(self.actor_body(actor_obs_w))
 
     def entropy(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
         """Entropy of the pre-tanh Gaussian (not the squashed distribution's
@@ -143,7 +205,7 @@ class ActorCritic(nn.Module):
         dist = self._pre_tanh_dist(actor_obs_w)
         normalized = (action / self.ACTION_CLIP).clamp(-1.0 + self._ATANH_EPS, 1.0 - self._ATANH_EPS)
         u = torch.atanh(normalized)
-        log_det_jacobian = torch.log(self.ACTION_CLIP * (1 - normalized**2) + self._ATANH_EPS)
+        log_det_jacobian = self._log_det_jacobian(u)
         return (dist.log_prob(u) - log_det_jacobian).sum(-1)
 
     def value(self, critic_obs_w: torch.Tensor) -> torch.Tensor:

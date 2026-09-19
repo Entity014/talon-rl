@@ -42,7 +42,19 @@ invariants" shape as this one.)
 - **A `transition` dict must carry every active reward input**:
   `v_actual`, `v_command`, `joint_torque`, `joint_vel`,
   `foot_contact_force`, `action`, `prev_action`, `joint_acc`, `roll_pitch`,
-  plus `obs`. If
+  plus `obs`. `v_z`/`height` (balance's vertical-bounce/crouch
+  sub-penalties), `foot_vel`/`undesired_contact_count` (impact's
+  foot-slip/undesired-contact sub-penalties), and `foot_air_time_reward`
+  (progress's positive step-completion bonus) are all OPTIONAL
+  (`dict.get(...)`, default `None` = no contribution) — see
+  docs/mdp.md's "Grouped sub-penalties" note — so envs without real
+  vertical/foot kinematics (e.g. `DummyTalonEnv`) don't need placeholder
+  values for them. `foot_air_time_reward` is STATEFUL (needs the previous
+  step's contact to detect a touchdown event) — only `IsaacLabTalonEnv`
+  computes it (see `_compute_foot_air_time_reward`'s docstring for the
+  double-call-per-step guard it relies on); a new env wanting this term
+  needs its own equivalent per-lane, per-foot bookkeeping, not a stateless
+  one-liner like the other optional fields. If
   you write a new env, grep `reward.py` for the exact key names before
   assuming the shape is obvious. (A second reward module now exists for the
   TienKung sibling module, with its own key set — see README's "A separate
@@ -67,11 +79,17 @@ invariants" shape as this one.)
 
 ## Before claiming something works
 
-Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/` — 47 passed + 1 skipped
-as of this writing (reward terms, preference math, end-to-end smoke tests on
-both the dummy env and, when Isaac Sim is installed, the real Isaac Lab env;
-`test_a1_env.py` is GPU/Isaac-Sim-gated and skips on this repo's default
-3.12 .venv). A green suite proves the wiring, not correctness of the RL
+Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ --ignore=tests/test_sim2sim.py`
+with `~/isaac-lab-env/bin/python`, and separately
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_sim2sim.py` with
+`.venv/bin/python` (only that venv has `mujoco` installed) — 144 + 12
+passed + 1 pre-existing unrelated failure as of this writing (reward
+terms, preference math, end-to-end smoke tests on both the dummy env and
+the sim2sim MuJoCo path). `test_a1_env.py` is GPU/Isaac-Sim-gated and, on
+this machine, silently kills the whole pytest process on collection
+(unrelated Isaac Sim quirk, not a regression) — excluded above; run it
+separately and individually when actually testing real Isaac Lab env
+wiring. A green suite proves the wiring, not correctness of the RL
 algorithm's convergence behavior; there's no oracle to check against until
 there's a real terrain/env to train on.
 
