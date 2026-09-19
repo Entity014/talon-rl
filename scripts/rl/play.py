@@ -89,6 +89,15 @@ def main() -> None:
              "limit, roll/pitch, velocity tracking ratio, undesired contact) instead of trusting Episode_Reward/* "
              "alone -- see core/physics_validator.py's docstring.",
     )
+    parser.add_argument("--progress_std", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--balance_tilt_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--balance_tilt_rate_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--balance_height_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument(
+        "--target_height", type=float, default=None,
+        help="Must match what the checkpoint was trained with -- also fed into PhysicsValidator so "
+             "--validate's mean_height_error is measured against the right target, not always 0.42.",
+    )
     args = parser.parse_args()
 
     if bool(args.checkpoint) == bool(args.load_run):
@@ -109,7 +118,18 @@ def main() -> None:
 
     obs_cfg = ObservationSpaceCfg()
     action_cfg = ActionSpaceCfg()
-    reward_cfg = RewardVectorCfg()
+    reward_cfg_overrides = {}
+    if args.progress_std is not None:
+        reward_cfg_overrides["progress_std"] = args.progress_std
+    if args.balance_tilt_coef is not None:
+        reward_cfg_overrides["balance_tilt_coef"] = args.balance_tilt_coef
+    if args.balance_tilt_rate_coef is not None:
+        reward_cfg_overrides["balance_tilt_rate_coef"] = args.balance_tilt_rate_coef
+    if args.balance_height_coef is not None:
+        reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
+    if args.target_height is not None:
+        reward_cfg_overrides["target_height"] = args.target_height
+    reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg(num_policy_stacks=args.num_policy_stacks, num_critic_stacks=args.num_critic_stacks)
 
@@ -184,7 +204,9 @@ def main() -> None:
         print(f"forcing v_command = {args.command}")
 
     analyzer = Analyzer(args.analyze) if args.analyze else None
-    validator = PhysicsValidator(args.num_envs, trainer.model.ACTION_CLIP) if args.validate else None
+    validator = PhysicsValidator(
+        args.num_envs, trainer.model.ACTION_CLIP, target_height=reward_cfg.target_height
+    ) if args.validate else None
 
     video_writer = None
     video_path = None
