@@ -113,6 +113,8 @@ def main() -> None:
     parser.add_argument("--target_height", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_hip_activation_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_hip_sym_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--sim_dt", type=float, default=0.02, help="Physics timestep, s -- 2E locked dt=0.01 as the numerically-validated diagnostic timestep (2026-09-20); this lets a checkpoint TRAINED at dt=0.02 be EVALUATED at a different dt to test training/eval timestep sensitivity, independent of retraining")
+    parser.add_argument("--decimation", type=int, default=1)
     args = parser.parse_args()
 
     os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
@@ -149,6 +151,9 @@ def main() -> None:
     cfg = IsaacLabTalonEnvCfg()
     cfg.scene.num_envs = args.num_envs
     cfg.seed = args.seed  # see module docstring -- must be set before gym.make()
+    cfg.sim.dt = args.sim_dt
+    cfg.decimation = args.decimation
+    cfg.sim.render_interval = cfg.decimation
     env = gym.make("Isaac-Talon-A1-v0", cfg=cfg, render_mode=None).unwrapped
 
     trainer = MOPPOTrainer(
