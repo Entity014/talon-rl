@@ -17,9 +17,26 @@ schedule.
 
 For each switch boundary, computes, per lane, Delta_x(t) = x(t) -
 x(t_switch - 1) for t in the following segment (x = action, q_target,
-v_x, height, v_z, pitch, pitch_rate, contact_L, contact_R), then
-reports mean |Delta_x| as a function of steps-since-switch -- an
-impulse-response curve. Reading it:
+q_actual, qdot, tau_desired, tau_applied, v_x, height, v_z, pitch,
+contact_L, contact_R), then reports mean |Delta_x| as a function of
+steps-since-switch -- an impulse-response curve, extended
+(Experiment 2C.4) to trace the FULL causal chain command -> action ->
+q_target -> q_actual -> qdot -> tau_desired -> tau_applied -> contact
+-> v_z/height -> v_x, so a command-sensitivity result that shows up at
+the action level but not the v_x level (found via this script's own
+switch-vs-no-switch control comparison, 2026-09-20) can be localized to
+a specific stage: q_target->q_actual (position-tracking/actuator-
+response bottleneck), q_actual/tau->contact (mechanical-interaction
+bottleneck), or contact/state->v_x (gait-geometry/locomotion-
+representation bottleneck -- the leg motion changes but produces no
+net forward impulse). IMPORTANT: this script alone measures raw
+Delta_x within ONE trajectory, which includes ordinary within-episode
+drift (this whole investigation already found substantial cycle-to-
+cycle drift under a CONSTANT command) -- run once with a real switch
+schedule and once with a no-switch (constant command) control of the
+same length, then subtract the two Delta_x tables by hand (or script)
+to get the command-SPECIFIC excess response; the raw numbers alone
+overstate how "persistent" any effect looks. Reading the excess:
 
   Case 1 (persistent):      |Delta| rises after the switch and STAYS
                              elevated through the whole segment -- command
@@ -137,6 +154,8 @@ def main() -> None:
     action_term = env.action_manager._terms["joint_pos"]
     action_scale = float(action_term.cfg.scale)
     default_joint_pos = action_term._offset[0].cpu().numpy()
+    kp = float(cfg.scene.robot.actuators["base_legs"].stiffness)
+    kd = float(cfg.scene.robot.actuators["base_legs"].damping)
 
     foot_body_ids = env._foot_body_ids
     foot_names = [env.scene["robot"].body_names[i] for i in foot_body_ids]
@@ -146,6 +165,10 @@ def main() -> None:
     T, N = args.segment_len * len(args.commands), args.num_envs
     action_arr = np.zeros((T, N, 12), dtype=np.float32)
     q_target_arr = np.zeros((T, N, 12), dtype=np.float32)
+    q_actual_arr = np.zeros((T, N, 12), dtype=np.float32)
+    qdot_arr = np.zeros((T, N, 12), dtype=np.float32)
+    tau_desired_arr = np.zeros((T, N, 12), dtype=np.float32)
+    tau_applied_arr = np.zeros((T, N, 12), dtype=np.float32)
     v_x = np.zeros((T, N), dtype=np.float32)
     v_z = np.zeros((T, N), dtype=np.float32)
     height = np.zeros((T, N), dtype=np.float32)
@@ -161,9 +184,23 @@ def main() -> None:
         vx_cmd = args.commands[segment]
         env.v_command_buf[:] = torch.tensor([vx_cmd, 0.0, 0.0], device=env.device)
         action = trainer.act_inference()
+
+        # Snapshot actual joint state BEFORE stepping -- the PD error that
+        # produces THIS step's applied torque is computed against the
+        # pre-step joint_pos/joint_vel, not the post-step one (same
+        # convention as torque_authority_ablation.py/gait_joint_trace.py).
+        joint_pos_pre = env.scene["robot"].data.joint_pos.cpu().numpy()
+        joint_vel_pre = env.scene["robot"].data.joint_vel.cpu().numpy()
+
         transition, done = env.step(action)
         trainer._last_extrinsics = transition.get("extrinsics") if trainer.encoder else None
         trainer.push_obs(transition["obs"], done_mask=done)
+
+        target = action * action_scale + default_joint_pos[None, :]
+        q_actual_arr[t] = joint_pos_pre
+        qdot_arr[t] = joint_vel_pre
+        tau_desired_arr[t] = kp * (target - joint_pos_pre) - kd * joint_vel_pre
+        tau_applied_arr[t] = transition["joint_torque"]
 
         action_arr[t] = action
         q_target_arr[t] = action * action_scale + default_joint_pos[None, :]
@@ -184,32 +221,43 @@ def main() -> None:
         seg_len = args.segment_len
         alive = ~terminal_fall[switch_step:switch_step + seg_len]  # exclude exact fall steps from this segment's stats
 
-        d_action = np.abs(action_arr[switch_step:switch_step + seg_len] - action_arr[pre_step][None]).mean(axis=-1)  # (seg_len, N)
-        d_qtarget = np.abs(q_target_arr[switch_step:switch_step + seg_len] - q_target_arr[pre_step][None]).mean(axis=-1)
-        d_vx = np.abs(v_x[switch_step:switch_step + seg_len] - v_x[pre_step][None])
-        d_height = np.abs(height[switch_step:switch_step + seg_len] - height[pre_step][None])
-        d_vz = np.abs(v_z[switch_step:switch_step + seg_len] - v_z[pre_step][None])
-        d_pitch = np.abs(pitch[switch_step:switch_step + seg_len] - pitch[pre_step][None])
-        d_contact = (
-            np.abs(contact_L[switch_step:switch_step + seg_len] - contact_L[pre_step][None])
-            + np.abs(contact_R[switch_step:switch_step + seg_len] - contact_R[pre_step][None])
-        ) / 2.0
+        def seg_diff_joint(arr: np.ndarray) -> np.ndarray:
+            return np.abs(arr[switch_step:switch_step + seg_len] - arr[pre_step][None]).mean(axis=-1)  # (seg_len, N)
+
+        def seg_diff_scalar(arr: np.ndarray) -> np.ndarray:
+            return np.abs(arr[switch_step:switch_step + seg_len] - arr[pre_step][None])
+
+        d_action = seg_diff_joint(action_arr)
+        d_qtarget = seg_diff_joint(q_target_arr)
+        d_qactual = seg_diff_joint(q_actual_arr)
+        d_qdot = seg_diff_joint(qdot_arr)
+        d_tau_desired = seg_diff_joint(tau_desired_arr)
+        d_tau_applied = seg_diff_joint(tau_applied_arr)
+        d_vx = seg_diff_scalar(v_x)
+        d_height = seg_diff_scalar(height)
+        d_vz = seg_diff_scalar(v_z)
+        d_pitch = seg_diff_scalar(pitch)
+        d_contact = (seg_diff_scalar(contact_L) + seg_diff_scalar(contact_R)) / 2.0
 
         print(f"\n=== switch {switch_idx}: {args.commands[switch_idx - 1]:+.2f} -> {args.commands[switch_idx]:+.2f} "
               f"(at step {switch_step}) ===")
-        print(f"{'t-switch':<10}{'|Da|':>10}{'|Dq_target|':>14}{'|Dvx|':>10}{'|Dheight|':>12}{'|Dvz|':>10}{'|Dpitch|':>10}{'|Dcontact|':>12}")
+        print(f"{'t-switch':<9}{'|Da|':>8}{'|Dqtgt|':>9}{'|Dqact|':>9}{'|Dqdot|':>9}{'|Dtaud|':>9}{'|Dtaua|':>9}"
+              f"{'|Dcont|':>9}{'|Dvz|':>8}{'|Dh|':>8}{'|Dvx|':>8}")
         for offset in range(seg_len):
             mask = alive[offset]
             if not mask.any():
                 continue
-            print(f"{offset:<10}"
-                  f"{float(d_action[offset][mask].mean()):>10.4f}"
-                  f"{float(d_qtarget[offset][mask].mean()):>14.4f}"
-                  f"{float(d_vx[offset][mask].mean()):>10.4f}"
-                  f"{float(d_height[offset][mask].mean()):>12.4f}"
-                  f"{float(d_vz[offset][mask].mean()):>10.4f}"
-                  f"{float(d_pitch[offset][mask].mean()):>10.4f}"
-                  f"{float(d_contact[offset][mask].mean()):>12.4f}")
+            print(f"{offset:<9}"
+                  f"{float(d_action[offset][mask].mean()):>8.4f}"
+                  f"{float(d_qtarget[offset][mask].mean()):>9.4f}"
+                  f"{float(d_qactual[offset][mask].mean()):>9.4f}"
+                  f"{float(d_qdot[offset][mask].mean()):>9.4f}"
+                  f"{float(d_tau_desired[offset][mask].mean()):>9.4f}"
+                  f"{float(d_tau_applied[offset][mask].mean()):>9.4f}"
+                  f"{float(d_contact[offset][mask].mean()):>9.4f}"
+                  f"{float(d_vz[offset][mask].mean()):>8.4f}"
+                  f"{float(d_height[offset][mask].mean()):>8.4f}"
+                  f"{float(d_vx[offset][mask].mean()):>8.4f}")
 
     if args.out:
         lane = args.lane
@@ -218,6 +266,8 @@ def main() -> None:
             args.out,
             commands=np.array(args.commands), segment_len=args.segment_len,
             action=action_arr[:, lane, :], q_target=q_target_arr[:, lane, :],
+            q_actual=q_actual_arr[:, lane, :], qdot=qdot_arr[:, lane, :],
+            tau_desired=tau_desired_arr[:, lane, :], tau_applied=tau_applied_arr[:, lane, :],
             v_x=v_x[:, lane], v_z=v_z[:, lane], height=height[:, lane],
             pitch=pitch[:, lane], pitch_rate=pitch_rate[:, lane],
             contact_L=contact_L[:, lane], contact_R=contact_R[:, lane],
