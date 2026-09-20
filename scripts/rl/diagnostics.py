@@ -53,6 +53,7 @@ _REGISTRY = {
     "initial-drop-metrics": "initial_drop_metrics",
     "instantaneous-equilibrium-check": "instantaneous_equilibrium_check",
     "leg-collapse-trace": "leg_collapse_trace",
+    "objective-segment-audit": "objective_segment_audit",
     "open-loop-step-response": "open_loop_step_response",
     "prefall-window-analysis": "prefall_window_analysis",
     "progress-leak-counterfactual": "progress_leak_counterfactual",
