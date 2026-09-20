@@ -193,6 +193,19 @@ def main() -> None:
     parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard (ignored if --logs_root is set).")
     parser.add_argument("--logs_root", type=str, default=None, help="Enable run-directory management: creates <logs_root>/<run_name or timestamp>/, dumps config.yaml, logs to its tensorboard/ subdir, and saves checkpoint.pt there — supersedes --log_dir/--save_path when set.")
     parser.add_argument("--run_name", type=str, default=None, help="Run directory name under --logs_root (default: a timestamp).")
+    parser.add_argument(
+        "--sim_dt", type=float, default=0.02,
+        help="Override IsaacLabTalonEnvCfg's physics timestep (--env isaac_lab only; ignored for "
+             "--env dummy). Exposed 2026-09-20 for the training-timestep causality ablation "
+             "(Experiment 2E found dt=0.02 has a real discretization instability the original "
+             "0.02 s training runs never controlled for). Deliberately changes ONLY cfg.sim.dt -- "
+             "does not touch cfg.seed (train_prelim.py's isaac_lab path has never set it before "
+             "gym.make(), so env-level physics/terrain randomization was never explicitly seeded "
+             "by --seed in the original runs either; --seed here still only seeds MOPPOTrainer's "
+             "own RNG). That gap is intentionally left as-is for this ablation so dt stays the "
+             "sole controlled variable relative to the original runs -- see talon-thesis's "
+             "2026-09-20 daily note for the full reasoning.",
+    )
 
     # Peek at --env before the real parse: AppLauncher.add_app_launcher_args
     # needs `isaaclab` importable, which isn't installed in this repo's
@@ -322,6 +335,7 @@ def main() -> None:
 
         cfg = IsaacLabTalonEnvCfg()
         cfg.scene.num_envs = args.num_envs
+        cfg.sim.dt = args.sim_dt
         cfg.action_scale = args.action_scale
         cfg.stand_phase_s = args.stand_phase_s
         cfg.actions.joint_pos.scale = args.action_scale
@@ -368,7 +382,6 @@ def main() -> None:
             writer.add_scalar("Loss/value", stats["value_loss"], i)
             writer.add_scalar("Loss/entropy", stats["entropy"], i)
             writer.add_scalar("Loss/mean_reg", stats.get("mean_reg", 0.0), i)
-            writer.add_scalar("Train/penalty_curriculum_k", stats["penalty_curriculum_k"], i)
             writer.add_scalar("Train/log_std_max", stats.get("log_std_max", 0.0), i)
             writer.add_scalar("Train/mean_episode_length", stats["mean_episode_len"], i)
             writer.add_scalar("Train/done_count", stats.get("done_count", 0), i)
