@@ -51,8 +51,12 @@ invariants" shape as this one.)
   `foot_contact_force`, `action`, `prev_action`, `joint_acc`, `roll_pitch`,
   plus `obs`. `v_z`/`height` (balance's vertical-bounce/crouch
   sub-penalties), `foot_vel`/`undesired_contact_count` (impact's
-  foot-slip/undesired-contact sub-penalties), and `foot_air_time_reward`
-  (progress's positive step-completion bonus) are all OPTIONAL
+  foot-slip/undesired-contact sub-penalties), `foot_air_time_reward`
+  (progress's positive step-completion bonus), and
+  `hip_qdot_L`/`hip_qdot_R`/`hip_q_L`/`hip_q_R` (balance's
+  hip_activation/hip_sym sub-terms, 2026-09-20 — mean joint
+  velocity/position per side's hip pair, real physics not a commanded-
+  target proxy) are all OPTIONAL
   (`dict.get(...)`, default `None` = no contribution) — see
   docs/mdp.md's "Grouped sub-penalties" note — so envs without real
   vertical/foot kinematics (e.g. `DummyTalonEnv`) don't need placeholder

@@ -97,6 +97,8 @@ def main() -> None:
     parser.add_argument("--balance_tilt_rate_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--balance_height_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     parser.add_argument("--target_height", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--balance_hip_activation_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
+    parser.add_argument("--balance_hip_sym_coef", type=float, default=None, help="Must match what the checkpoint was trained with")
     args = parser.parse_args()
 
     os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
@@ -121,6 +123,10 @@ def main() -> None:
         reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
     if args.target_height is not None:
         reward_cfg_overrides["target_height"] = args.target_height
+    if args.balance_hip_activation_coef is not None:
+        reward_cfg_overrides["balance_hip_activation_coef"] = args.balance_hip_activation_coef
+    if args.balance_hip_sym_coef is not None:
+        reward_cfg_overrides["balance_hip_sym_coef"] = args.balance_hip_sym_coef
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     pref_cfg = PreferenceCfg()
     stack_cfg = ObservationStackCfg()

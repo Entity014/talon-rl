@@ -205,6 +205,21 @@ class RewardVectorCfg:
     # a feasibility one -- no controller-level detour needed to tell them
     # apart.
     target_height: float = 0.42
+    # Bonus on balance_reward's min(|hip_qdot_L|, |hip_qdot_R|) term.
+    # Default 0.0 = disabled. Added 2026-09-20 (Experiment 2A.4-5) after
+    # hip_symmetry_intervention.py's directional (not fully mechanistically
+    # explained -- see reward.py's own docstring) causal evidence that a
+    # checkpoint's persistently-frozen hip contributed to falling.
+    # Rewards the smaller side's own real activity, not L/R equality, so
+    # asymmetric terrain adaptation stays available. Single small pilot
+    # value, not swept -- see train_prelim.py's CLI help.
+    balance_hip_activation_coef: float = 0.0
+    # Coefficient on balance_reward's -(hip_q_L + hip_q_R)^2 mirror-
+    # symmetry penalty. Default 0.0 = disabled. Added alongside
+    # balance_hip_activation_coef as a diagnostic comparison baseline
+    # (forces literal bilateral hip symmetry), not because it's expected
+    # to be the better choice -- see reward.py's own docstring for why.
+    balance_hip_sym_coef: float = 0.0
 
     @property
     def dim(self) -> int:

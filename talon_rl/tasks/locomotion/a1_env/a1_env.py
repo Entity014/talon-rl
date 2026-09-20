@@ -79,6 +79,15 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
         self._foot_last_contact = torch.zeros(self.num_envs, n_feet, dtype=torch.bool, device=self.device)
         self._foot_air_time_reward = torch.zeros(self.num_envs, device=self.device)
         self._foot_air_time_last_step = -1  # see _compute_foot_air_time_reward's docstring
+        # balance_reward's hip_activation/hip_sym sub-terms (2026-09-20,
+        # Experiment 2A.4-5) -- L = {FL, RL}, R = {FR, RR}, same
+        # front/rear-mirrors-front/rear grouping used throughout that
+        # session's diagnostic scripts (gait_joint_trace.py etc.), found
+        # via UNITREE_A1_CFG's own default standing pose (FL_hip=+0.1,
+        # FR_hip=-0.1, RL_hip=+0.1, RR_hip=-0.1 -- left/right hip angles
+        # are sign-mirrored about 0 at the symmetric stance, not equal).
+        self._hip_joint_ids_L, _ = self.scene["robot"].find_joints(["FL_hip_joint", "RL_hip_joint"], preserve_order=True)
+        self._hip_joint_ids_R, _ = self.scene["robot"].find_joints(["FR_hip_joint", "RR_hip_joint"], preserve_order=True)
 
     def reset(self, **kwargs) -> dict:
         obs_dict, _extras = super().reset(**kwargs)
@@ -225,6 +234,16 @@ class IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv):
             # spawn point, which is what the probe actually showed.
             "height": (robot.data.root_pos_w[:, 2] - self.scene.env_origins[:, 2]).cpu().numpy(),
             "roll_pitch": _roll_pitch(self).cpu().numpy(),  # balance_reward's dense anti-fall signal
+            # balance_reward's hip_activation/hip_sym sub-terms (2026-09-20)
+            # -- mean joint angular velocity / position over each side's hip
+            # pair, real physics (robot.data.joint_vel/joint_pos), not a
+            # commanded-target proxy. See load_managers's own comment on
+            # _hip_joint_ids_L/_R for the L/R grouping and why it's a mirror
+            # (not equality) relationship.
+            "hip_qdot_L": robot.data.joint_vel[:, self._hip_joint_ids_L].mean(dim=-1).cpu().numpy(),
+            "hip_qdot_R": robot.data.joint_vel[:, self._hip_joint_ids_R].mean(dim=-1).cpu().numpy(),
+            "hip_q_L": robot.data.joint_pos[:, self._hip_joint_ids_L].mean(dim=-1).cpu().numpy(),
+            "hip_q_R": robot.data.joint_pos[:, self._hip_joint_ids_R].mean(dim=-1).cpu().numpy(),
             # root_ang_vel_b's x/y components (2026-09-19) -- real physics
             # angular velocity, not a finite-difference approximation of
             # roll_pitch. Added after a 438-fall-event calibration

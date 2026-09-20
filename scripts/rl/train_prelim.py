@@ -153,6 +153,26 @@ def main() -> None:
              "tell us whether crouching under h=0.42 is a learning-difficulty/feasibility issue or a "
              "reward-landscape/local-optimum one.",
     )
+    parser.add_argument(
+        "--balance_hip_activation_coef", type=float, default=None,
+        help="Override RewardVectorCfg.balance_hip_activation_coef (default 0.0 = disabled). Exposed "
+             "2026-09-20 (Experiment 2A.5) after hip_symmetry_intervention.py's directional causal "
+             "evidence that a persistently-frozen hip (present from spawn, not fall-induced -- see "
+             "hip_asymmetry_analysis.py) contributed to falling. Rewards min(|hip_qdot_L|, "
+             "|hip_qdot_R|), the SMALLER side's own real activity -- not L/R equality, so asymmetric "
+             "terrain adaptation stays available. Single pilot value tested: 0.02 (chosen to sit in "
+             "the same rough scale as balance_reward's other small sub-terms -- tilt_penalty/"
+             "height_penalty were typically 0.01-0.06 in the checkpoints this was diagnosed on -- not "
+             "swept against this task).",
+    )
+    parser.add_argument(
+        "--balance_hip_sym_coef", type=float, default=None,
+        help="Override RewardVectorCfg.balance_hip_sym_coef (default 0.0 = disabled). A literal "
+             "bilateral hip mirror-symmetry penalty (-(hip_q_L+hip_q_R)^2), added as a diagnostic "
+             "comparison baseline against --balance_hip_activation_coef, not because it's expected to "
+             "be the better choice -- forcing symmetry may remove terrain-adaptive asymmetry the "
+             "activation alternative is meant to preserve.",
+    )
     parser.add_argument("--action_scale", type=float, default=0.15, help="Isaac Lab joint target action scale during stabilization curriculum.")
     parser.add_argument(
         "--w_curriculum_updates", type=int, default=0,
@@ -226,6 +246,10 @@ def main() -> None:
         reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
     if args.target_height is not None:
         reward_cfg_overrides["target_height"] = args.target_height
+    if args.balance_hip_activation_coef is not None:
+        reward_cfg_overrides["balance_hip_activation_coef"] = args.balance_hip_activation_coef
+    if args.balance_hip_sym_coef is not None:
+        reward_cfg_overrides["balance_hip_sym_coef"] = args.balance_hip_sym_coef
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
     # Balance > progress > impact/efficiency -- by NAME through
     # reward_cfg.term_names, never a hardcoded position (CLAUDE.md's "single

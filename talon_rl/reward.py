@@ -216,6 +216,8 @@ def balance_reward(
     target_height: float = 0.42, tilt_coef: float = 1.0,
     roll_pitch_rate: np.ndarray | None = None, tilt_rate_coef: float = 0.0,
     height_coef: float = 1.0,
+    hip_qdot_L: np.ndarray | None = None, hip_qdot_R: np.ndarray | None = None, hip_activation_coef: float = 0.0,
+    hip_q_L: np.ndarray | None = None, hip_q_R: np.ndarray | None = None, hip_sym_coef: float = 0.0,
 ) -> np.ndarray:
     """Penalizes trunk tilt directly -- a dense, per-step gradient against
     falling. Not in chapter3.tex's original table 3.3; added because none of
@@ -304,7 +306,45 @@ def balance_reward(
     surviving in the crouched pose -- same "coefficient too small for its
     quadratic scale to register" issue tilt_coef fixed for pitch, now
     applied to height. Exposed as its own scale knob rather than folded
-    into a larger constant, same pattern as tilt_coef/tilt_rate_coef."""
+    into a larger constant, same pattern as tilt_coef/tilt_rate_coef.
+
+    `hip_activation_coef`/`hip_qdot_L`/`hip_qdot_R` (added 2026-09-20,
+    Experiment 2A.4-5, `+hip_activation_coef * min(|hip_qdot_L|,
+    |hip_qdot_R|)`): a checkpoint diagnosed via gait_joint_trace.py
+    learned a structurally asymmetric gait where one hip stayed almost
+    frozen (target near-constant from spawn onward, not a fall-induced
+    effect -- hip_asymmetry_analysis.py's early-vs-late split showed hip
+    asymmetry SHRINKING, not growing, toward each fall) while the other
+    did essentially all the work. hip_symmetry_intervention.py found
+    forcing the frozen hip to mirror the active one (eval-only, no
+    reward/retraining) reduced falls/improved v_z/pitch in the seed with
+    the clearest effect, while forcing the active hip to instead mirror
+    the frozen one made things worse -- directional evidence the passive
+    -hip pattern contributes to failure, not proof of the exact
+    mechanism (subsequent activity-ratio and phase-correlation analyses
+    did not find a robust cross-seed explanatory signal, see
+    gait_activity_ratio.py/hip_functional_correlation.py). This
+    rewards the SMALLER side's own real angular speed (robot.data.
+    joint_vel, not a commanded-target proxy) directly -- deliberately
+    NOT a symmetry constraint (does not compare L to R, does not push
+    them toward equal), so a policy can still legitimately move one hip
+    more than the other (e.g. adapting to a tilted/asymmetric terrain)
+    as long as neither hip collapses to near-zero activity. Small
+    coefficient by design (single untuned pilot value, not swept) --
+    see train_prelim.py's own CLI help text for the value used.
+
+    `hip_sym_coef`/`hip_q_L`/`hip_q_R` (added 2026-09-20, `-hip_sym_coef
+    * (hip_q_L + hip_q_R)**2`): a bilateral MIRROR-symmetry penalty,
+    included as a diagnostic baseline to compare hip_activation_coef
+    against, not because it's expected to be the better choice --
+    UNITREE_A1_CFG's own default standing pose (FL_hip=+0.1, FR_hip=
+    -0.1) already encodes hip_q_L = -hip_q_R at the symmetric stance,
+    so `hip_q_L + hip_q_R` is exactly 0 there and grows with any L/R
+    mirror-asymmetry (real joint position, not target). Disabled by
+    default (0.0) -- forcing literal bilateral symmetry would remove
+    exactly the adaptability (e.g. to a tilted ramp) the hip_activation
+    alternative is meant to preserve; kept available for a controlled
+    comparison, not because it's the intended fix."""
     reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus
     if roll_pitch_rate is not None:
         reward = reward - tilt_rate_coef * np.sum(roll_pitch_rate.astype(np.float32) ** 2, axis=-1)
@@ -312,6 +352,12 @@ def balance_reward(
         reward = reward - v_z.astype(np.float32) ** 2
     if height is not None:
         reward = reward - height_coef * (height.astype(np.float32) - target_height) ** 2
+    if hip_qdot_L is not None and hip_qdot_R is not None:
+        reward = reward + hip_activation_coef * np.minimum(
+            np.abs(hip_qdot_L.astype(np.float32)), np.abs(hip_qdot_R.astype(np.float32))
+        )
+    if hip_q_L is not None and hip_q_R is not None:
+        reward = reward - hip_sym_coef * (hip_q_L.astype(np.float32) + hip_q_R.astype(np.float32)) ** 2
     if terminal_fall is not None:
         reward = reward - np.asarray(terminal_fall, dtype=np.float32) * fall_penalty
     return reward.astype(np.float32)
@@ -370,6 +416,8 @@ _TERM_FUNCS = {
         t.get("v_z"), t.get("height"), target_height=cfg.target_height, tilt_coef=cfg.balance_tilt_coef,
         roll_pitch_rate=t.get("roll_pitch_rate"), tilt_rate_coef=cfg.balance_tilt_rate_coef,
         height_coef=cfg.balance_height_coef,
+        hip_qdot_L=t.get("hip_qdot_L"), hip_qdot_R=t.get("hip_qdot_R"), hip_activation_coef=cfg.balance_hip_activation_coef,
+        hip_q_L=t.get("hip_q_L"), hip_q_R=t.get("hip_q_R"), hip_sym_coef=cfg.balance_hip_sym_coef,
     ),
 }
 

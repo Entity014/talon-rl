@@ -228,6 +228,43 @@ def test_balance_reward_penalizes_vertical_bounce():
     assert np.all(r_bouncing < 0.0)
 
 
+def test_balance_reward_hip_activation_rewards_the_smaller_side():
+    """hip_activation_coef must reward min(|hip_qdot_L|, |hip_qdot_R|) --
+    the SMALLER side's own activity, not a symmetry comparison between
+    them. A frozen-R/active-L lane (the exact pattern gait_joint_trace.py
+    diagnosed 2026-09-20) must score near-zero bonus regardless of how
+    large L's own activity is, since the reward exists to stop a hip
+    collapsing to near-zero, not to reward total motion."""
+    flat = np.zeros((2, 2))
+    frozen_R = balance_reward(
+        flat, hip_qdot_L=np.array([5.0, 5.0]), hip_qdot_R=np.array([0.01, 0.01]), hip_activation_coef=0.02,
+    )
+    both_active = balance_reward(
+        flat, hip_qdot_L=np.array([5.0, 5.0]), hip_qdot_R=np.array([5.0, 5.0]), hip_activation_coef=0.02,
+    )
+    assert np.allclose(frozen_R, 0.02 * 0.01, atol=1e-6)  # bonus tracks the SMALLER side (R), not L
+    assert np.allclose(both_active, 0.02 * 5.0)
+    assert np.all(both_active > frozen_R)
+
+
+def test_balance_reward_hip_sym_penalizes_deviation_from_mirror_symmetry():
+    """UNITREE_A1_CFG's own default standing pose (FL_hip=+0.1, FR_hip=
+    -0.1) means hip_q_L = -hip_q_R at the symmetric stance -- hip_sym_coef
+    must penalize (hip_q_L + hip_q_R)^2, which is exactly 0 at that
+    mirror-symmetric pose and grows for any L/R asymmetry, not
+    (hip_q_L - hip_q_R)^2 (which would incorrectly treat the DEFAULT
+    stance itself as maximally asymmetric)."""
+    flat = np.zeros((2, 2))
+    mirror_symmetric = balance_reward(
+        flat, hip_q_L=np.array([0.1, 0.1]), hip_q_R=np.array([-0.1, -0.1]), hip_sym_coef=1.0,
+    )
+    asymmetric = balance_reward(
+        flat, hip_q_L=np.array([0.1, 0.1]), hip_q_R=np.array([0.1, 0.1]), hip_sym_coef=1.0,
+    )
+    assert np.allclose(mirror_symmetric, 0.0)
+    assert np.all(asymmetric < 0.0)
+
+
 def test_balance_reward_penalizes_terminal_fall_but_not_timeout():
     roll_pitch = np.zeros((2, 2))
     terminal_fall = np.array([True, False])
