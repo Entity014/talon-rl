@@ -40,7 +40,7 @@ progress_reward reads -- this is the exact formula (exp-kernel,
 v_x-only, 2026-09-19's fix), just re-run with a wider zero-window, not
 a new formula.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/progress_leak_counterfactual.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py progress-leak-counterfactual \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

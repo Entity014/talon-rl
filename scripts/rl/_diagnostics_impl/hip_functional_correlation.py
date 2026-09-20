@@ -39,7 +39,7 @@ claim rests on hip_symmetry_intervention.py's actual counterfactual
 result; this only characterizes WHAT the functional relationship looks
 like assuming that result is real.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/hip_functional_correlation.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py hip-functional-correlation \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --mode none --window 15 --lag_max 5 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42

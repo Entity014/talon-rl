@@ -32,7 +32,7 @@ part 2) shows G_q climbing back toward 1 at larger deltas. If tracking
 error stays large/doesn't converge even for a simple isolated step --
 the controller/dynamics IS the bottleneck, independent of gait context.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/open_loop_step_response.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py open-loop-step-response \
         --num_envs 16 --delta 0.03 --step_duration 30
 """
 

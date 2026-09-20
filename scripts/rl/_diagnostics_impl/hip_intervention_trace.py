@@ -16,7 +16,7 @@ to build the causal chain (hip activity -> leg support -> height held ->
 v_z improves -> pitch_rate drops -> fewer falls, or some other order)
 rather than just comparing rollout-aggregate numbers.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/hip_intervention_trace.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py hip-intervention-trace \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --mode R_follows_L --out logs/eval_bal/hip_intervention_trace/seed0_R_follows_L.npz \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42

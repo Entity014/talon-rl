@@ -55,7 +55,7 @@ windowed mean, torque saturation fraction stays below `--sat_thresh`, and
 no fall occurs in the window. Thresholds are starting points to separate
 transient from settled behavior, not independently calibrated.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/attractor_phase_metrics.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py attractor-phase-metrics \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.25
 """

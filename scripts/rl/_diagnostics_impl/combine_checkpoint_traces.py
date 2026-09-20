@@ -12,7 +12,7 @@ Pure numpy/matplotlib, no Isaac Sim -- same reasoning as
 combine_hip_intervention_traces.py for keeping this separate from the
 env-touching trace script.
 
-    python scripts/rl/combine_checkpoint_traces.py \
+    python scripts/rl/diagnostics.py combine-checkpoint-traces \
         --baseline logs/.../seed1_baseline.npz --treatment logs/.../seed1_hipact.npz \
         --out logs/.../seed1_baseline_vs_hipact.png
 """

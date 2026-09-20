@@ -34,7 +34,7 @@ other diagnostic script here); compare the printed tables across the
 convention prefall_window_analysis.py etc. already use for cross-run
 comparison (no automatic diffing across processes).
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/command_gait_comparison.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py command-gait-comparison \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --command -0.25 0.0 0.0 --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42 \
         --balance_hip_activation_coef 0.02

@@ -42,7 +42,7 @@ Reading the four series together answers the six-row diagnosis table:
   - Magnitude/timing varies a lot by seed -> more stochastic/policy-
     behavior-dependent than a fixed structural cause.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/hip_asymmetry_analysis.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py hip-asymmetry-analysis \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 --window 10 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

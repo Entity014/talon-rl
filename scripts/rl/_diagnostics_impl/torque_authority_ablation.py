@@ -43,7 +43,7 @@ Logs, per lane then aggregated:
     been clipped at whatever the current effort_scale is).
   - failure: first-fall step, falls/steps, max |pitch|/|pitch_rate|.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/torque_authority_ablation.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py torque-authority-ablation \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --effort_scale 1.25 --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

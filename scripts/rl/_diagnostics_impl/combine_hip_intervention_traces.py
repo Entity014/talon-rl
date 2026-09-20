@@ -8,7 +8,7 @@ and this repo's other scripts all create exactly one Isaac Lab env per
 process; three .npz files in, one comparison figure out avoids testing
 whether re-creating multiple envs in one process is safe).
 
-    python scripts/rl/combine_hip_intervention_traces.py \
+    python scripts/rl/diagnostics.py combine-hip-intervention-traces \
         --none logs/.../seed0_none.npz --r_follows_l logs/.../seed0_R_follows_L.npz \
         --l_follows_r logs/.../seed0_L_follows_R.npz --out logs/.../seed0_combined.png
 """

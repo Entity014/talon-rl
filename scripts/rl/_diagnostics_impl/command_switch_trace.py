@@ -63,7 +63,7 @@ Saves one representative lane's full per-step trace to .npz for a
 plotted impulse-response figure (see plot_command_switch.py) in
 addition to the printed aggregate table.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/command_switch_trace.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py command-switch-trace \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 \
         --segment_len 30 --commands 0.25 -0.25 0.25 \
         --out logs/.../seed0_switch.npz \

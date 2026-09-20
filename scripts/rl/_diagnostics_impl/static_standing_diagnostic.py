@@ -32,14 +32,13 @@ AND |tau| well under the 33.5 Nm ceiling AND qdot ~0, i.e. a genuine
 static equilibrium the controller can actually hold), not simply the
 target with the lowest tracking error in isolation.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/static_standing_diagnostic.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py static-standing \
         --num_envs 64 --steps 60 --kp 25 --calf_target -1.4
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 
 import numpy as np
 
@@ -55,46 +54,22 @@ def main() -> None:
     parser.add_argument("--calf_target", type=float, default=None, help="Override all 4 calf joints' target (default: TALON_A1_CFG's own -1.5)")
     parser.add_argument("--thigh_target", type=float, default=None, help="Override all 4 thigh joints' target (default: TALON_A1_CFG's own 0.8/1.0 front/rear)")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--sim_dt", type=float, default=0.02, help="Physics timestep, s -- 2E.6 found dt=0.02 has a real (non-decaying) discretization oscillation under ground contact too, not just the fixed-base 2E.1 case; 2D.2/2D.3 redone at dt=0.01 (locked 2026-09-20, converged against dt=0.005) supersede the original dt=0.02 runs")
+    parser.add_argument("--decimation", type=int, default=1)
     args = parser.parse_args()
 
-    os.environ.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
-    from isaaclab.app import AppLauncher
-    app_launcher = AppLauncher({"headless": True, "enable_cameras": False})
-    simulation_app = app_launcher.app  # noqa: F841
+    from scripts.rl._diagnostics_impl._common import build_target_action, joint_side_groups, make_diagnostic_env
 
-    import gymnasium as gym
-    import talon_rl.tasks.locomotion.a1_env  # noqa: F401
-    from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import IsaacLabTalonEnvCfg
-
-    cfg = IsaacLabTalonEnvCfg()
-    cfg.scene.num_envs = args.num_envs
-    cfg.seed = args.seed
-
-    base_actuator = cfg.scene.robot.actuators["base_legs"]
-    kp = args.kp if args.kp is not None else base_actuator.stiffness
-    kd = base_actuator.damping
-    if args.kp is not None:
-        # Replace (not mutate in place) -- see torque_authority_ablation.py's
-        # own docstring for why: mutating the shared DCMotorCfg instance in
-        # place would risk touching the module-level TALON_A1_CFG singleton
-        # its fields are shallow-copied from.
-        scaled_actuator = base_actuator.replace(stiffness=kp)
-        cfg.scene.robot.actuators = {**cfg.scene.robot.actuators, "base_legs": scaled_actuator}
-
-    env = gym.make("Isaac-Talon-A1-v0", cfg=cfg, render_mode=None).unwrapped
-    env.reset()
+    simulation_app, env, kp, kd = make_diagnostic_env(  # noqa: F841 (simulation_app kept alive)
+        num_envs=args.num_envs, seed=args.seed, kp=args.kp, sim_dt=args.sim_dt, decimation=args.decimation,
+    )
     print(f"Kp={kp} Kd={kd} (torque ceiling unchanged at {A1_TORQUE_LIMIT_NM} Nm)")
 
     action_term = env.action_manager._terms["joint_pos"]
     joint_names = list(action_term._joint_names)
     default_joint_pos = action_term._offset[0].cpu().numpy()
 
-    def side_idx(joint_type: str, side: str) -> list[int]:
-        legs = ("FL", "RL") if side == "L" else ("FR", "RR")
-        return [i for i, n in enumerate(joint_names) if joint_type in n and any(n.startswith(leg) for leg in legs)]
-
-    joint_types = ("hip", "thigh", "calf")
-    idx = {(jt, side): side_idx(jt, side) for jt in joint_types for side in ("L", "R")}
+    idx = joint_side_groups(joint_names)
     calf_idx = idx[("calf", "L")] + idx[("calf", "R")]
     thigh_idx = idx[("thigh", "L")] + idx[("thigh", "R")]
 
@@ -103,7 +78,6 @@ def main() -> None:
         target_pose[calf_idx] = args.calf_target
     if args.thigh_target is not None:
         target_pose[thigh_idx] = args.thigh_target
-    action_term_scale = float(action_term.cfg.scale)
     print(f"target pose: calf={args.calf_target if args.calf_target is not None else 'default'}  "
           f"thigh={args.thigh_target if args.thigh_target is not None else 'default'}")
 
@@ -118,7 +92,7 @@ def main() -> None:
     n_feet_contact = np.zeros((T, N), dtype=np.float32)
 
     robot = env.scene["robot"]
-    action = ((target_pose - default_joint_pos) / action_term_scale)[None, :].repeat(N, axis=0).astype(np.float32)
+    action = build_target_action(action_term, target_pose, N)
     for t in range(T):
         joint_pos_pre = robot.data.joint_pos.cpu().numpy()
         joint_vel_pre = robot.data.joint_vel.cpu().numpy()
@@ -141,7 +115,7 @@ def main() -> None:
     w = args.settle_window
     print(f"\n=== steady-state (last {w} of {T} steps), {N} lanes ===")
     print(f"{'group':<10}{'|err|(rad)':>12}{'tau_desired':>13}{'tau_applied':>13}{'qdot':>9}{'saturated?':>12}")
-    for jt in joint_types:
+    for jt in ("hip", "thigh", "calf"):
         for side in ("L", "R"):
             k = (jt, side)
             err = float(track_err[k][-w:].mean())

@@ -24,7 +24,7 @@ this recomputes the actual reward VECTOR every step via
 compute_reward_vector so progress/balance can be plotted directly --
 Analyzer has no access to per-term reward, only raw physics fields.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/balance_progress_trace.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py balance-progress-trace \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --steps 200 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.25
 """

@@ -38,7 +38,7 @@ balance_reward, progress_reward. Reports:
      first", not a rigorous change-point detector -- read the raw
      offset-by-offset numbers alongside it, not the onset ranking alone.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/fall_cycle_analysis.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py fall-cycle-analysis \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 --window 15 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

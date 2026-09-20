@@ -43,7 +43,7 @@ near-zero action difference despite a clean, well-separated command
 input -- learned command insensitivity, not a pipeline bug, consistent
 with command_gait_comparison.py's rollout-level finding.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/command_sensitivity_probe.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py command-sensitivity-probe \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --num_snapshots 30 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42 --balance_hip_activation_coef 0.02
 """

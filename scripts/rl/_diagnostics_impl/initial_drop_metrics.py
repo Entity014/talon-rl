@@ -23,7 +23,7 @@ peak |torque|, fraction of (step, joint) pairs at >=95% of the torque
 limit, height change (height[window-1] - height[0]), min v_z, peak |v_z|,
 mean action magnitude.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/initial_drop_metrics.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py initial-drop-metrics \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --window 15 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.25
 """

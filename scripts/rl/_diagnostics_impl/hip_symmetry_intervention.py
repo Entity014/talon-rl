@@ -42,7 +42,7 @@ attractor_phase_metrics.py's Phase C (falls/lane, v_z, height, v_x
 tracking MAE, max |pitch|/|pitch_rate|) so the three modes' numbers sit
 directly next to each other with no cross-script formatting drift.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/hip_symmetry_intervention.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py hip-symmetry-intervention \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 \
         --mode R_follows_L --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

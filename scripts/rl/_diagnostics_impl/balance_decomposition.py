@@ -6,7 +6,7 @@ combined total -- answers whether a "standing" checkpoint (high survival,
 still paying others (e.g. crouching low, bouncing), which the combined
 balance_reward number alone can't distinguish.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/balance_decomposition.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py balance-decomposition \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --steps 200
 """
 

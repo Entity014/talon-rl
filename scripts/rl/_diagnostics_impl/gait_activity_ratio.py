@@ -27,7 +27,7 @@ threshold". If long segments cluster near rho_A~1 and short segments
 cluster low with visible separation, that threshold (not a guessed
 constant) is what an activity-floor reward term should target.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/gait_activity_ratio.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py gait-activity-ratio \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --seed 0 --steps 200 --min_segment_len 5 \
         --progress_std 0.5 --balance_tilt_coef 1.0 --target_height 0.42
 """

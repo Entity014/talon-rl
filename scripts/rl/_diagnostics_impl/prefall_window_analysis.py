@@ -25,7 +25,7 @@ Reuses the same rollout mechanics as balance_progress_trace.py (deterministic
 act_inference under a forced w/command) but aggregates over ALL lanes'
 fall events, not just one plotted lane, for a less noisy read.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/prefall_window_analysis.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py prefall-window-analysis \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --steps 200 --window 10
 """
 

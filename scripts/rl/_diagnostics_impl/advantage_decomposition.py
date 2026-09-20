@@ -25,7 +25,7 @@ optimizer.step() anywhere in it) but DOES mutate reward_norm's running
 stats -- run this once per (checkpoint, w) combination in a fresh process,
 don't reuse a trainer instance across multiple forced-w passes.
 
-    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/advantage_decomposition.py \
+    PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/diagnostics.py advantage-decomposition \
         runs/<run>/checkpoints/checkpoint.pt 0.7 0.1 0.1 0.1 --steps 24
 """
 
