@@ -128,14 +128,21 @@ def main() -> None:
             action[:, follower] = (mirrored_target - default_joint_pos[follower]) / action_scale
         return action
 
+    foot_body_ids = env._foot_body_ids
+    foot_names = [env.scene["robot"].body_names[i] for i in foot_body_ids]
+    left_feet = [i for i, n in enumerate(foot_names) if n.startswith("FL") or n.startswith("RL")]
+    right_feet = [i for i, n in enumerate(foot_names) if n.startswith("FR") or n.startswith("RR")]
+
     T = args.steps
     lane = args.lane
     out = {
-        "height": np.zeros(T), "v_z": np.zeros(T), "pitch": np.zeros(T), "pitch_rate": np.zeros(T),
+        "height": np.zeros(T), "v_z": np.zeros(T), "v_x": np.zeros(T),
+        "pitch": np.zeros(T), "pitch_rate": np.zeros(T),
         "hip_L_torque": np.zeros(T), "hip_R_torque": np.zeros(T),
         "hip_L_qdot": np.zeros(T), "hip_R_qdot": np.zeros(T),
         "thigh_dq_target": np.zeros(T), "calf_dq_target": np.zeros(T),
-        "n_feet_contact": np.zeros(T), "fell": np.zeros(T, dtype=bool),
+        "n_feet_contact": np.zeros(T), "contact_L": np.zeros(T), "contact_R": np.zeros(T),
+        "fell": np.zeros(T, dtype=bool),
     }
 
     trainer.model.eval()
@@ -152,6 +159,7 @@ def main() -> None:
 
         out["height"][t] = transition["height"][lane]
         out["v_z"][t] = transition["v_z"][lane]
+        out["v_x"][t] = transition["v_actual"][lane, 0]
         out["pitch"][t] = transition["roll_pitch"][lane, 1]
         out["pitch_rate"][t] = transition["roll_pitch_rate"][lane, 1]
         torque = transition["joint_torque"][lane]
@@ -171,6 +179,8 @@ def main() -> None:
 
         contact = transition["foot_contact_force"][lane] > CONTACT_THRESHOLD_N
         out["n_feet_contact"][t] = contact.sum()
+        out["contact_L"][t] = contact[left_feet].mean()
+        out["contact_R"][t] = contact[right_feet].mean()
         out["fell"][t] = bool(transition.get("terminal_fall", done)[lane])
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
