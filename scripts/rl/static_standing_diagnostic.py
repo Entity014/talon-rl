@@ -20,8 +20,20 @@ tau_desired (Kp*(target-actual)-Kd*qdot, the PD's own uncapped demand),
 tau_applied (post-actuator-clip), qdot, and whether that group is
 saturated (|tau_applied| >= 95% of the torque ceiling) in steady state.
 
+2026-09-20 (Experiment 2D.2): --calf_target/--thigh_target override the
+default standing pose's calf/thigh angle (all 4 legs, uniformly) instead
+of holding TALON_A1_CFG's own default -- for a standing-POSE feasibility
+sweep, not a gain sweep (hold --kp fixed, e.g. 25 where 2D.1 found no
+saturation at the default pose, so any saturation appearing here is
+pose-driven, not gain-driven). Also reports height/v_z/n_feet_contact
+at steady state, not just per-joint error/torque -- the goal per this
+sweep's own framing is a FEASIBLE standing configuration (error small
+AND |tau| well under the 33.5 Nm ceiling AND qdot ~0, i.e. a genuine
+static equilibrium the controller can actually hold), not simply the
+target with the lowest tracking error in isolation.
+
     PYTHONPATH="$(pwd):$(pwd)/scripts" python scripts/rl/static_standing_diagnostic.py \
-        --num_envs 64 --steps 60 --kp 55
+        --num_envs 64 --steps 60 --kp 25 --calf_target -1.4
 """
 
 from __future__ import annotations
@@ -40,6 +52,8 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=60)
     parser.add_argument("--settle_window", type=int, default=10)
     parser.add_argument("--kp", type=float, default=None, help="Override actuator stiffness (default: TALON_A1_CFG's own 55.0)")
+    parser.add_argument("--calf_target", type=float, default=None, help="Override all 4 calf joints' target (default: TALON_A1_CFG's own -1.5)")
+    parser.add_argument("--thigh_target", type=float, default=None, help="Override all 4 thigh joints' target (default: TALON_A1_CFG's own 0.8/1.0 front/rear)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -81,6 +95,17 @@ def main() -> None:
 
     joint_types = ("hip", "thigh", "calf")
     idx = {(jt, side): side_idx(jt, side) for jt in joint_types for side in ("L", "R")}
+    calf_idx = idx[("calf", "L")] + idx[("calf", "R")]
+    thigh_idx = idx[("thigh", "L")] + idx[("thigh", "R")]
+
+    target_pose = default_joint_pos.copy()
+    if args.calf_target is not None:
+        target_pose[calf_idx] = args.calf_target
+    if args.thigh_target is not None:
+        target_pose[thigh_idx] = args.thigh_target
+    action_term_scale = float(action_term.cfg.scale)
+    print(f"target pose: calf={args.calf_target if args.calf_target is not None else 'default'}  "
+          f"thigh={args.thigh_target if args.thigh_target is not None else 'default'}")
 
     N = args.num_envs
     T = args.steps
@@ -88,15 +113,18 @@ def main() -> None:
     tau_desired = {k: np.zeros((T, N), dtype=np.float32) for k in idx}
     tau_applied = {k: np.zeros((T, N), dtype=np.float32) for k in idx}
     qdot_arr = {k: np.zeros((T, N), dtype=np.float32) for k in idx}
+    height_arr = np.zeros((T, N), dtype=np.float32)
+    v_z_arr = np.zeros((T, N), dtype=np.float32)
+    n_feet_contact = np.zeros((T, N), dtype=np.float32)
 
     robot = env.scene["robot"]
-    action = np.zeros((N, 12), dtype=np.float32)  # target = default the whole time
+    action = ((target_pose - default_joint_pos) / action_term_scale)[None, :].repeat(N, axis=0).astype(np.float32)
     for t in range(T):
         joint_pos_pre = robot.data.joint_pos.cpu().numpy()
         joint_vel_pre = robot.data.joint_vel.cpu().numpy()
         transition, done = env.step(action)
 
-        target_full = np.tile(default_joint_pos, (N, 1))
+        target_full = np.tile(target_pose, (N, 1))
         err_full = target_full - joint_pos_pre
         tau_d_full = kp * err_full - kd * joint_vel_pre
         tau_a_full = transition["joint_torque"]
@@ -106,6 +134,9 @@ def main() -> None:
             tau_desired[k][t] = tau_d_full[:, v].mean(axis=-1)
             tau_applied[k][t] = tau_a_full[:, v].mean(axis=-1)
             qdot_arr[k][t] = joint_vel_pre[:, v].mean(axis=-1)
+        height_arr[t] = transition["height"]
+        v_z_arr[t] = transition["v_z"]
+        n_feet_contact[t] = (transition["foot_contact_force"] > 1.0).sum(axis=-1)
 
     w = args.settle_window
     print(f"\n=== steady-state (last {w} of {T} steps), {N} lanes ===")
@@ -120,6 +151,8 @@ def main() -> None:
             sat_frac = float((np.abs(tau_applied[k][-w:]) >= 0.95 * A1_TORQUE_LIMIT_NM).mean())
             flag = f"YES ({sat_frac * 100:.0f}%)" if sat_frac > 0.1 else "no"
             print(f"{jt + '_' + side:<10}{err:>12.4f}{td:>13.4f}{ta:>13.4f}{qd:>9.4f}{flag:>12}")
+    print(f"\n  mean height: {float(height_arr[-w:].mean()):.4f}  mean |v_z|: {float(np.abs(v_z_arr[-w:]).mean()):.4f}  "
+          f"mean n_feet_contact: {float(n_feet_contact[-w:].mean()):.4f}")
 
 
 if __name__ == "__main__":
