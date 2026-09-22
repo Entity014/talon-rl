@@ -26,6 +26,34 @@ def test_v2_identity_film_and_v1_reference_initialization_preserve_action_and_lo
     assert torch.allclose(a_src, a_tgt, atol=1e-5, rtol=1e-5)
     action = torch.tanh(torch.randn(12, action_dim)) * target.ACTION_CLIP
     assert torch.allclose(source.logp_with_preference(obs, w, action), target.logp_with_preference(obs, w, action), atol=1e-5, rtol=1e-5)
+    assert torch.allclose(source.value_with_preference(obs, w), target.value_with_preference(obs, w), atol=1e-5, rtol=1e-5)
+
+
+def test_v2_r1_alpha_half_preserves_exact_identity_at_initialization():
+    torch.manual_seed(7)
+    obs_dim, action_dim = 6, 3
+    source = V1CSharedActorCritic(obs_dim, action_dim)
+    base = V2BehaviorActorCritic(obs_dim, action_dim, film_alpha=0.1)
+    r1 = V2BehaviorActorCritic(obs_dim, action_dim, film_alpha=0.5)
+    initialize_from_v1c(base, source.state_dict())
+    initialize_from_v1c(r1, source.state_dict())
+    obs = torch.randn(16, obs_dim)
+    w = torch.full((16, 3), 1 / 3)
+    action = torch.tanh(torch.randn(16, action_dim)) * source.ACTION_CLIP
+    with torch.no_grad():
+        a_src = source.act_inference_with_preference(obs, w)
+        a_base = base.act_inference_with_preference(obs, w)
+        a_r1 = r1.act_inference_with_preference(obs, w)
+        v_src = source.value_with_preference(obs, w)
+        v_base = base.value_with_preference(obs, w)
+        v_r1 = r1.value_with_preference(obs, w)
+    assert torch.allclose(a_src, a_base, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(a_src, a_r1, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(v_src, v_base, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(v_src, v_r1, atol=1e-5, rtol=1e-5)
+    lp_src = source.logp_with_preference(obs, w, action)
+    assert torch.allclose(lp_src, base.logp_with_preference(obs, w, action), atol=1e-5, rtol=1e-5)
+    assert torch.allclose(lp_src, r1.logp_with_preference(obs, w, action), atol=1e-5, rtol=1e-5)
 
 
 def test_v2_manifold_gradient_and_checkpoint_state():

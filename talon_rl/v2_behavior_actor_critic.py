@@ -19,11 +19,22 @@ LATENT_DIM = 2
 class V2BehaviorActorCritic(ActorCritic):
     """Single actor conditioned through an explicit continuous behavior z."""
 
-    def __init__(self, obs_dim: int, action_dim: int, anchors: Tensor | None = None, hidden_dims: list[int] | None = None):
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        anchors: Tensor | None = None,
+        hidden_dims: list[int] | None = None,
+        *,
+        film_alpha: float = 0.1,
+    ):
         hidden_dims = hidden_dims or [128, 128, 128]
         # Critic input is obs+z; actor input is obs only and is modulated by z.
         super().__init__(obs_dim, obs_dim + LATENT_DIM, action_dim, NUM_OBJECTIVES, hidden_dims)
         self.physical_obs_dim = obs_dim
+        self.film_alpha = float(film_alpha)
+        if not torch.isfinite(torch.tensor(self.film_alpha)) or self.film_alpha < 0:
+            raise ValueError("film_alpha must be finite and non-negative")
         self.behavior_encoder = nn.Sequential(nn.Linear(NUM_OBJECTIVES, 32), nn.ELU(), nn.Linear(32, LATENT_DIM))
         self.actor_pre = nn.Linear(obs_dim, hidden_dims[0])
         self.film_gamma = nn.Linear(LATENT_DIM, hidden_dims[0])
@@ -69,7 +80,7 @@ class V2BehaviorActorCritic(ActorCritic):
         self._validate_w(obs, w)
         z = self.behavior_z(w)
         h = torch.nn.functional.elu(self.actor_pre(obs))
-        h = (1.0 + 0.1 * torch.tanh(self.film_gamma(z))) * h + 0.1 * torch.tanh(self.film_beta(z))
+        h = (1.0 + self.film_alpha * torch.tanh(self.film_gamma(z))) * h + self.film_alpha * torch.tanh(self.film_beta(z))
         return self.actor_rest(h)
 
     def _dist(self, obs: Tensor, w: Tensor) -> Normal:
