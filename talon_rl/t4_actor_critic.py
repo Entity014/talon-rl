@@ -8,6 +8,10 @@ OBJECTIVE_ORDER=("velocity_tracking","angular_stability","orientation_stability"
 NUM_OBJECTIVES=4
 
 class T4SharedActorCritic(ActorCritic):
+    # T5 consistency repair: the policy support exactly matches the action
+    # applied to IsaacLab. No downstream external clamp is permitted.
+    ACTION_CLIP = 1.0
+
     def __init__(self,obs_dim:int,action_dim:int,hidden_dims:list[int]|None=None):
         hidden_dims=hidden_dims or [128,128,128]
         super().__init__(obs_dim+NUM_OBJECTIVES,obs_dim+NUM_OBJECTIVES,action_dim,NUM_OBJECTIVES,hidden_dims)
@@ -20,8 +24,18 @@ class T4SharedActorCritic(ActorCritic):
             raise ValueError("w must be finite and on the four-objective simplex")
         return torch.cat((obs,w),dim=-1)
     def act_with_preference(self,obs,w): return self.act(self._with_w(obs,w))
+    def act_with_preference_latent(self,obs,w):
+        actor_obs=self._with_w(obs,w)
+        dist=self._pre_tanh_dist(actor_obs)
+        u=dist.sample()
+        action=torch.tanh(u)*self.ACTION_CLIP
+        logp=(dist.log_prob(u)-self._log_det_jacobian(u)).sum(-1)
+        return action,logp,u
     def act_inference_with_preference(self,obs,w): return self.act_inference(self._with_w(obs,w))
     def logp_with_preference(self,obs,w,action): return self.logp(self._with_w(obs,w),action)
+    def logp_from_pre_tanh_with_preference(self,obs,w,u):
+        dist=self._pre_tanh_dist(self._with_w(obs,w))
+        return (dist.log_prob(u)-self._log_det_jacobian(u)).sum(-1)
     def value_with_preference(self,obs,w): return self.value(self._with_w(obs,w))
 
 def initialize_from_rsl_m01(model:T4SharedActorCritic,checkpoint,device:str="cpu")->None:

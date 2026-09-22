@@ -41,15 +41,18 @@ def main():
             p=args.output.parent/f"{label}_snap_{tag}.pt";torch.save({"model":m.state_dict(),"specialist":label,"snapshot":tag},p);snap_paths[f"{label}:{tag}"]=str(p)
         save_snap(0)
         for update in range(1,args.updates+1):
-            ob=[];ac=[];old=[];rw=[];val=[];dn=[]
+            ob=[];ac=[];pre=[];old=[];rw=[];val=[];dn=[]
             for _ in range(args.horizon):
-                with torch.no_grad():a,lp=m.act_with_preference(cur,w);v=m.value_with_preference(cur,w)
-                a=torch.clamp(a,-1,1);nxt,_,term,trunc,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms);vec=normalized_objective_vector(terms(raw,names),shape=(args.num_envs,))
-                ob.append(cur);ac.append(a);old.append(lp);rw.append(torch.as_tensor(vec,device="cuda")*env.unwrapped.step_dt);val.append(v);dn.append((term|trunc).cuda());cur=obs_tensor(nxt).cuda()
+                with torch.no_grad():a,lp,u=m.act_with_preference_latent(cur,w);v=m.value_with_preference(cur,w)
+                nxt,_,term,trunc,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms);vec=normalized_objective_vector(terms(raw,names),shape=(args.num_envs,))
+                ob.append(cur);ac.append(a);pre.append(u);old.append(lp);rw.append(torch.as_tensor(vec,device="cuda")*env.unwrapped.step_dt);val.append(v);dn.append((term|trunc).cuda());cur=obs_tensor(nxt).cuda()
             with torch.no_grad():nv=m.value_with_preference(cur,w)
             rt=torch.stack(rw);vt=torch.stack(val);dt=torch.stack(dn).bool();adv,ret=vector_gae(rt,vt,nv,dt)
-            fo=torch.cat(ob);fa=torch.cat(ac);fold=torch.cat(old);fw=w.repeat(args.horizon,1)
-            logp=m.logp_with_preference(fo,fw,fa);ratio=torch.exp(logp-fold.detach())
+            fo=torch.cat(ob);fa=torch.cat(ac);fu=torch.cat(pre);fold=torch.cat(old);fw=w.repeat(args.horizon,1)
+            logp=m.logp_from_pre_tanh_with_preference(fo,fw,fu);ratio=torch.exp(logp-fold.detach())
+            ratio_maxerr=float((ratio-1).abs().max().detach())
+            if ratio_maxerr>1e-6 or not torch.isfinite(ratio).all():
+                raise RuntimeError(f"PPO pre-update ratio invariant failed: {ratio_maxerr}")
             al=scalarized_late_weighted_ppo(ratio,adv.reshape(-1,4).detach(),fw);cl=vector_value_loss(m.value_with_preference(fo,fw),ret.reshape(-1,4).detach());loss=al+cl
             snap_tag=0 if update==1 else update-1
             do_diag=snap_tag in SNAPS
@@ -80,7 +83,7 @@ def main():
         ws={lab:torch.as_tensor(np.repeat(PREFS[lab][None,:],args.num_envs,axis=0),device="cuda") for lab in ORDER}
         ds={}; acts={}
         with torch.no_grad():
-            for lab in ORDER:acts[lab]=torch.clamp(models[lab].act_inference_with_preference(cur,ws[lab]),-1,1)
+            for lab in ORDER:acts[lab]=models[lab].act_inference_with_preference(cur,ws[lab])
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
