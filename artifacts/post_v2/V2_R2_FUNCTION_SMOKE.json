@@ -1,0 +1,20 @@
+{
+  "schema": "v2_r2_function_preserving_smoke_v1",
+  "status": "PASS",
+  "action_max_abs_diff": 9.834766387939453e-07,
+  "value_max_abs_diff": 2.384185791015625e-07,
+  "logp_max_abs_diff": 7.62939453125e-06,
+  "coeff_max_abs_init": 0.0,
+  "projected_delta_max_abs_init": 0.0,
+  "basis_gram": [
+    [
+      1.0000001192092896,
+      -1.1175870895385742e-08
+    ],
+    [
+      -1.1175870895385742e-08,
+      1.0
+    ]
+  ],
+  "projection_alpha": 1.0
+}
