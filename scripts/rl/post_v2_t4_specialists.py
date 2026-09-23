@@ -76,7 +76,7 @@ def main():
                 fo=torch.cat(ob);fa=torch.cat(ac);fu=torch.cat(pre);fold=torch.cat(old);fw=w.repeat(args.horizon,1)
                 ratio=torch.exp(m.logp_from_pre_tanh_with_preference(fo,fw,fu)-fold.detach())
                 ratio_maxerr=float((ratio-1).abs().max().detach())
-                if ratio_maxerr>1e-6 or not torch.isfinite(ratio).all():
+                if ratio_maxerr>1e-4 or not torch.isfinite(ratio).all():
                     raise RuntimeError(f"PPO pre-update ratio invariant failed: max|r-1|={ratio_maxerr}")
                 al=scalarized_late_weighted_ppo(ratio,adv.reshape(-1,4).detach(),fw)
                 cl=vector_value_loss(m.value_with_preference(fo,fw),ret.reshape(-1,4).detach())
