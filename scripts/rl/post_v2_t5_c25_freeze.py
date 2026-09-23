@@ -3,34 +3,25 @@ import json,hashlib,numpy as np
 from pathlib import Path
 R=Path("runs/post_v2_t5_c25_actor_updating25-2026-09-23")
 def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
-rep=json.load(open(R/"replay_audit.json"));tr=json.load(open(R/"train.json"))
-safe=json.load(open(R/"u25_safety_confirm.json"))
-mid=json.load(open(R/"mid_causal_semantics.json"))["snapshots"]
-u25=json.load(open(R/"u25_causal_semantics.json"))["snapshots"]["25"]
-def delta32(block,branch):
- r=next(x for x in block["perturbations"] if x["branch"]==branch);m=r["metric"]
- vals=[q["perturbed"]["32"][m]-q["baseline"]["32"][m] for q in r["suites"]]
- return {"mean":float(np.mean(vals)),"improve_fraction":float(np.mean(np.asarray(vals)<0)),"values":vals}
-def gradgeom(update):
- cs=[];gn=[];ad=[];hd=[]
+rep=json.load(open(R/"replay_audit.json")); tr=json.load(open(R/"train.json")); ca=json.load(open(R/"causal_u25_confirm.json"))
+def grad_stats(u):
+ cs=[];adr=[];hdr=[];gn=[]
  for lab in ("T","A","O","S"):
-  x=tr["specialists"][lab][update-1];M=np.asarray(x["objective_grad_cosine"])
-  cs+=M[np.triu_indices(4,1)].tolist();gn+=x["objective_grad_norm"];ad.append(x["actor_param_drift"]);hd.append(x["head_solution_drift"])
- return {"offdiag_cos_mean":float(np.mean(cs)),"offdiag_cos_min":float(np.min(cs)),"offdiag_cos_max":float(np.max(cs)),
- "grad_norm_mean":float(np.mean(gn)),"actor_param_drift_mean":float(np.mean(ad)),"head_solution_drift_mean":float(np.mean(hd))}
-syn={"schema":"t5_c25_synthesis_v1",
-"status":"C25_CLOSED_CRITIC_REPAIR_SURVIVES_ACTOR_LEARNING_BUT_LATE_ORIENTATION_CREDIT_DRIFT",
-"fresh_value":{"u1":rep["aggregate"]["1"],"u5":rep["aggregate"]["5"],"u10":rep["aggregate"]["10"],"u25":rep["aggregate"]["25"]},
-"causal_semantics":{"u15":{"A":delta32(mid["15"],"A"),"O":delta32(mid["15"],"O")},"u20":{"A":delta32(mid["20"],"A"),"O":delta32(mid["20"],"O")},"u25":{"A":delta32(u25,"A"),"O":delta32(u25,"O")}},
-"gradient_geometry":{"u10":gradgeom(10),"u25":gradgeom(25)},"u25_safety":safe,
-"decision":{"C25":"CLOSED — critic/value gate PASS; semantic-credit persistence FAIL/PARTIAL",
-"critic_repair_under_actor_shift":"PASS","fresh_H32_MC64":"PASS","orientation_value_EV":"PASS","objective_gradient_separability":"RETAINED",
-"angular_causal_credit":"MOSTLY RETAINED","orientation_causal_credit":"LATE FLIP by u25","safety":"PARTIAL: Smoothness has one 0.875 survival suite out of 8","full_T4":"BLOCKED","V2":"OFF",
-"next":"C26 late semantic-credit drift audit focused on u20->u25. Keep critic repair fixed and diagnose why Orientation PPO/advantage gradient ceases to reduce tilt despite positive fresh value EV: compare per-objective advantage-return alignment, critic bias/TD residual on Orientation states, state/command visitation shift, and raw-vs-Adam actor update geometry at u20/u25. No architecture/reward changes yet."},
-"provenance":{"train_sha256":sha(R/"train.json"),"replay_sha256":sha(R/"replay_audit.json"),"mid_causal_sha256":sha(R/"mid_causal_semantics.json"),"u25_causal_sha256":sha(R/"u25_causal_semantics.json"),"u25_safety_sha256":sha(R/"u25_safety_confirm.json"),
-"terminal_snapshots":{lab:sha(R/f"{lab}_snap_25.pt") for lab in ("T","A","O","S")}}}
+  x=tr["specialists"][lab][u-1];M=np.array(x["objective_grad_cosine"]);cs+=M[np.triu_indices(4,1)].tolist();adr.append(x["actor_param_drift"]);hdr.append(x["head_solution_drift"]);gn+=x["objective_grad_norm"]
+ return {"offdiag_cos_mean":float(np.mean(cs)),"offdiag_cos_min":float(np.min(cs)),"offdiag_cos_max":float(np.max(cs)),"actor_param_drift_mean":float(np.mean(adr)),"head_solution_drift_mean":float(np.mean(hdr)),"grad_norm_mean":float(np.mean(gn))}
+syn={"schema":"t5_c25_actor_updating_reset_support_synthesis_v1",
+"status":"C25_CLOSED_CRITIC_REPAIR_SURVIVES_ACTOR_LEARNING_BUT_SEMANTIC_CAUSAL_CREDIT_DRIFTS",
+"evidence":{"fresh_replay":rep["aggregate"],"u25_gradient_geometry":grad_stats(25),"u10_gradient_geometry":grad_stats(10),"u25_causal":ca},
+"findings":{
+"critic":"Reset-diverse critic repair remains effective under actor learning through u25: fresh H32 EV ~0.189, MC64 EV ~0.416, Orientation H32 ~0.082, H32 mean |bias| ~0.061, MC64 negative fraction 0%.",
+"tracking":"Tracking H32 is near neutral at u25 (~-0.002), consistent with C24's nonstructural short-horizon residual diagnosis.",
+"gradient_separability":"Objective gradients remain distinct through u25; mean off-diagonal cosine stays near zero and PPO ratio invariance remains ~1e-5.",
+"semantic_credit":"Physical causal semantics do not persist. At u25 Angular perturbation is wrong-sign on average for H1-H16 and Orientation is correct locally H1-H4 but wrong-sign for H8-H32.",
+"safety":"One Smoothness fresh suite shows survival 0.875 at u10/u25, while other suites and dedicated additional Smoothness probes survive at 1.0. This is a warning but not a global collapse.",
+"interpretation":"The critic-side foundation survives the coupled loop. The remaining blocker has moved downstream: distinct, numerically valid objective gradients cease to map reliably to intended closed-loop physical semantics as the actor policy evolves."},
+"decision":{"C25":"CLOSED — critic coupled-loop PASS / semantic-credit persistence FAIL","critic_repair_contract":"RETAIN","actor_distribution_shift_as_value_failure":"REJECTED under reset-diverse support","full_T4":"BLOCKED","V2":"OFF","next":"C26 actor-policy semantic-drift audit, diagnostic-only. Track A/O objective-gradient causal response across checkpoints u0/u1/u5/u10/u25 on matched states and horizons, while measuring state visitation/contact/action saturation changes. Determine when and why a still-distinct objective gradient loses physical meaning before changing reward, PPO, or critic again."},
+"provenance":{"train_sha256":sha(R/"train.json"),"replay_sha256":sha(R/"replay_audit.json"),"causal_u25_sha256":sha(R/"causal_u25_confirm.json"),"train_script_sha256":sha("scripts/rl/post_v2_t5_c25_actor_updating_reset_support_25.py"),"replay_script_sha256":sha("scripts/rl/post_v2_t5_c25_replay_audit_25.py"),"causal_script_sha256":sha("scripts/rl/post_v2_t5_c25_causal_u25_confirm.py")}}
 (R/"synthesis.json").write_text(json.dumps(syn,indent=2)+"\n")
-manifest={"status":"FROZEN_BY_HASH","artifacts":{f:{"sha256":sha(R/f)} for f in ("train.json","replay_audit.json","mid_causal_semantics.json","u25_causal_semantics.json","u25_safety_confirm.json","synthesis.json")},
-"terminal_snapshots":{lab:{"sha256":sha(R/f"{lab}_snap_25.pt")} for lab in ("T","A","O","S")}}
+manifest={"status":"FROZEN_BY_HASH","artifacts":{f:{"sha256":sha(R/f)} for f in ("train.json","replay_audit.json","causal_u25_confirm.json","synthesis.json")},"sources":{s:{"sha256":sha(s)} for s in ("scripts/rl/post_v2_t5_c25_actor_updating_reset_support_25.py","scripts/rl/post_v2_t5_c25_replay_audit_25.py","scripts/rl/post_v2_t5_c25_causal_u25_confirm.py")}}
 (R/"PROVENANCE_MANIFEST.json").write_text(json.dumps(manifest,indent=2)+"\n")
-print(json.dumps({"status":syn["status"],"u25":syn["fresh_value"]["u25"],"causal":syn["causal_semantics"],"next":syn["decision"]["next"]},indent=2))
+print(json.dumps({"status":syn["status"],"u25":rep["aggregate"]["25"],"grad":syn["evidence"]["u25_gradient_geometry"],"next":syn["decision"]["next"]},indent=2))
