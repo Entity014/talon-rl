@@ -19,7 +19,7 @@ def corrmat(x):
     x=np.asarray(x,float);return np.corrcoef(x,rowvar=False).tolist()
 def param_vec(params):return torch.cat([p.detach().reshape(-1) for p in params])
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);ap.add_argument("--gae-lambda",type=float,default=.95);ap.add_argument("--target-sync-interval",type=int,default=0);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);ap.add_argument("--gae-lambda",type=float,default=.95);ap.add_argument("--target-sync-interval",type=int,default=0);ap.add_argument("--critic-target-mode",choices=("gae","truncated_mc"),default="gae");args=ap.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     from isaaclab.app import AppLauncher
     saved=sys.argv[:];sys.argv=[sys.argv[0]];app=AppLauncher({"headless":True,"enable_cameras":False}).app;sys.argv=saved
@@ -73,7 +73,14 @@ def main():
             if ratio_maxerr>1e-4 or not torch.isfinite(ratio).all():
                 raise RuntimeError(f"PPO pre-update ratio invariant failed: {ratio_maxerr}")
             al=scalarized_late_weighted_ppo(ratio,adv.reshape(-1,4).detach(),fw)
-            target_ret=ret.reshape(-1,4).detach()
+            if args.critic_target_mode=="gae":
+                target_ret=ret.reshape(-1,4).detach()
+            else:
+                mc_ret=torch.zeros_like(rt);running=torch.zeros_like(rt[-1])
+                for _t in range(args.horizon-1,-1,-1):
+                    running=rt[_t]+0.99*running*(~dt[_t]).unsqueeze(-1)
+                    mc_ret[_t]=running
+                target_ret=mc_ret.reshape(-1,4).detach()
             snap_tag=0 if update==1 else update-1
             do_diag=snap_tag in SNAPS
             if do_diag:
@@ -114,7 +121,7 @@ def main():
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
-      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"gae_lambda":args.gae_lambda,"target_sync_interval":args.target_sync_interval,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
+      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"gae_lambda":args.gae_lambda,"target_sync_interval":args.target_sync_interval,"critic_target_mode":args.critic_target_mode,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
       args.output.write_text(json.dumps(report,indent=2)+"\n");print(json.dumps({"status":report["status"],"action_divergence":action_diag},indent=2))
     except BaseException as e:
       args.output.with_name(args.output.stem+".ERROR.json").write_text(json.dumps({"error":str(e),"traceback":traceback.format_exc()},indent=2));raise
