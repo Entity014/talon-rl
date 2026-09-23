@@ -19,7 +19,7 @@ def corrmat(x):
     x=np.asarray(x,float);return np.corrcoef(x,rowvar=False).tolist()
 def param_vec(params):return torch.cat([p.detach().reshape(-1) for p in params])
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");args=ap.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     from isaaclab.app import AppLauncher
     saved=sys.argv[:];sys.argv=[sys.argv[0]];app=AppLauncher({"headless":True,"enable_cameras":False}).app;sys.argv=saved
@@ -34,7 +34,7 @@ def main():
       all_logs={};snap_paths={}
       for idx,label in enumerate(ORDER):
         torch.manual_seed(31000+idx);np.random.seed(31000+idx)
-        m=T4SharedActorCritic(obs.shape[-1],ad).cuda();initialize_from_rsl_m01(m,args.checkpoint,device="cpu");opt=torch.optim.Adam(m.parameters(),lr=1e-3)
+        m=T4SharedActorCritic(obs.shape[-1],ad).cuda();initialize_from_rsl_m01(m,args.checkpoint,device="cpu",critic_head_init=args.critic_head_init);opt=torch.optim.Adam(m.parameters(),lr=1e-3)
         w=torch.as_tensor(np.repeat(PREFS[label][None,:],args.num_envs,axis=0),device="cuda");cur,_=env.reset(seed=310001+idx*1000);cur=obs_tensor(cur).cuda()
         actor_params=[p for n,p in m.named_parameters() if n.startswith("actor_") or n=="log_std"];logs=[]
         def save_snap(tag):
@@ -75,7 +75,8 @@ def main():
         all_logs[label]=logs
       # matched snapshot action divergence on common initial observations, no rollout confound
       action_diag=[]
-      for snap in SNAPS:
+      active_snaps=tuple(s for s in SNAPS if s<=args.updates)
+      for snap in active_snaps:
         cur,_=env.reset(seed=340001);cur=obs_tensor(cur).cuda()
         models={}
         for lab in ORDER:
@@ -87,7 +88,7 @@ def main():
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
-      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"snapshots":list(SNAPS),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
+      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
       args.output.write_text(json.dumps(report,indent=2)+"\n");print(json.dumps({"status":report["status"],"action_divergence":action_diag},indent=2))
     except BaseException as e:
       args.output.with_name(args.output.stem+".ERROR.json").write_text(json.dumps({"error":str(e),"traceback":traceback.format_exc()},indent=2));raise

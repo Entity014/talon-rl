@@ -38,7 +38,7 @@ class T4SharedActorCritic(ActorCritic):
         return (dist.log_prob(u)-self._log_det_jacobian(u)).sum(-1)
     def value_with_preference(self,obs,w): return self.value(self._with_w(obs,w))
 
-def initialize_from_rsl_m01(model:T4SharedActorCritic,checkpoint,device:str="cpu")->None:
+def initialize_from_rsl_m01(model:T4SharedActorCritic,checkpoint,device:str="cpu",critic_head_init:str="scalar")->None:
     state=torch.load(checkpoint,map_location=device,weights_only=False)
     source=state.get("model_state_dict",state.get("model",state));target=model.state_dict()
     for i in (0,2,4):
@@ -54,8 +54,14 @@ def initialize_from_rsl_m01(model:T4SharedActorCritic,checkpoint,device:str="cpu
         target[f"critic_body.{i}.bias"].copy_(source[f"critic.{i}.bias"])
     target["actor_mean.weight"].copy_(source["actor.6.weight"])
     target["actor_mean.bias"].copy_(source["actor.6.bias"])
-    target["critic_head.weight"].copy_(source["critic.6.weight"].expand(NUM_OBJECTIVES,-1))
-    target["critic_head.bias"].copy_(source["critic.6.bias"].expand(NUM_OBJECTIVES))
+    if critic_head_init=="scalar":
+        target["critic_head.weight"].copy_(source["critic.6.weight"].expand(NUM_OBJECTIVES,-1))
+        target["critic_head.bias"].copy_(source["critic.6.bias"].expand(NUM_OBJECTIVES))
+    elif critic_head_init=="zero":
+        target["critic_head.weight"].zero_()
+        target["critic_head.bias"].zero_()
+    else:
+        raise ValueError(f"unknown critic_head_init: {critic_head_init}")
     target["log_std"].copy_(source["std"].log())
     model.load_state_dict(target)
 
