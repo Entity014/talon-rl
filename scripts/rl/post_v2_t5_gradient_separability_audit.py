@@ -19,7 +19,7 @@ def corrmat(x):
     x=np.asarray(x,float);return np.corrcoef(x,rowvar=False).tolist()
 def param_vec(params):return torch.cat([p.detach().reshape(-1) for p in params])
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);args=ap.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     from isaaclab.app import AppLauncher
     saved=sys.argv[:];sys.argv=[sys.argv[0]];app=AppLauncher({"headless":True,"enable_cameras":False}).app;sys.argv=saved
@@ -37,7 +37,8 @@ def main():
         m=T4SharedActorCritic(obs.shape[-1],ad).cuda();initialize_from_rsl_m01(m,args.checkpoint,device="cpu",critic_head_init=args.critic_head_init)
         actor_params=[p for n,p in m.named_parameters() if n.startswith("actor_") or n=="log_std"]
         critic_params=[p for n,p in m.named_parameters() if n.startswith("critic_")]
-        opt=torch.optim.Adam([{"params":actor_params,"lr":args.actor_lr},{"params":critic_params,"lr":args.critic_lr}])
+        actor_opt=torch.optim.Adam(actor_params,lr=args.actor_lr)
+        critic_opt=torch.optim.Adam(critic_params,lr=args.critic_lr)
         w=torch.as_tensor(np.repeat(PREFS[label][None,:],args.num_envs,axis=0),device="cuda");cur,_=env.reset(seed=310001+idx*1000);cur=obs_tensor(cur).cuda()
         logs=[]
         def save_snap(tag):
@@ -56,7 +57,8 @@ def main():
             ratio_maxerr=float((ratio-1).abs().max().detach())
             if ratio_maxerr>1e-4 or not torch.isfinite(ratio).all():
                 raise RuntimeError(f"PPO pre-update ratio invariant failed: {ratio_maxerr}")
-            al=scalarized_late_weighted_ppo(ratio,adv.reshape(-1,4).detach(),fw);cl=vector_value_loss(m.value_with_preference(fo,fw),ret.reshape(-1,4).detach());loss=al+cl
+            al=scalarized_late_weighted_ppo(ratio,adv.reshape(-1,4).detach(),fw)
+            target_ret=ret.reshape(-1,4).detach()
             snap_tag=0 if update==1 else update-1
             do_diag=snap_tag in SNAPS
             if do_diag:
@@ -70,7 +72,11 @@ def main():
                     ww=PREFS[plab];gc=sum(float(4*ww[j])*gobj[j] for j in range(4));comb[plab]=gc
                 ccos={a:{b:cos(comb[a],comb[b]) for b in ORDER} for a in ORDER}
                 before=param_vec(actor_params).clone()
-            opt.zero_grad(set_to_none=True);loss.backward();opt.step()
+            actor_opt.zero_grad(set_to_none=True);al.backward();actor_opt.step()
+            for _critic_step in range(args.critic_updates):
+                critic_opt.zero_grad(set_to_none=True)
+                cl=vector_value_loss(m.value_with_preference(fo,fw),target_ret)
+                cl.backward();critic_opt.step()
             if do_diag:
                 after=param_vec(actor_params);delta=after-before;actual=comb[label]
                 logs.append({"snapshot":snap_tag,"adv_mean":advflat.mean(0).cpu().tolist(),"adv_std":advflat.std(0).cpu().tolist(),"adv_corr":corrmat(advflat.cpu().numpy()),"objective_grad_norm":gnorm,"objective_grad_cosine":gcos,"combined_grad_norm":{k:float(v.norm()) for k,v in comb.items()},"combined_grad_cosine":ccos,"actual_update_norm":float(delta.norm()),"actual_update_vs_negative_combined_grad_cosine":cos(delta,-actual)})
@@ -91,7 +97,7 @@ def main():
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
-      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
+      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
       args.output.write_text(json.dumps(report,indent=2)+"\n");print(json.dumps({"status":report["status"],"action_divergence":action_diag},indent=2))
     except BaseException as e:
       args.output.with_name(args.output.stem+".ERROR.json").write_text(json.dumps({"error":str(e),"traceback":traceback.format_exc()},indent=2));raise
