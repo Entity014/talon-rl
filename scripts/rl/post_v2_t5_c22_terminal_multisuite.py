@@ -32,39 +32,31 @@ def main():
   cfg=UnitreeA1FlatEnvCfg();cfg.scene.num_envs=8;cfg.seed=0;cfg.scene.robot.spawn.usd_path=str(ROOT/"talon_rl/assets/data/Robots/unitree_a1/a1.usd")
   env=gym.make("Isaac-Velocity-Flat-Unitree-A1-v0",cfg=cfg)
   o,_=env.reset(seed=0);o=obs_tensor(o).cuda();od=o.shape[-1];ad=env.unwrapped.action_manager.total_action_dim;mgr=env.unwrapped.reward_manager
-  out={"schema":"t5_c22_terminal_multisuite_v1","arms":{}}
+  out={"schema":"c22_terminal_multisuite_v1","arms":{}}
   for arm,run in RUNS.items():
-   ar={}
-   for bi,lab in enumerate(ORDER):
-    m=T4SharedActorCritic(od,ad).cuda();m.load_state_dict(torch.load(run/f"{lab}_snap_25.pt",map_location="cuda",weights_only=False)["model"]);m.eval()
-    w=torch.tensor(PREFS[lab],device="cuda").repeat(8,1);suites=[]
-    for si in range(4):
-     seed=1410000+bi*1000+si*97;cur,_=env.reset(seed=seed);cur=obs_tensor(cur).cuda();R=[];D=[];V=[];F=[];C=[]
+   rows=[]
+   for suite in range(3):
+    for bi,lab in enumerate(ORDER):
+     m=T4SharedActorCritic(od,ad).cuda();m.load_state_dict(torch.load(run/f"{lab}_snap_25.pt",map_location="cuda",weights_only=False)["model"]);m.eval()
+     w=torch.tensor(PREFS[lab],device="cuda").repeat(8,1);cur,_=env.reset(seed=1410000+suite*10000+bi*1000);cur=obs_tensor(cur).cuda();R=[];D=[];V=[]
      with torch.no_grad():
-      for t in range(64):
-       feat=m.critic_body(m._with_w(cur,w));V.append(m.critic_head(feat).cpu().numpy())
-       if t<32:F.append(feat.cpu().numpy());C.append(env.unwrapped.command_manager.get_command("base_velocity").detach().cpu().numpy())
-       a=m.act_inference_with_preference(cur,w);nxt,_,te,tr,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms)
+      for _ in range(64):
+       V.append(m.value_with_preference(cur,w).cpu().numpy());a=m.act_inference_with_preference(cur,w)
+       nxt,_,te,tr,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms)
        R.append(normalized_objective_vector(terms(raw,names),shape=(8,))*env.unwrapped.step_dt);D.append((te|tr).cpu().numpy());cur=obs_tensor(nxt).cuda()
-     R=np.asarray(R);D=np.asarray(D,bool);V=np.asarray(V);H32=ret(R,D,32);MC=ret(R,D,None);FF=np.concatenate(F,0);CC=np.concatenate(C,0)
-     # first H32 segment target summary to match training H32 segments
-     Y0=H32[:32].reshape(-1,4)
-     suites.append({"suite":si,"seed":seed,"h32_ev":[ev(H32[:,:,j],V[:,:,j]) for j in range(4)],"mc64_ev":[ev(MC[:,:,j],V[:,:,j]) for j in range(4)],
-       "h32_bias":[float(np.mean(V[:,:,j]-H32[:,:,j])) for j in range(4)],"survival":float(1-D.any(0).mean()),
-       "fresh_summary":np.r_[CC.mean(0),CC.std(0),FF.mean(0),FF.std(0)].tolist(),
-       "target_summary":np.r_[Y0.mean(0),Y0.std(0)].tolist()})
-    ar[lab]=suites
-   out["arms"][arm]=ar
+     R=np.asarray(R);D=np.asarray(D,bool);V=np.asarray(V);H=ret(R,D,32);M=ret(R,D,None)
+     rows.append({"suite":suite,"policy":lab,"h32_ev":[ev(H[:,:,j],V[:,:,j]) for j in range(4)],"mc64_ev":[ev(M[:,:,j],V[:,:,j]) for j in range(4)],
+                  "h32_bias":[float(np.mean(V[:,:,j]-H[:,:,j])) for j in range(4)],"survival":float(1-D.any(0).mean())})
+   out["arms"][arm]=rows
   agg={}
-  for arm in RUNS:
-   e=[];mc=[];b=[];sv=[];by=[[] for _ in range(4)]
-   for lab in ORDER:
-    for s in out["arms"][arm][lab]:
-     e+=s["h32_ev"];mc+=s["mc64_ev"];b+=s["h32_bias"];sv.append(s["survival"])
-     for j,x in enumerate(s["h32_ev"]):by[j].append(x)
+  for arm,rows in out["arms"].items():
+   e=[];m=[];b=[];sv=[];by=[[] for _ in range(4)]
+   for r in rows:
+    e+=r["h32_ev"];m+=r["mc64_ev"];b+=r["h32_bias"];sv.append(r["survival"])
+    for j,x in enumerate(r["h32_ev"]):by[j].append(x)
    agg[arm]={"h32_ev_mean":float(np.mean(e)),"h32_ev_std":float(np.std(e)),"h32_negative_fraction":float(np.mean(np.array(e)<0)),
-    "h32_ev_by_head":[float(np.mean(x)) for x in by],"mc64_ev_mean":float(np.mean(mc)),"mc64_negative_fraction":float(np.mean(np.array(mc)<0)),
-    "h32_mean_abs_bias":float(np.mean(np.abs(b))),"min_survival":float(np.min(sv))}
+             "h32_ev_by_head":[float(np.mean(x)) for x in by],"mc64_ev_mean":float(np.mean(m)),"mc64_negative_fraction":float(np.mean(np.array(m)<0)),
+             "h32_mean_abs_bias":float(np.mean(np.abs(b))),"min_survival":float(np.min(sv))}
   out["aggregate"]=agg
   p=RUNS["diverse12"]/"terminal_multisuite.json";p.write_text(json.dumps(out,indent=2)+"\n");print(json.dumps(agg,indent=2))
  finally:

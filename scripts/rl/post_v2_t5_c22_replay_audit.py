@@ -32,28 +32,23 @@ def main():
   cfg=UnitreeA1FlatEnvCfg();cfg.scene.num_envs=8;cfg.seed=0;cfg.scene.robot.spawn.usd_path=str(ROOT/"talon_rl/assets/data/Robots/unitree_a1/a1.usd")
   env=gym.make("Isaac-Velocity-Flat-Unitree-A1-v0",cfg=cfg)
   o,_=env.reset(seed=0);o=obs_tensor(o).cuda();od=o.shape[-1];ad=env.unwrapped.action_manager.total_action_dim;mgr=env.unwrapped.reward_manager
-  out={"schema":"t5_c22_replay_audit_v1","arms":{},"fresh_summary":{}}
+  out={"schema":"t5_c22_replay_audit_v1","arms":{}}
   for arm,run in RUNS.items():
    armout={}
    for bi,lab in enumerate(ORDER):
     w=torch.tensor(PREFS[lab],device="cuda").repeat(8,1);rows=[]
     for snap in SNAPS:
      m=T4SharedActorCritic(od,ad).cuda();m.load_state_dict(torch.load(run/f"{lab}_snap_{snap}.pt",map_location="cuda",weights_only=False)["model"]);m.eval()
-     cur,_=env.reset(seed=1310000+bi*1000);cur=obs_tensor(cur).cuda();R=[];D=[];V=[];F=[];C=[]
+     cur,_=env.reset(seed=1310000+bi*1000);cur=obs_tensor(cur).cuda();R=[];D=[];V=[]
      with torch.no_grad():
-      for t in range(64):
-       feat=m.critic_body(m._with_w(cur,w));V.append(m.critic_head(feat).cpu().numpy())
-       if t<32:
-        F.append(feat.cpu().numpy());C.append(env.unwrapped.command_manager.get_command("base_velocity").detach().cpu().numpy())
-       a=m.act_inference_with_preference(cur,w);nxt,_,te,tr,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms)
+      for _ in range(64):
+       V.append(m.value_with_preference(cur,w).cpu().numpy());a=m.act_inference_with_preference(cur,w)
+       nxt,_,te,tr,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms)
        R.append(normalized_objective_vector(terms(raw,names),shape=(8,))*env.unwrapped.step_dt);D.append((te|tr).cpu().numpy());cur=obs_tensor(nxt).cuda()
      R=np.asarray(R);D=np.asarray(D,bool);V=np.asarray(V);H32=ret(R,D,32);MC=ret(R,D,None)
      rows.append({"snapshot":snap,"h32_ev":[ev(H32[:,:,j],V[:,:,j]) for j in range(4)],"mc64_ev":[ev(MC[:,:,j],V[:,:,j]) for j in range(4)],
-                  "h32_bias":[float(np.mean(V[:,:,j]-H32[:,:,j])) for j in range(4)],"mc64_bias":[float(np.mean(V[:,:,j]-MC[:,:,j])) for j in range(4)],
-                  "survival":float(1-D.any(0).mean())})
-     if snap==0 and arm=="consecutive12":
-      FF=np.concatenate(F,0);CC=np.concatenate(C,0)
-      out["fresh_summary"][lab]=np.r_[CC.mean(0),CC.std(0),FF.mean(0),FF.std(0)].tolist()
+      "h32_bias":[float(np.mean(V[:,:,j]-H32[:,:,j])) for j in range(4)],"mc64_bias":[float(np.mean(V[:,:,j]-MC[:,:,j])) for j in range(4)],
+      "survival":float(1-D.any(0).mean())})
     armout[lab]=rows
    out["arms"][arm]=armout
   agg={}
@@ -65,14 +60,14 @@ def main():
      r=out["arms"][arm][lab][snap];h+=r["h32_ev"];m+=r["mc64_ev"];hb+=r["h32_bias"];mb+=r["mc64_bias"];sv.append(r["survival"])
      for j,x in enumerate(r["h32_ev"]):by[j].append(x)
     traj.append({"snapshot":snap,"h32_ev_mean":float(np.mean(h)),"h32_negative_fraction":float(np.mean(np.array(h)<0)),
-                 "h32_ev_by_head":[float(np.mean(x)) for x in by],"mc64_ev_mean":float(np.mean(m)),"mc64_negative_fraction":float(np.mean(np.array(m)<0)),
-                 "h32_mean_abs_bias":float(np.mean(np.abs(hb))),"mc64_mean_abs_bias":float(np.mean(np.abs(mb))),"min_survival":float(np.min(sv))})
+      "h32_ev_by_head":[float(np.mean(x)) for x in by],"mc64_ev_mean":float(np.mean(m)),"mc64_negative_fraction":float(np.mean(np.array(m)<0)),
+      "h32_mean_abs_bias":float(np.mean(np.abs(hb))),"mc64_mean_abs_bias":float(np.mean(np.abs(mb))),"min_survival":float(np.min(sv))})
    agg[arm]=traj
   out["aggregate"]=agg
   p=RUNS["diverse12"]/"replay_audit.json";p.write_text(json.dumps(out,indent=2)+"\n")
   for arm in ("consecutive12","diverse12"):
    print("\\n",arm)
-   for s in (0,1,5,10,12,15,20,25):
+   for s in (0,1,2,3,5,10,12,15,20,25):
     r=agg[arm][s];print(s,"H32",round(r["h32_ev_mean"],3),"neg",round(r["h32_negative_fraction"],2),"O",round(r["h32_ev_by_head"][2],3),"MC",round(r["mc64_ev_mean"],3),"bias",round(r["h32_mean_abs_bias"],3),"surv",round(r["min_survival"],3))
  finally:
   if env is not None:env.close()
