@@ -19,7 +19,7 @@ def corrmat(x):
     x=np.asarray(x,float);return np.corrcoef(x,rowvar=False).tolist()
 def param_vec(params):return torch.cat([p.detach().reshape(-1) for p in params])
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);ap.add_argument("--gae-lambda",type=float,default=.95);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);ap.add_argument("--gae-lambda",type=float,default=.95);ap.add_argument("--target-sync-interval",type=int,default=0);args=ap.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     from isaaclab.app import AppLauncher
     saved=sys.argv[:];sys.argv=[sys.argv[0]];app=AppLauncher({"headless":True,"enable_cameras":False}).app;sys.argv=saved
@@ -35,6 +35,10 @@ def main():
       for idx,label in enumerate(ORDER):
         torch.manual_seed(31000+idx);np.random.seed(31000+idx)
         m=T4SharedActorCritic(obs.shape[-1],ad).cuda();initialize_from_rsl_m01(m,args.checkpoint,device="cpu",critic_head_init=args.critic_head_init)
+        target_m=None
+        if args.target_sync_interval>0:
+            target_m=T4SharedActorCritic(obs.shape[-1],ad).cuda();target_m.load_state_dict(m.state_dict());target_m.eval()
+            for p in target_m.parameters():p.requires_grad_(False)
         actor_params=[p for n,p in m.named_parameters() if n.startswith("actor_") or n=="log_std"]
         critic_params=[p for n,p in m.named_parameters() if n.startswith("critic_")]
         actor_opt=torch.optim.Adam(actor_params,lr=args.actor_lr)
@@ -42,16 +46,27 @@ def main():
         w=torch.as_tensor(np.repeat(PREFS[label][None,:],args.num_envs,axis=0),device="cuda");cur,_=env.reset(seed=310001+idx*1000);cur=obs_tensor(cur).cuda()
         logs=[]
         def save_snap(tag):
-            p=args.output.parent/f"{label}_snap_{tag}.pt";torch.save({"model":m.state_dict(),"specialist":label,"snapshot":tag},p);snap_paths[f"{label}:{tag}"]=str(p)
+            p=args.output.parent/f"{label}_snap_{tag}.pt";payload={"model":m.state_dict(),"specialist":label,"snapshot":tag}
+            if target_m is not None:payload["target_model"]=target_m.state_dict()
+            torch.save(payload,p);snap_paths[f"{label}:{tag}"]=str(p)
         save_snap(0)
         for update in range(1,args.updates+1):
-            ob=[];ac=[];pre=[];old=[];rw=[];val=[];dn=[]
+            ob=[];ac=[];pre=[];old=[];rw=[];val=[];tval=[];dn=[]
             for _ in range(args.horizon):
-                with torch.no_grad():a,lp,u=m.act_with_preference_latent(cur,w);v=m.value_with_preference(cur,w)
+                with torch.no_grad():
+                    a,lp,u=m.act_with_preference_latent(cur,w);v=m.value_with_preference(cur,w)
+                    tv=(target_m.value_with_preference(cur,w) if target_m is not None else v)
                 nxt,_,term,trunc,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms);vec=normalized_objective_vector(terms(raw,names),shape=(args.num_envs,))
-                ob.append(cur);ac.append(a);pre.append(u);old.append(lp);rw.append(torch.as_tensor(vec,device="cuda")*env.unwrapped.step_dt);val.append(v);dn.append((term|trunc).cuda());cur=obs_tensor(nxt).cuda()
-            with torch.no_grad():nv=m.value_with_preference(cur,w)
-            rt=torch.stack(rw);vt=torch.stack(val);dt=torch.stack(dn).bool();adv,ret=vector_gae(rt,vt,nv,dt,lam=args.gae_lambda)
+                ob.append(cur);ac.append(a);pre.append(u);old.append(lp);rw.append(torch.as_tensor(vec,device="cuda")*env.unwrapped.step_dt);val.append(v);tval.append(tv);dn.append((term|trunc).cuda());cur=obs_tensor(nxt).cuda()
+            with torch.no_grad():
+                nv=m.value_with_preference(cur,w)
+                tnv=(target_m.value_with_preference(cur,w) if target_m is not None else nv)
+            rt=torch.stack(rw);vt=torch.stack(val);dt=torch.stack(dn).bool()
+            if target_m is None:
+                adv,ret=vector_gae(rt,vt,nv,dt,lam=args.gae_lambda)
+            else:
+                tvt=torch.stack(tval);_,ret=vector_gae(rt,tvt,tnv,dt,lam=args.gae_lambda)
+                adv=ret-vt
             fo=torch.cat(ob);fa=torch.cat(ac);fu=torch.cat(pre);fold=torch.cat(old);fw=w.repeat(args.horizon,1)
             logp=m.logp_from_pre_tanh_with_preference(fo,fw,fu);ratio=torch.exp(logp-fold.detach())
             ratio_maxerr=float((ratio-1).abs().max().detach())
@@ -80,6 +95,8 @@ def main():
             if do_diag:
                 after=param_vec(actor_params);delta=after-before;actual=comb[label]
                 logs.append({"snapshot":snap_tag,"adv_mean":advflat.mean(0).cpu().tolist(),"adv_std":advflat.std(0).cpu().tolist(),"adv_corr":corrmat(advflat.cpu().numpy()),"objective_grad_norm":gnorm,"objective_grad_cosine":gcos,"combined_grad_norm":{k:float(v.norm()) for k,v in comb.items()},"combined_grad_cosine":ccos,"actual_update_norm":float(delta.norm()),"actual_update_vs_negative_combined_grad_cosine":cos(delta,-actual)})
+            if target_m is not None and update%args.target_sync_interval==0:
+                target_m.load_state_dict(m.state_dict());target_m.eval()
             if update in SNAPS:save_snap(update)
         all_logs[label]=logs
       # matched snapshot action divergence on common initial observations, no rollout confound
@@ -97,7 +114,7 @@ def main():
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
-      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"gae_lambda":args.gae_lambda,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
+      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"gae_lambda":args.gae_lambda,"target_sync_interval":args.target_sync_interval,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
       args.output.write_text(json.dumps(report,indent=2)+"\n");print(json.dumps({"status":report["status"],"action_divergence":action_diag},indent=2))
     except BaseException as e:
       args.output.with_name(args.output.stem+".ERROR.json").write_text(json.dumps({"error":str(e),"traceback":traceback.format_exc()},indent=2));raise
