@@ -32,6 +32,8 @@ def main():
     ap.add_argument("--reset-suites",type=int,default=4);ap.add_argument("--seed",type=int,default=0)
     ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"))
     ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar")
+    ap.add_argument("--actor-lr",type=float,default=1e-3)
+    ap.add_argument("--critic-lr",type=float,default=1e-3)
     args=ap.parse_args();args.output.parent.mkdir(parents=True,exist_ok=True)
     life=args.output.with_name(args.output.stem+".lifecycle.jsonl")
     def mark(event,**extra):
@@ -53,7 +55,9 @@ def main():
         for idx,label in enumerate(ORDER):
             w_np=PREFS[label];torch.manual_seed(31000+idx);np.random.seed(31000+idx)
             m=T4SharedActorCritic(obs.shape[-1],ad).cuda();initialize_from_rsl_m01(m,args.checkpoint,device="cpu",critic_head_init=args.critic_head_init)
-            opt=torch.optim.Adam(m.parameters(),lr=1e-3)
+            actor_params=[p for n,p in m.named_parameters() if n.startswith("actor_") or n=="log_std"]
+            critic_params=[p for n,p in m.named_parameters() if n.startswith("critic_")]
+            opt=torch.optim.Adam([{"params":actor_params,"lr":args.actor_lr},{"params":critic_params,"lr":args.critic_lr}])
             w=torch.as_tensor(np.repeat(w_np[None,:],args.num_envs,axis=0),device="cuda")
             cur,_=env.reset(seed=310001+idx*1000);cur=obs_tensor(cur).cuda();rec=[]
             mark("SPECIALIST_START",specialist=label,w=w_np.tolist())
@@ -136,7 +140,7 @@ def main():
         safety_pass=bool(min_survival>=.95 and max(vertical_ratio.values())<=2.0)
         report={
           "schema":"t4_specialist_generation_validation_v1","status":"TRAINING_AND_VALIDATION_COMPLETE",
-          "updates":args.updates,"critic_head_init":args.critic_head_init,"objective_order":OBJ_NAMES,"fixed_preferences":{k:v.tolist() for k,v in PREFS.items()},
+          "updates":args.updates,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"objective_order":OBJ_NAMES,"fixed_preferences":{k:v.tolist() for k,v in PREFS.items()},
           "normalization_divisors":NORMALIZATION_DIVISORS.tolist(),"checkpoints":checkpoints,"training_records":records,
           "validation_protocol":{"paired_reset":True,"reset_seed_base":320001,"suites":args.reset_suites,"eval_steps":args.eval_steps,
                                  "deterministic_actor":True,"clip_actions":1.0,"policy_acts_with_training_preference":True},
