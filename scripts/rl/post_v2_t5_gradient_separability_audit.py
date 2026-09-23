@@ -19,7 +19,7 @@ def corrmat(x):
     x=np.asarray(x,float);return np.corrcoef(x,rowvar=False).tolist()
 def param_vec(params):return torch.cat([p.detach().reshape(-1) for p in params])
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument("--output",type=Path,required=True);ap.add_argument("--updates",type=int,default=300);ap.add_argument("--num-envs",type=int,default=8);ap.add_argument("--horizon",type=int,default=2);ap.add_argument("--eval-steps",type=int,default=32);ap.add_argument("--checkpoint",type=Path,default=Path("runs/m0_1_seed0_2026-09-22/model_299.pt"));ap.add_argument("--critic-head-init",choices=("scalar","zero"),default="scalar");ap.add_argument("--actor-lr",type=float,default=1e-3);ap.add_argument("--critic-lr",type=float,default=1e-3);ap.add_argument("--critic-updates",type=int,default=1);ap.add_argument("--gae-lambda",type=float,default=.95);args=ap.parse_args()
     args.output.parent.mkdir(parents=True,exist_ok=True)
     from isaaclab.app import AppLauncher
     saved=sys.argv[:];sys.argv=[sys.argv[0]];app=AppLauncher({"headless":True,"enable_cameras":False}).app;sys.argv=saved
@@ -51,7 +51,7 @@ def main():
                 nxt,_,term,trunc,_=env.step(a);raw=mgr._step_reward.detach().cpu().numpy();names=list(mgr.active_terms);vec=normalized_objective_vector(terms(raw,names),shape=(args.num_envs,))
                 ob.append(cur);ac.append(a);pre.append(u);old.append(lp);rw.append(torch.as_tensor(vec,device="cuda")*env.unwrapped.step_dt);val.append(v);dn.append((term|trunc).cuda());cur=obs_tensor(nxt).cuda()
             with torch.no_grad():nv=m.value_with_preference(cur,w)
-            rt=torch.stack(rw);vt=torch.stack(val);dt=torch.stack(dn).bool();adv,ret=vector_gae(rt,vt,nv,dt)
+            rt=torch.stack(rw);vt=torch.stack(val);dt=torch.stack(dn).bool();adv,ret=vector_gae(rt,vt,nv,dt,lam=args.gae_lambda)
             fo=torch.cat(ob);fa=torch.cat(ac);fu=torch.cat(pre);fold=torch.cat(old);fw=w.repeat(args.horizon,1)
             logp=m.logp_from_pre_tanh_with_preference(fo,fw,fu);ratio=torch.exp(logp-fold.detach())
             ratio_maxerr=float((ratio-1).abs().max().detach())
@@ -97,7 +97,7 @@ def main():
         for i,a in enumerate(ORDER):
             for b in ORDER[i+1:]:ds[f"{a}_{b}"]=float(torch.linalg.vector_norm(acts[a]-acts[b],dim=-1).mean())
         action_diag.append({"snapshot":snap,"pair_action_distance":ds})
-      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
+      report={"schema":"t5_gradient_separability_audit_v1","status":"MEASUREMENT_COMPLETE","instrumented_replay":True,"critic_head_init":args.critic_head_init,"actor_lr":args.actor_lr,"critic_lr":args.critic_lr,"critic_updates":args.critic_updates,"gae_lambda":args.gae_lambda,"snapshots":list(active_snaps),"preferences":{k:v.tolist() for k,v in PREFS.items()},"specialist_logs":all_logs,"action_divergence":action_diag,"snapshot_paths":snap_paths}
       args.output.write_text(json.dumps(report,indent=2)+"\n");print(json.dumps({"status":report["status"],"action_divergence":action_diag},indent=2))
     except BaseException as e:
       args.output.with_name(args.output.stem+".ERROR.json").write_text(json.dumps({"error":str(e),"traceback":traceback.format_exc()},indent=2));raise
