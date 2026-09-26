@@ -14,3 +14,4 @@ Predeclared protocols for the V4 privileged teacher stages.
 ## Documents
 
 - teacher-v4-c-g1-contract.md
+- teacher-v4-c-g1r-critic-contract.md
