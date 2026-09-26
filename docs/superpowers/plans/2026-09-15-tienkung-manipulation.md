@@ -18,7 +18,7 @@
 - No command/target-randomization vector this round — the dummy env's implicit goal (a fixed target lift height) is a constructor default, not a per-episode randomized draw.
 - The refactor in Task 1 must not change `talon_rl.assets.unitree_a1`'s public behavior — `TALON_A1_CFG`, `TALON_ASSETS_DATA_DIR`, `TALON_ASSETS_METADATA`, `__version__` must all still resolve to the same values as before from the same import paths.
 - Task 2 (`tienkung2_lite/tienkung.py`) needs `isaaclab` to import and cannot be tested in this environment — same situation as `unitree_a1/a1.py`, which has no dedicated test file today. Do not attempt to test it; verification happens whenever the real Isaac Lab env is eventually built (out of scope here).
-- Tasks 1, 3, 4, 5 have zero `isaaclab` dependency and must be fully unit-tested here with real TDD (RED/GREEN), mirroring `tests/test_reward.py`/`tests/test_dummy_env.py`'s existing style exactly.
+- Tasks 1, 3, 4, 5 have zero `isaaclab` dependency and must be fully unit-tested here with real TDD (RED/GREEN), mirroring `tests/rewards/test_locomotion.py`/`tests/core/envs/test_dummy_env.py`'s existing style exactly.
 
 ---
 
@@ -27,14 +27,14 @@
 **Files:**
 - Modify: `talon_rl/assets/__init__.py` (currently empty)
 - Modify: `talon_rl/assets/unitree_a1/__init__.py`
-- Create: `tests/test_assets_init.py`
+- Create: `tests/assets/test_package_init.py`
 
 **Interfaces:**
 - Produces: `talon_rl.assets.TALON_ASSETS_EXT_DIR`, `talon_rl.assets.TALON_ASSETS_DATA_DIR`, `talon_rl.assets.TALON_ASSETS_METADATA`, `talon_rl.assets.__version__` — same values as `talon_rl.assets.unitree_a1` exposed before this task, now defined once and re-exported.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_assets_init.py`:
+Create `tests/assets/test_package_init.py`:
 
 ```python
 from pathlib import Path
@@ -55,7 +55,7 @@ def test_talon_assets_metadata_parses_extension_toml():
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_assets_init.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/assets/test_package_init.py -v`
 Expected: FAIL — `talon_rl.assets` has no attribute `TALON_ASSETS_EXT_DIR` (the module is currently empty).
 
 - [ ] **Step 3: Write `talon_rl/assets/__init__.py`**
@@ -94,7 +94,7 @@ __version__ = TALON_ASSETS_METADATA["package"]["version"]
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_assets_init.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/assets/test_package_init.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Update `unitree_a1/__init__.py` to re-export instead of re-deriving**
@@ -129,13 +129,13 @@ just sourcing the name from `..` instead of defining it locally).
 
 - [ ] **Step 6: Verify the existing test suite still passes (regression check)**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_assets_init.py tests/test_reward.py tests/test_preference.py tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/assets/test_package_init.py tests/rewards/test_locomotion.py tests/core/preferences/test_preferences.py tests/isaaclab/test_constraint_manager.py -v`
 Expected: PASS — all tests green, no import errors. (`unitree_a1/__init__.py` still can't be imported here without `isaaclab_assets`, same as before this task — that's unaffected either way since nothing in the runnable suite imports it.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add talon_rl/assets/__init__.py talon_rl/assets/unitree_a1/__init__.py tests/test_assets_init.py
+git add talon_rl/assets/__init__.py talon_rl/assets/unitree_a1/__init__.py tests/assets/test_package_init.py
 git commit -m "$(cat <<'EOF'
 refactor: hoist TALON_ASSETS_DATA_DIR to the shared assets package
 
@@ -394,14 +394,14 @@ EOF
 - Create: `talon_rl/tasks/manipulation/__init__.py`
 - Create: `talon_rl/tasks/manipulation/tienkung_env/__init__.py`
 - Create: `talon_rl/tasks/manipulation/tienkung_env/config.py`
-- Create: `tests/test_tienkung_config.py`
+- Create: `tests/tasks/tienkung/test_config.py`
 
 **Interfaces:**
 - Produces: `talon_rl.tasks.manipulation.tienkung_env.config.ObservationSpaceCfg` (fields: `joint_pos_dim=8`, `joint_vel_dim=8`, `box_relative_pos_dim=3`, `arm_contact_dim=2`, `prev_action_dim=8`, `preference_dim=5`, property `total_dim`), `ActionSpaceCfg` (field `dim=8`), `RewardVectorCfg` (fields `term_names=("progress","clearance","energy","impact","smoothness")`, `active=(True,)*5`, `progress_std=0.3`, property `dim`).
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_tienkung_config.py`:
+Create `tests/tasks/tienkung/test_config.py`:
 
 ```python
 from talon_rl.tasks.manipulation.tienkung_env.config import (
@@ -438,7 +438,7 @@ def test_reward_vector_cfg_dim_matches_term_count():
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_config.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_config.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'talon_rl.tasks.manipulation'`
 
 - [ ] **Step 3: Create the package `__init__.py` files**
@@ -539,13 +539,13 @@ class RewardVectorCfg:
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_config.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_config.py -v`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add talon_rl/tasks/manipulation tests/test_tienkung_config.py
+git add talon_rl/tasks/manipulation tests/tasks/tienkung/test_config.py
 git commit -m "$(cat <<'EOF'
 feat: add TienKung MDP config dataclasses
 
@@ -565,7 +565,7 @@ EOF
 
 **Files:**
 - Create: `talon_rl/tasks/manipulation/tienkung_env/reward.py`
-- Create: `tests/test_tienkung_reward.py`
+- Create: `tests/tasks/tienkung/test_reward.py`
 
 **Interfaces:**
 - Consumes: `talon_rl.tasks.manipulation.tienkung_env.config.RewardVectorCfg` (Task 3).
@@ -573,7 +573,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_tienkung_reward.py`:
+Create `tests/tasks/tienkung/test_reward.py`:
 
 ```python
 import numpy as np
@@ -655,7 +655,7 @@ def test_compute_reward_vector_respects_active_mask_and_order():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_reward.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_reward.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'talon_rl.tasks.manipulation.tienkung_env.reward'`
 
 - [ ] **Step 3: Write `reward.py`**
@@ -744,13 +744,13 @@ def compute_reward_vector(transition: dict, cfg: RewardVectorCfg) -> np.ndarray:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_reward.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_reward.py -v`
 Expected: PASS — all 6 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/tasks/manipulation/tienkung_env/reward.py tests/test_tienkung_reward.py
+git add talon_rl/tasks/manipulation/tienkung_env/reward.py tests/tasks/tienkung/test_reward.py
 git commit -m "$(cat <<'EOF'
 feat: add TienKung 5-term reward vector
 
@@ -772,7 +772,7 @@ EOF
 
 **Files:**
 - Create: `talon_rl/tasks/manipulation/tienkung_env/dummy_env.py`
-- Create: `tests/test_tienkung_dummy_env.py`
+- Create: `tests/tasks/tienkung/test_dummy_env.py`
 
 **Interfaces:**
 - Consumes: `talon_rl.tasks.manipulation.tienkung_env.config.{ObservationSpaceCfg, ActionSpaceCfg}` (Task 3), `talon_rl.envs.base_env.BaseTalonEnv` (existing).
@@ -780,7 +780,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_tienkung_dummy_env.py`:
+Create `tests/tasks/tienkung/test_dummy_env.py`:
 
 ```python
 import numpy as np
@@ -879,7 +879,7 @@ def test_action_1_drives_arm_contact_force():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_dummy_env.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_dummy_env.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'talon_rl.tasks.manipulation.tienkung_env.dummy_env'`
 
 - [ ] **Step 3: Write `dummy_env.py`**
@@ -1041,18 +1041,18 @@ class DummyTalonEnv(BaseTalonEnv):
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_tienkung_dummy_env.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/tienkung/test_dummy_env.py -v`
 Expected: PASS — all 5 tests.
 
 - [ ] **Step 5: Run the full new+existing suite to confirm no regressions**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_assets_init.py tests/test_reward.py tests/test_preference.py tests/test_constraint_manager.py tests/test_tienkung_config.py tests/test_tienkung_reward.py tests/test_tienkung_dummy_env.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/assets/test_package_init.py tests/rewards/test_locomotion.py tests/core/preferences/test_preferences.py tests/isaaclab/test_constraint_manager.py tests/tasks/tienkung/test_config.py tests/tasks/tienkung/test_reward.py tests/tasks/tienkung/test_dummy_env.py -v`
 Expected: PASS — 2 (assets_init) + 6 (reward) + 5 (preference) + 7 (constraint_manager) + 3 (tienkung_config) + 6 (tienkung_reward) + 5 (tienkung_dummy_env) = 34 passed.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add talon_rl/tasks/manipulation/tienkung_env/dummy_env.py tests/test_tienkung_dummy_env.py
+git add talon_rl/tasks/manipulation/tienkung_env/dummy_env.py tests/tasks/tienkung/test_dummy_env.py
 git commit -m "$(cat <<'EOF'
 feat: add TienKung physics-free dummy env
 

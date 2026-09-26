@@ -122,9 +122,9 @@ other scripts import. Only `train_prelim.py`, `play.py`, `sim2sim.py`,
 
 ## Before claiming something works
 
-Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ --ignore=tests/test_sim2sim.py`
+Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ --ignore=tests/core/runtime/test_sim2sim.py`
 with `~/isaac-lab-env/bin/python`, and separately
-`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_sim2sim.py` with
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/runtime/test_sim2sim.py` with
 `.venv/bin/python` (only that venv has `mujoco` installed) — 144 + 12
 passed + 1 pre-existing unrelated failure as of this writing (reward
 terms, preference math, end-to-end smoke tests on both the dummy env and

@@ -9,10 +9,12 @@ isaaclab_tasks' own cartpole/mdp/__init__.py)."""
 from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .curriculums import terrain_levels_vel  # noqa: F401
-from .events import randomize_joint_range, randomize_velocity_command  # noqa: F401
+from .events import randomize_joint_range, randomize_passive_joint, randomize_velocity_command  # noqa: F401
 from .observations import (  # noqa: F401
+    dynamic_friction_extrinsic,
     foot_contact_binary,
     friction_extrinsic,
+    joint_damping_extrinsic,
     joint_range_extrinsic,
     leg_length_extrinsic,
     local_terrain_height,

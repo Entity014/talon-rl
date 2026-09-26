@@ -138,3 +138,21 @@ def local_terrain_height(env: ManagerBasedRLEnv) -> torch.Tensor:
     terrain = env.scene.terrain
     levels = terrain.terrain_levels.float() if hasattr(terrain, "terrain_levels") else torch.zeros(env.num_envs, device=env.device)
     return levels.unsqueeze(-1)
+
+
+def dynamic_friction_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Dynamic friction of the first shape. Separate from friction_extrinsic
+    because the Phase-5 plant ensemble pins static friction at 0.8 and varies
+    only dynamic friction, which the static channel can't see."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    materials = asset.root_physx_view.get_material_properties().to(asset.device)  # CPU-backed, see payload_extrinsics
+    return materials[:, 0, 1:2]
+
+
+def joint_damping_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Mean passive PhysX joint damping. A1 uses an explicit DCMotor actuator,
+    so PhysX damping is purely passive and separate from motor_power's Kd.
+    Read from the PhysX view, not asset.data, because the plant ensemble and
+    randomize_passive_joint write the view directly."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.root_physx_view.get_dof_dampings().to(asset.device).mean(dim=-1, keepdim=True)

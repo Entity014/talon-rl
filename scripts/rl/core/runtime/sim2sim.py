@@ -58,6 +58,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from talon_rl.deployment.phase1 import CANONICAL_DEFAULT_Q, root_com_velocity_b_from_freejoint
+
 _LEG_CALF_BODIES = ("FR_calf", "FL_calf", "RR_calf", "RL_calf")
 
 # MuJoCo's own order (confirmed live, 2026-09-18: both data.qpos[7:19] and
@@ -88,7 +90,7 @@ ISAAC_TO_MUJOCO_PERM = [_ISAAC_LAB_JOINT_ORDER.index(name) for name in _MUJOCO_J
 def quat_to_roll_pitch(quat_wxyz: np.ndarray) -> tuple[float, float]:
     """MuJoCo quaternion convention is [w, x, y, z]. Standard roll/pitch
     (radians) from a unit quaternion; yaw is not part of
-    ObservationSpaceCfg.roll_pitch_dim so it's not computed here."""
+    the reward's roll_pitch input so it's not computed here."""
     w, x, y, z = quat_wxyz
     roll = np.arctan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
     pitch = np.arcsin(np.clip(2.0 * (w * y - z * x), -1.0, 1.0))
@@ -133,31 +135,31 @@ def mj_id(model, body_name: str) -> int:
 def build_a1_actor_obs(
     model, data, prev_action: np.ndarray, command: np.ndarray, preference: np.ndarray
 ) -> np.ndarray:
-    """Builds the (56,) actor_obs_w vector — ObservationSpaceCfg's field
-    order (joint_pos, joint_vel, roll_pitch, foot_contact, prev_action,
-    command, base_ang_vel, projected_gravity), then the preference vector
-    appended, exactly matching MOPPOTrainer._collect_rollout's
+    """Builds the (53,) actor_obs_w vector — the canonical 48-D layout
+    (ObservationSpaceCfg field order) with the preference vector appended,
+    exactly matching MOPPOTrainer._collect_rollout's
     `np.concatenate([stack.policy_obs, w])` composition with
     num_policy_stacks=1 (see module docstring)."""
     # data.qpos/qvel's joint slice is MuJoCo order (leg-grouped); the
     # policy expects Isaac Lab order (type-grouped) -- see module
     # docstring's 2026-09-18 joint-order finding.
-    joint_pos = data.qpos[7:19][MUJOCO_TO_ISAAC_PERM].astype(np.float32)  # skip the 7-dim free joint (pos+quat)
+    joint_pos = data.qpos[7:19][MUJOCO_TO_ISAAC_PERM].astype(np.float32) - CANONICAL_DEFAULT_Q  # skip the 7-dim free joint (pos+quat)
     joint_vel = data.qvel[6:18][MUJOCO_TO_ISAAC_PERM].astype(np.float32)  # skip the 6-dim free joint (linvel+angvel)
     quat_wxyz = data.qpos[3:7]
-    roll, pitch = quat_to_roll_pitch(quat_wxyz)
-    roll_pitch = np.array([roll, pitch], dtype=np.float32)
-    foot_contact = get_a1_foot_contacts(model, data)
     # Free joint's qvel[3:6] is angular velocity already in the body frame
     # under MuJoCo's convention (unlike qvel[0:3], the linear velocity,
-    # which is world-frame) -- matches Isaac Lab's root_ang_vel_b directly,
-    # no rotation needed.
+    # which is world-frame) -- matches Isaac Lab's root_ang_vel_b directly.
     base_ang_vel = data.qvel[3:6].astype(np.float32)
+    # Isaac's base_lin_vel is the root COM velocity, not the free-joint
+    # origin's -- the D3-A interface verdict's correction.
+    base_lin_vel = root_com_velocity_b_from_freejoint(
+        quat_wxyz, data.qvel[0:3], data.qvel[3:6], model.body_ipos[mj_id(model, "trunk")]
+    ).astype(np.float32)
     projected_gravity = quat_rotate_inverse_wxyz(quat_wxyz, np.array([0.0, 0.0, -1.0]))
 
     obs = np.concatenate([
-        joint_pos, joint_vel, roll_pitch, foot_contact, prev_action, command,
-        base_ang_vel, projected_gravity,
+        base_lin_vel, base_ang_vel, projected_gravity, command,
+        joint_pos, joint_vel, prev_action,
     ])
     return np.concatenate([obs, preference]).astype(np.float32)
 

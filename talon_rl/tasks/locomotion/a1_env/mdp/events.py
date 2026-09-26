@@ -42,6 +42,36 @@ def randomize_joint_range(
     asset.write_joint_position_limit_to_sim(new_limits, env_ids=env_ids)
 
 
+def randomize_passive_joint(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor | None,
+    blend_range: tuple[float, float] = (0.0, 1.0),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+):
+    """Passive joint damping and armature, sampled on the same one-parameter
+    family as the Phase-5 plant ensemble (wrappers/plant_ensemble.py): blend
+    lp gives hip damping lp, thigh/calf damping 2*lp and armature 0.01*lp.
+    Same family, so e_t's joint_damping channel means the same thing whether
+    this event or the ensemble set it. Writes the PhysX view (CPU-backed)
+    directly, like the ensemble does."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    view = asset.root_physx_view
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs)
+    ids = env_ids.cpu()
+    names = asset.data.joint_names
+    hips = [i for i, n in enumerate(names) if "_hip_joint" in n]
+    flex = [i for i, n in enumerate(names) if "_thigh_joint" in n or "_calf_joint" in n]
+    lp = math_utils.sample_uniform(blend_range[0], blend_range[1], (len(ids), 1), device="cpu")
+    damp = view.get_dof_dampings()
+    arm = view.get_dof_armatures()
+    damp[ids.unsqueeze(-1), torch.tensor(hips)] = lp
+    damp[ids.unsqueeze(-1), torch.tensor(flex)] = 2.0 * lp
+    arm[ids] = 0.01 * lp
+    view.set_dof_dampings(damp, indices=ids.to(torch.int32))
+    view.set_dof_armatures(arm, indices=ids.to(torch.int32))
+
+
 def randomize_velocity_command(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor | None,

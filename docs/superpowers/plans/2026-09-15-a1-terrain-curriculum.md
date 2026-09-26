@@ -16,7 +16,7 @@
 - Both required sub-terrain categories (climbable obstacles, descendable pit) must have proportion > 0 in `A1_ROUGH_TERRAINS_CFG.sub_terrains` — all proportions across `sub_terrains` must sum to 1.0 (`TerrainGeneratorCfg` requirement).
 - No curriculum progression this round: `TerrainGeneratorCfg(curriculum=False, ...)`.
 - This machine has no Isaac Lab installed anywhere (confirmed via `pip show isaaclab` and a filesystem search) — nothing in this plan can be executed or its tests run in this environment. Every field name taken from Isaac Lab's API (`MeshPitTerrainCfg`'s exact fields, `TerrainImporterCfg`'s exact fields, `InteractiveScene`'s asset-lookup syntax) must be verified against the actually-installed `isaaclab` package on a real GPU machine before/while writing the code — treat every Isaac Lab API surface below as "best available knowledge, confirm against the installed package," the same posture `a1_env_cfg.py`'s own module docstring already documents for its existing imports (verified 2026-09-14 against isaaclab 0.48.0).
-- Testing follows the existing GPU-gated pattern (`pytest.importorskip("isaacsim")`, like the rest of `tests/test_a1_env.py`) — do not attempt to mock `isaaclab.terrains` the way `talon_rl.isaaclab.managers`'s tests mock `isaaclab.managers` (procedural terrain mesh generation isn't reasonably mockable; see the terrain design spec's Testing section for why).
+- Testing follows the existing GPU-gated pattern (`pytest.importorskip("isaacsim")`, like the rest of `tests/tasks/a1/test_environment.py`) — do not attempt to mock `isaaclab.terrains` the way `talon_rl.isaaclab.managers`'s tests mock `isaaclab.managers` (procedural terrain mesh generation isn't reasonably mockable; see the terrain design spec's Testing section for why).
 
 ---
 
@@ -26,13 +26,13 @@
 - Create: `talon_rl/tasks/locomotion/a1_env/terrain_config/__init__.py`
 - Create: `talon_rl/tasks/locomotion/a1_env/terrain_config/rough_config.py`
 - Modify: `talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py`
-- Modify: `tests/test_a1_env.py`
+- Modify: `tests/tasks/a1/test_environment.py`
 
 **Interfaces:**
 - Produces: `talon_rl.tasks.locomotion.a1_env.terrain_config.A1_ROUGH_TERRAINS_CFG` — an `isaaclab.terrains.TerrainGeneratorCfg` instance with `sub_terrains` containing at least `"pyramid_stairs"`, `"pyramid_stairs_inv"`, `"boxes"` (climbable, proportions summing to 0.7) and `"pit"` (descendable, proportion 0.3).
 - Consumes: nothing from earlier tasks (this is a single-task plan).
 
-This task is not independently testable in this environment (no Isaac Lab installed anywhere on this machine) — there is no RED/GREEN cycle to run locally. Follow the steps below as written; the test added in Step 4 is real and correct, but only executable on a GPU machine with Isaac Sim installed (same situation as every existing test in `tests/test_a1_env.py`).
+This task is not independently testable in this environment (no Isaac Lab installed anywhere on this machine) — there is no RED/GREEN cycle to run locally. Follow the steps below as written; the test added in Step 4 is real and correct, but only executable on a GPU machine with Isaac Sim installed (same situation as every existing test in `tests/tasks/a1/test_environment.py`).
 
 - [ ] **Step 1: Create the terrain generator config**
 
@@ -199,7 +199,7 @@ docs/superpowers/specs/2026-09-15-a1-terrain-curriculum-design.md.
 
 - [ ] **Step 4: Add a structural terrain assertion to the existing GPU-gated test**
 
-In `tests/test_a1_env.py`, add this import inside
+In `tests/tasks/a1/test_environment.py`, add this import inside
 `test_isaac_lab_env_implements_base_contract()`'s `try:` block, alongside
 the existing `from talon_rl.tasks.locomotion.a1_env.a1_env_cfg import
 IsaacLabTalonEnvCfg` line:
@@ -225,7 +225,7 @@ This step cannot run here — no Isaac Lab is installed on this machine.
 When run on a GPU machine with Isaac Sim installed, the command is:
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_a1_env.py -v
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/a1/test_environment.py -v
 ```
 
 Expected: `test_isaac_lab_env_implements_base_contract` PASSES, including
@@ -238,7 +238,7 @@ of any one field.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add talon_rl/tasks/locomotion/a1_env/terrain_config talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py tests/test_a1_env.py
+git add talon_rl/tasks/locomotion/a1_env/terrain_config talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py tests/tasks/a1/test_environment.py
 git commit -m "$(cat <<'EOF'
 feat: add A1 rough terrain (climbable obstacles + descendable pit)
 

@@ -97,8 +97,8 @@ this module requires Isaac Sim/Isaac Lab to import at all, same as
 ## Testing
 
 `isaaclab` isn't installed in the default dev environment (same situation as
-`tests/test_a1_env.py`, which is GPU/Isaac-Sim-gated and skips on the
-3.12 `.venv`). New tests live at `tests/test_constraint_manager.py`,
+`tests/tasks/a1/test_environment.py`, which is GPU/Isaac-Sim-gated and skips on the
+3.12 `.venv`). New tests live at `tests/isaaclab/test_constraint_manager.py`,
 skipped via the same `isaaclab`-import-guard pattern as `test_a1_env.py`
 when Isaac Sim isn't present, plus a mock-based test path that stubs
 `isaaclab.managers.manager_base.ManagerBase`/`ManagerTermBase` well enough to

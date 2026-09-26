@@ -218,6 +218,6 @@ testable here) can't be executed. The dummy env and reward/config modules,
 however, have **zero** `isaaclab` dependency (same as
 `scripts/moppo/dummy_env.py` and `talon_rl/reward.py` today) — these
 **can** and should be fully unit-tested here, mirroring
-`tests/test_reward.py`/`tests/test_preference.py`/`tests/test_dummy_env.py`'s
+`tests/rewards/test_locomotion.py`/`tests/core/preferences/test_preferences.py`/`tests/core/envs/test_dummy_env.py`'s
 existing patterns exactly (real assertions, run in this environment, no
 Isaac Sim gate needed).

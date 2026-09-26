@@ -29,12 +29,12 @@
 - Create: `talon_rl/isaaclab/__init__.py`
 - Create: `talon_rl/isaaclab/managers/__init__.py`
 - Create: `talon_rl/isaaclab/managers/constraint_term_cfg.py`
-- Create: `tests/test_constraint_manager.py`
+- Create: `tests/isaaclab/test_constraint_manager.py`
 - Modify: `pyproject.toml`
 
 **Interfaces:**
 - Produces: `talon_rl.isaaclab.managers.constraint_term_cfg.ConstraintTermCfg` — dataclass with fields `func: Callable`, `params: dict` (inherited), `p_max: float = 1.0`, `use_curriculum: bool = False`, `time_out: str = "terminate"`.
-- Produces (test infra, reused by Task 2): `tests/test_constraint_manager.py`'s `_install_fake_isaaclab(monkeypatch) -> type` (returns the fake `ManagerTermBase` class), the `constraint_manager_module` fixture (returns `(constraint_manager_module, constraint_term_cfg_module, ManagerTermBase)`), and the `FakeEnv` class (`__init__(self, num_envs, common_step_counter=0)`, attributes `num_envs`, `device`, `common_step_counter`).
+- Produces (test infra, reused by Task 2): `tests/isaaclab/test_constraint_manager.py`'s `_install_fake_isaaclab(monkeypatch) -> type` (returns the fake `ManagerTermBase` class), the `constraint_manager_module` fixture (returns `(constraint_manager_module, constraint_term_cfg_module, ManagerTermBase)`), and the `FakeEnv` class (`__init__(self, num_envs, common_step_counter=0)`, attributes `num_envs`, `device`, `common_step_counter`).
 
 - [ ] **Step 1: Add `prettytable` to `pyproject.toml` dependencies**
 
@@ -51,10 +51,10 @@ dependencies = [
 
 - [ ] **Step 2: Write the failing test file with the fake-isaaclab harness and one `ConstraintTermCfg` test**
 
-Create `tests/test_constraint_manager.py`:
+Create `tests/isaaclab/test_constraint_manager.py`:
 
 ```python
-# tests/test_constraint_manager.py
+# tests/isaaclab/test_constraint_manager.py
 """Unit tests for talon_rl.isaaclab.managers — fakes isaaclab's manager
 base classes via sys.modules injection so these run without Isaac Sim
 installed (unlike test_a1_env.py, which needs the real thing and skips).
@@ -199,7 +199,7 @@ this task's implementation step fixes.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/isaaclab/test_constraint_manager.py -v`
 Expected: FAIL/ERROR — `ModuleNotFoundError: No module named 'talon_rl.isaaclab'`
 
 - [ ] **Step 4: Create the package skeleton**
@@ -292,13 +292,13 @@ class ConstraintTermCfg(ManagerTermBaseCfg):
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/isaaclab/test_constraint_manager.py -v`
 Expected: PASS — `test_constraint_term_cfg_constructs_with_required_func` passes.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add pyproject.toml talon_rl/isaaclab tests/test_constraint_manager.py
+git add pyproject.toml talon_rl/isaaclab tests/isaaclab/test_constraint_manager.py
 git commit -m "$(cat <<'EOF'
 feat: vendor ConstraintTermCfg into talon_rl.isaaclab.managers
 
@@ -318,15 +318,15 @@ EOF
 **Files:**
 - Create: `talon_rl/isaaclab/managers/constraint_manager.py`
 - Modify: `talon_rl/isaaclab/managers/__init__.py`
-- Modify: `tests/test_constraint_manager.py`
+- Modify: `tests/isaaclab/test_constraint_manager.py`
 
 **Interfaces:**
-- Consumes: `talon_rl.isaaclab.managers.constraint_term_cfg.ConstraintTermCfg` (Task 1). Test fixtures `constraint_manager_module`, `FakeEnv`, and helper `_install_fake_isaaclab` (Task 1, already in `tests/test_constraint_manager.py` — reused unchanged).
+- Consumes: `talon_rl.isaaclab.managers.constraint_term_cfg.ConstraintTermCfg` (Task 1). Test fixtures `constraint_manager_module`, `FakeEnv`, and helper `_install_fake_isaaclab` (Task 1, already in `tests/isaaclab/test_constraint_manager.py` — reused unchanged).
 - Produces: `talon_rl.isaaclab.managers.constraint_manager.ConstraintManager` — constructor `ConstraintManager(cfg, env, *, tau=0.95, min_p=0.0, num_transitions_per_env=24, max_iterations=5000, static_curriculum_steps=30000)`; methods `compute() -> torch.Tensor`, `reset(env_ids=None) -> dict[str, torch.Tensor]`, `get_term(name) -> torch.Tensor`, `set_term_cfg(term_name, cfg)`, `get_term_cfg(term_name) -> ConstraintTermCfg`, `get_active_iterable_terms(env_idx) -> Sequence[tuple[str, Sequence[float]]]`; properties `active_terms`, `time_outs`, `constrained`, `hard_constrained`.
 
 - [ ] **Step 1: Append the failing `ConstraintManager` tests**
 
-Append to `tests/test_constraint_manager.py`:
+Append to `tests/isaaclab/test_constraint_manager.py`:
 
 ```python
 def test_constraint_probability_stays_within_p_max(constraint_manager_module):
@@ -423,12 +423,12 @@ def test_terminate_term_rejects_non_binary_values(constraint_manager_module):
         manager.compute()
 ```
 
-(`types` is already imported at the top of `tests/test_constraint_manager.py`
+(`types` is already imported at the top of `tests/isaaclab/test_constraint_manager.py`
 from Task 1 — no new imports needed for this step.)
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/isaaclab/test_constraint_manager.py -v`
 Expected: the 5 new tests FAIL/ERROR — `ModuleNotFoundError: No module named 'talon_rl.isaaclab.managers.constraint_manager'`. The Task 1 test still passes.
 
 - [ ] **Step 3: Write `constraint_manager.py`**
@@ -733,18 +733,18 @@ __all__ = ["ConstraintManager", "ConstraintTermCfg"]
 
 - [ ] **Step 5: Run the full test file to verify everything passes**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/isaaclab/test_constraint_manager.py -v`
 Expected: PASS — all 6 tests (1 from Task 1, 5 from this task).
 
 - [ ] **Step 6: Run the full unaffected suite to confirm no regressions**
 
-Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_reward.py tests/test_preference.py tests/test_constraint_manager.py -v`
+Run: `cd talon-rl && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/rewards/test_locomotion.py tests/core/preferences/test_preferences.py tests/isaaclab/test_constraint_manager.py -v`
 Expected: PASS — 11 pre-existing + 6 new = 17 passed. (`test_dummy_env.py`/`test_moppo_smoke.py` continue to need `gymnasium` per this environment's pre-existing gap, unrelated to this change; `test_a1_env.py` continues to skip without Isaac Sim.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add talon_rl/isaaclab/managers/constraint_manager.py talon_rl/isaaclab/managers/__init__.py tests/test_constraint_manager.py
+git add talon_rl/isaaclab/managers/constraint_manager.py talon_rl/isaaclab/managers/__init__.py tests/isaaclab/test_constraint_manager.py
 git commit -m "$(cat <<'EOF'
 feat: vendor ConstraintManager into talon_rl.isaaclab.managers
 

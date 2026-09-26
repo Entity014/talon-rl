@@ -6,7 +6,7 @@ def run_r1_directed_progress_smoke():
     """Run former r1_directed_progress_smoke.py stage."""
     """Isaac Sim smoke check for a1_env.py's directed-progress wiring (R1,
     2026-09-20, artifacts/r1_freeze/FREEZE.md) -- the pure math is unit-tested
-    in tests/test_directed_progress.py, but the plumbing (root_pos_w/yaw
+    in tests/rewards/test_directed_progress.py, but the plumbing (root_pos_w/yaw
     extraction, reset-hook ordering, terminal-frame double-call) only runs
     through real Isaac Lab, which test_a1_env.py can't do on this machine. Not
     a pytest -- prints per-step directed_progress so a human/this session can

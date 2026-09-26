@@ -7,6 +7,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from talon_rl.config import ObservationSpaceCfg
+
 @dataclass(frozen=True)
 class B0PPOConfig:
     gamma: float = 0.998
@@ -146,7 +148,7 @@ class B0PPOTrainer:
             if self.cfg.b1_s1_enabled:
                 if rollout_obs is None or rollout_dones is None: raise ValueError("S1 requires time-major rollout_obs and rollout_dones")
                 shape=rollout_obs.shape; ro=rollout_obs.reshape(-1,shape[-1]); mu=self.model.raw_mean(ro).reshape(shape[0],shape[1],-1)
-                mask=torch.ones(shape[-1],device=ro.device); mask[42:45]=0
+                mask=torch.ones(shape[-1],device=ro.device); mask[ObservationSpaceCfg().command_slice]=0
                 noise=torch.randn_like(rollout_obs)*self.cfg.perturb_std; noise.clamp_(-self.cfg.perturb_clip,self.cfg.perturb_clip); noise*=mask
                 spatial=((self.model.raw_mean((rollout_obs+noise).reshape(-1,shape[-1])).reshape_as(mu)-mu)**2).mean()
                 valid=(~rollout_dones[:-1]).float(); temporal_raw=((mu[1:]-mu[:-1])**2).mean(dim=-1); temporal=(temporal_raw*valid).sum()/(valid.sum()*mu.shape[-1]+1e-8)

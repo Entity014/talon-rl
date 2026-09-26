@@ -110,20 +110,16 @@ class DummyEnv(gym.Env):
         self.action = action
         self.prev_action_out = self.prev_action
 
+        # Canonical field order (ObservationSpaceCfg). No rotational dynamics
+        # in this toy model: zero angular velocity and a level gravity vector.
         obs = np.concatenate([
-            np.zeros(self.obs_cfg.joint_pos_dim, dtype=np.float32),
-            np.full(self.obs_cfg.joint_vel_dim, self.vel, dtype=np.float32),
-            np.zeros(self.obs_cfg.roll_pitch_dim, dtype=np.float32),
-            np.ones(self.obs_cfg.foot_contact_dim, dtype=np.float32),
-            self.prev_action[: self.obs_cfg.prev_action_dim],
-            self.v_command,
-            # base_ang_vel/projected_gravity (added 2026-09-18, see
-            # ObservationSpaceCfg): no rotational dynamics in this toy model
-            # either, same rationale as roll_pitch above -- zero angular
-            # velocity, and a fixed "upright" gravity direction (Isaac Lab's
-            # projected_gravity_b convention: (0, 0, -1) when level).
+            self.v_actual[: self.obs_cfg.base_lin_vel_dim],
             np.zeros(self.obs_cfg.base_ang_vel_dim, dtype=np.float32),
             np.array([0.0, 0.0, -1.0], dtype=np.float32)[: self.obs_cfg.projected_gravity_dim],
+            self.v_command,
+            np.zeros(self.obs_cfg.joint_pos_dim, dtype=np.float32),
+            np.full(self.obs_cfg.joint_vel_dim, self.vel, dtype=np.float32),
+            self.prev_action[: self.obs_cfg.prev_action_dim],
         ])
         return obs.astype(np.float32)
 

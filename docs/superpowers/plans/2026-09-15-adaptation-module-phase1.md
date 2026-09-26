@@ -26,7 +26,7 @@
 
 **Files:**
 - Modify: `talon_rl/config.py`
-- Test: `tests/test_extrinsics_cfg.py`
+- Test: `tests/tasks/a1/test_extrinsics_config.py`
 
 **Interfaces:**
 - Produces: `ExtrinsicsCfg` (frozen dataclass) with fields `payload_mass_dim`, `payload_com_offset_dim`, `friction_dim`, `motor_power_scale_dim`, `leg_length_scale_dim`, `joint_range_scale_dim`, `terrain_height_dim`, `payload_treatment: Literal["explicit_observed_rewarded", "noise_only"]`, `adaptation_latent_dim`; properties `payload_dim` and `dim`.
@@ -34,7 +34,7 @@
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/test_extrinsics_cfg.py
+# tests/tasks/a1/test_extrinsics_config.py
 import pytest
 
 from talon_rl.config import ExtrinsicsCfg
@@ -74,7 +74,7 @@ def test_frozen_rejects_mutation():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_extrinsics_cfg.py -v`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/tasks/a1/test_extrinsics_config.py -v`
 Expected: FAIL with `ImportError: cannot import name 'ExtrinsicsCfg'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -120,13 +120,13 @@ class ExtrinsicsCfg:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_extrinsics_cfg.py -v`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/tasks/a1/test_extrinsics_config.py -v`
 Expected: PASS (4 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/config.py tests/test_extrinsics_cfg.py
+git add talon_rl/config.py tests/tasks/a1/test_extrinsics_config.py
 git commit -m "feat: add ExtrinsicsCfg for Adaptation Module Phase 1"
 ```
 
@@ -136,7 +136,7 @@ git commit -m "feat: add ExtrinsicsCfg for Adaptation Module Phase 1"
 
 **Files:**
 - Create: `scripts/rl/core/modules/env_factor_encoder.py`
-- Test: `tests/test_env_factor_encoder.py`
+- Test: `tests/core/modules/test_env_factor_encoder.py`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks (pure `nn.Module`, no dependency on `ExtrinsicsCfg` — takes plain `int` dims so it stays testable in isolation).
@@ -145,7 +145,7 @@ git commit -m "feat: add ExtrinsicsCfg for Adaptation Module Phase 1"
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/test_env_factor_encoder.py
+# tests/core/modules/test_env_factor_encoder.py
 import torch
 
 from rl.core.modules.env_factor_encoder import EnvFactorEncoder
@@ -174,7 +174,7 @@ def test_gradients_flow_to_all_parameters():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_env_factor_encoder.py -v`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/modules/test_env_factor_encoder.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'rl.core.modules.env_factor_encoder'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -207,13 +207,13 @@ class EnvFactorEncoder(nn.Module):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_env_factor_encoder.py -v`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/modules/test_env_factor_encoder.py -v`
 Expected: PASS (2 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/rl/core/modules/env_factor_encoder.py tests/test_env_factor_encoder.py
+git add scripts/rl/core/modules/env_factor_encoder.py tests/core/modules/test_env_factor_encoder.py
 git commit -m "feat: add EnvFactorEncoder module (RMA Phase 1 mu)"
 ```
 
@@ -221,11 +221,11 @@ git commit -m "feat: add EnvFactorEncoder module (RMA Phase 1 mu)"
 
 ## Task 3: `MOPPOTrainer` wiring (encoder, obs concat, checkpoint)
 
-This task uses a **fake extrinsics-providing env** (matching how `tests/test_moppo_smoke.py` already tests `DummyTalonEnv` without Isaac Sim) so it's fully testable without GPU. Real Isaac Lab wiring is Task 6.
+This task uses a **fake extrinsics-providing env** (matching how `tests/core/algorithms/test_moppo.py` already tests `DummyTalonEnv` without Isaac Sim) so it's fully testable without GPU. Real Isaac Lab wiring is Task 6.
 
 **Files:**
 - Modify: `scripts/rl/core/algorithms/moppo.py`
-- Modify: `tests/test_moppo_smoke.py`
+- Modify: `tests/core/algorithms/test_moppo.py`
 
 **Interfaces:**
 - Consumes: `EnvFactorEncoder` (Task 2), `ExtrinsicsCfg` (Task 1).
@@ -234,7 +234,7 @@ This task uses a **fake extrinsics-providing env** (matching how `tests/test_mop
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# append to tests/test_moppo_smoke.py
+# append to tests/core/algorithms/test_moppo.py
 from talon_rl.config import ExtrinsicsCfg
 
 
@@ -362,7 +362,7 @@ def test_dummy_env_without_extrinsics_still_works():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_moppo_smoke.py -v -k encoder`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/algorithms/test_moppo.py -v -k encoder`
 Expected: FAIL — `MOPPOTrainer.__init__() got an unexpected keyword argument 'extrinsics_cfg'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -444,13 +444,13 @@ and in `load`:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/test_moppo_smoke.py -v`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/algorithms/test_moppo.py -v`
 Expected: PASS (all tests, including the 5 new ones and every pre-existing test — `_actor_obs`/`_critic_obs` refactor must not change behavior when `encoder is None`)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add scripts/rl/core/algorithms/moppo.py tests/test_moppo_smoke.py
+git add scripts/rl/core/algorithms/moppo.py tests/core/algorithms/test_moppo.py
 git commit -m "feat: wire EnvFactorEncoder into MOPPOTrainer (z_t into actor/critic obs)"
 ```
 
@@ -529,7 +529,7 @@ git add talon_rl/tasks/locomotion/a1_env/mdp/events.py talon_rl/tasks/locomotion
 git commit -m "feat: add randomize_joint_range event (Isaac Lab can't scale-randomize an Articulation for leg-length, but joint limits are a plain property write)"
 ```
 
-(Real verification happens in Task 6's GPU-gated test — this task alone has no CPU-testable unit, matching how `tests/test_a1_env.py` already handles Isaac-Sim-only code.)
+(Real verification happens in Task 6's GPU-gated test — this task alone has no CPU-testable unit, matching how `tests/tasks/a1/test_environment.py` already handles Isaac-Sim-only code.)
 
 ---
 
@@ -660,7 +660,7 @@ git commit -m "feat: offline USD-variant generator for leg-length randomization"
 **Files:**
 - Modify: `talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py`
 - Create: observation functions in `talon_rl/tasks/locomotion/a1_env/mdp/observations.py`
-- Modify: `tests/test_a1_env.py` (GPU-gated)
+- Modify: `tests/tasks/a1/test_environment.py` (GPU-gated)
 
 This task is GPU-gated end to end (Isaac Lab scene/manager construction). Depends on Task 4 (`randomize_joint_range`) and Task 5 (USD variants must exist on disk).
 
@@ -837,7 +837,7 @@ Add `events: EventsCfg = EventsCfg()` to `IsaacLabTalonEnvCfg` alongside its exi
 - [ ] **Step 3: Extend the GPU-gated structural test**
 
 ```python
-# add to tests/test_a1_env.py, inside test_isaac_lab_env_implements_base_contract's try block,
+# add to tests/tasks/a1/test_environment.py, inside test_isaac_lab_env_implements_base_contract's try block,
 # after the existing terrain assertion
         assert "privileged" in env.scene... # placeholder shape — replace with the actual ObservationManager
         # group-introspection call once run on the GPU machine and the exact
@@ -851,13 +851,13 @@ Add `events: EventsCfg = EventsCfg()` to `IsaacLabTalonEnvCfg` alongside its exi
 
 - [ ] **Step 4: Run on the GPU machine**
 
-Run: `source ~/isaac-lab-env/bin/activate && PYTHONUNBUFFERED=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/test_a1_env.py -v -s`
+Run: `source ~/isaac-lab-env/bin/activate && PYTHONUNBUFFERED=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=. pytest tests/tasks/a1/test_environment.py -v -s`
 Expected: PASS, `Observation Manager` banner shows both `policy` and `privileged` groups, `Event Manager` banner shows 5 active terms.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py talon_rl/tasks/locomotion/a1_env/mdp/observations.py tests/test_a1_env.py
+git add talon_rl/tasks/locomotion/a1_env/a1_env_cfg.py talon_rl/tasks/locomotion/a1_env/mdp/observations.py tests/tasks/a1/test_environment.py
 git commit -m "feat: wire Adaptation Module Phase 1 extrinsics into A1 env (EventsCfg, PrivilegedCfg, MultiUsdFileCfg spawn)"
 ```
 
@@ -898,5 +898,5 @@ git commit -m "feat: pass ExtrinsicsCfg through train_prelim.py for --env isaac_
 ## Self-Review Notes
 
 1. **Spec coverage:** All 7 extrinsics (Task 6's `EventsCfg`/`observations.py`), leg-length's corrected offline-generation approach (Task 5), `PrivilegedCfg` separate from `PolicyCfg` (Task 6), encoder in the trainer layer (Task 2-3), `payload_treatment` shrinking $e_t$'s width (Task 1, Task 6's conditional `payload` term), checkpointing (Task 3), `--env dummy` untouched (Task 3's `test_dummy_env_without_extrinsics_still_works`, Task 7). Payload reward term formula and most randomization ranges are explicitly out of scope per the spec — not silently dropped, called out inline as `[TBD] placeholder` at every params dict in Task 6.
-2. **Placeholder scan:** Task 6 Step 3's observation-manager introspection call is the one intentional exception — flagged explicitly as GPU-verify-at-execution-time, matching `tests/test_a1_env.py`'s own established pattern (every assertion in that file was written after live verification, not before). Every other step has real, complete code.
+2. **Placeholder scan:** Task 6 Step 3's observation-manager introspection call is the one intentional exception — flagged explicitly as GPU-verify-at-execution-time, matching `tests/tasks/a1/test_environment.py`'s own established pattern (every assertion in that file was written after live verification, not before). Every other step has real, complete code.
 3. **Type consistency:** `ExtrinsicsCfg.dim`/`adaptation_latent_dim` (Task 1) match `EnvFactorEncoder(extrinsics_dim, latent_dim)`'s constructor args (Task 2) match `MOPPOTrainer`'s usage (Task 3) match `train_prelim.py`'s construction (Task 7). `randomize_joint_range`'s signature (Task 4) matches its `EventTerm(func=mdp.randomize_joint_range, params={...})` call site (Task 6).

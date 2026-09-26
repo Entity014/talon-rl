@@ -144,7 +144,7 @@ def run_freeze_m0_2a():
         "checkpoint_resume": smoke["checkpoint_resume"],
     }
     manifest["algebraic_tests"] = {
-        "command": "tests/test_m0_2a.py",
+        "command": "tests/core/algorithms/test_preference_ppo.py",
         "passed": 4,
         "loss_abs_relative_tolerance": 1e-6,
         "gradient_max_abs_relative_l2_tolerance": 1e-6,

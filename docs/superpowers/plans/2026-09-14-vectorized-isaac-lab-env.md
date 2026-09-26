@@ -154,7 +154,7 @@ tasks' code.
 **Files:**
 - Modify: `talon_rl/envs/base_env.py` (full rewrite)
 - Modify: `talon_rl/envs/dummy_env.py` (full rewrite)
-- Test: `tests/test_dummy_env.py` (new)
+- Test: `tests/core/envs/test_dummy_env.py` (new)
 
 **Interfaces:**
 - Produces: `BaseTalonEnv` contract — `num_envs: int`, `obs_dim: int`,
@@ -209,7 +209,7 @@ class BaseTalonEnv(ABC):
 - [ ] **Step 2: Write the failing tests for `DummyTalonEnv`**
 
 ```python
-# tests/test_dummy_env.py
+# tests/core/envs/test_dummy_env.py
 import numpy as np
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
@@ -288,7 +288,7 @@ def test_smoothness_uses_correct_prev_action_ordering():
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_dummy_env.py -v`
+Run: `.venv/bin/pytest tests/core/envs/test_dummy_env.py -v`
 Expected: FAIL (`ImportError`/`AttributeError` — `DummyTalonEnv` doesn't
 accept `num_envs` yet).
 
@@ -439,17 +439,17 @@ class DummyTalonEnv(BaseTalonEnv):
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_dummy_env.py -v`
+Run: `.venv/bin/pytest tests/core/envs/test_dummy_env.py -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 6: Update the old single-env dummy-env test file**
 
-`tests/test_moppo_smoke.py` still imports `DummyTalonEnv(obs_cfg, action_cfg, horizon=40, seed=0)` without `num_envs` — it will be rewritten in Task 7 alongside `moppo.py` (it exercises both together). Leave it failing for now; do not fix it here.
+`tests/core/algorithms/test_moppo.py` still imports `DummyTalonEnv(obs_cfg, action_cfg, horizon=40, seed=0)` without `num_envs` — it will be rewritten in Task 7 alongside `moppo.py` (it exercises both together). Leave it failing for now; do not fix it here.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add talon_rl/envs/base_env.py talon_rl/envs/dummy_env.py tests/test_dummy_env.py
+git add talon_rl/envs/base_env.py talon_rl/envs/dummy_env.py tests/core/envs/test_dummy_env.py
 git commit -m "feat: batch-native BaseTalonEnv contract, DummyTalonEnv via gym.vector.SyncVectorEnv"
 ```
 
@@ -459,7 +459,7 @@ git commit -m "feat: batch-native BaseTalonEnv contract, DummyTalonEnv via gym.v
 
 **Files:**
 - Modify: `talon_rl/reward.py` (full rewrite)
-- Modify: `tests/test_reward.py` (full rewrite)
+- Modify: `tests/rewards/test_locomotion.py` (full rewrite)
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -472,7 +472,7 @@ git commit -m "feat: batch-native BaseTalonEnv contract, DummyTalonEnv via gym.v
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_reward.py
+# tests/rewards/test_locomotion.py
 import numpy as np
 
 from talon_rl.config import RewardVectorCfg
@@ -551,7 +551,7 @@ def test_compute_reward_vector_respects_active_mask_and_order():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_reward.py -v`
+Run: `.venv/bin/pytest tests/rewards/test_locomotion.py -v`
 Expected: FAIL (shape assertion errors — current functions return scalars).
 
 - [ ] **Step 3: Rewrite `reward.py`**
@@ -638,13 +638,13 @@ def compute_reward_vector(transition: dict, cfg: RewardVectorCfg) -> np.ndarray:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_reward.py -v`
+Run: `.venv/bin/pytest tests/rewards/test_locomotion.py -v`
 Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/reward.py tests/test_reward.py
+git add talon_rl/reward.py tests/rewards/test_locomotion.py
 git commit -m "feat: batch reward.py to (N, ...) -> (N,) throughout"
 ```
 
@@ -654,7 +654,7 @@ git commit -m "feat: batch reward.py to (N, ...) -> (N,) throughout"
 
 **Files:**
 - Modify: `talon_rl/preference.py` (full rewrite)
-- Modify: `tests/test_preference.py` (full rewrite)
+- Modify: `tests/core/preferences/test_preferences.py` (full rewrite)
 
 **Interfaces:**
 - Produces: `sample_preference_vector(rng, reward_cfg, pref_cfg, num_envs) -> (N, dim)`,
@@ -665,7 +665,7 @@ git commit -m "feat: batch reward.py to (N, ...) -> (N,) throughout"
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_preference.py
+# tests/core/preferences/test_preferences.py
 import numpy as np
 
 from talon_rl.config import PreferenceCfg, RewardVectorCfg
@@ -720,7 +720,7 @@ def test_floor_clip_enforces_minimum_and_renormalizes():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_preference.py -v`
+Run: `.venv/bin/pytest tests/core/preferences/test_preferences.py -v`
 Expected: FAIL (`TypeError`/shape errors — current functions are single-row).
 
 - [ ] **Step 3: Rewrite `preference.py`**
@@ -783,13 +783,13 @@ def floor_clip(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_preference.py -v`
+Run: `.venv/bin/pytest tests/core/preferences/test_preferences.py -v`
 Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/preference.py tests/test_preference.py
+git add talon_rl/preference.py tests/core/preferences/test_preferences.py
 git commit -m "feat: batch preference.py to (N, dim) throughout"
 ```
 
@@ -799,7 +799,7 @@ git commit -m "feat: batch preference.py to (N, dim) throughout"
 
 **Files:**
 - Modify: `talon_rl/obs_stack.py` (full rewrite)
-- Modify: `tests/test_obs_stack.py` (full rewrite)
+- Modify: `tests/core/rollout/test_observation_stack.py` (full rewrite)
 
 **Interfaces:**
 - Produces: `ObservationStack(num_envs, obs_dim, num_policy_stacks=1, num_critic_stacks=1)`,
@@ -810,7 +810,7 @@ git commit -m "feat: batch preference.py to (N, dim) throughout"
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_obs_stack.py
+# tests/core/rollout/test_observation_stack.py
 import numpy as np
 import pytest
 
@@ -865,7 +865,7 @@ def test_invalid_stack_count_rejected():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_obs_stack.py -v`
+Run: `.venv/bin/pytest tests/core/rollout/test_observation_stack.py -v`
 Expected: FAIL (`TypeError` — current constructor doesn't take `num_envs`).
 
 - [ ] **Step 3: Rewrite `obs_stack.py`**
@@ -940,13 +940,13 @@ class ObservationStack:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_obs_stack.py -v`
+Run: `.venv/bin/pytest tests/core/rollout/test_observation_stack.py -v`
 Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add talon_rl/obs_stack.py tests/test_obs_stack.py
+git add talon_rl/obs_stack.py tests/core/rollout/test_observation_stack.py
 git commit -m "feat: batch obs_stack.py to (N, stacks, obs_dim), per-lane reset"
 ```
 
@@ -967,7 +967,7 @@ git commit -m "feat: batch obs_stack.py to (N, stacks, obs_dim), per-lane reset"
 - Create: `talon_rl/tasks/locomotion/a1_env/mdp/__init__.py`
 - Create: `talon_rl/tasks/locomotion/a1_env/mdp/observations.py`
 - Create: `talon_rl/tasks/locomotion/a1_env/mdp/terminations.py`
-- Test: `tests/test_a1_env.py`
+- Test: `tests/tasks/a1/test_environment.py`
 
 **Interfaces:**
 - Consumes: `talon_rl.config.{ObservationSpaceCfg, ActionSpaceCfg}`,
@@ -1369,7 +1369,7 @@ gym.register(
 - [ ] **Step 10: Write the structural test**
 
 ```python
-# tests/test_a1_env.py
+# tests/tasks/a1/test_environment.py
 """Structural contract test for IsaacLabTalonEnv — skips entirely on a venv
 without Isaac Sim installed (e.g. the repo's default 3.12 .venv). The real
 proof this env works at scale is the manual GPU smoke run documented in
@@ -1441,7 +1441,7 @@ Run:
 ```bash
 source ~/isaac-lab-env/bin/activate
 cd "/home/xero/Master's Degree/Thesis/talon-rl"
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 280 pytest tests/test_a1_env.py -v
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 280 pytest tests/tasks/a1/test_environment.py -v
 ```
 Expected: exit code 0. If it fails with an `AttributeError`/`KeyError`
 naming a manager attribute (`action_manager`, `scene.sensors`, etc.), it
@@ -1456,14 +1456,14 @@ means the real installed isaaclab 0.48.0 API differs from what
 Run:
 ```bash
 cd "/home/xero/Master's Degree/Thesis/talon-rl"
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/test_a1_env.py -v
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/tasks/a1/test_environment.py -v
 ```
 Expected: `SKIPPED (could not import 'isaacsim')`.
 
 - [ ] **Step 13: Commit**
 
 ```bash
-git add talon_rl/assets talon_rl/tasks tests/test_a1_env.py
+git add talon_rl/assets talon_rl/tasks tests/tasks/a1/test_environment.py
 git add -u talon_rl/envs tests/test_isaac_lab_env.py  # stages the deletions from Step 1
 git commit -m "feat: rewrite IsaacLabTalonEnv onto ManagerBasedRLEnv + gym.register
 
@@ -1481,7 +1481,7 @@ produce."
 
 **Files:**
 - Modify: `talon_rl/training/moppo.py` (full rewrite)
-- Modify: `tests/test_moppo_smoke.py` (full rewrite)
+- Modify: `tests/core/algorithms/test_moppo.py` (full rewrite)
 
 **Interfaces:**
 - Consumes: `BaseTalonEnv` (Task 2), `compute_reward_vector` (Task 3),
@@ -1496,7 +1496,7 @@ produce."
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_moppo_smoke.py
+# tests/core/algorithms/test_moppo.py
 """End-to-end smoke test: does the whole MOPPO loop run on a vectorized
 DummyTalonEnv without error, and do the reported numbers stay finite? This
 is NOT a convergence test — the dummy env has no locomotion physics, so
@@ -1579,7 +1579,7 @@ def test_rollout_is_persistent_across_update_calls():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `.venv/bin/pytest tests/test_moppo_smoke.py -v`
+Run: `.venv/bin/pytest tests/core/algorithms/test_moppo.py -v`
 Expected: FAIL (`TypeError` — `DummyTalonEnv` positional args changed,
 `MOPPOConfig` has no `num_steps`).
 
@@ -1840,18 +1840,18 @@ class MOPPOTrainer:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_moppo_smoke.py -v`
+Run: `.venv/bin/pytest tests/core/algorithms/test_moppo.py -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Run the full local suite to confirm nothing else broke**
 
-Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/ -v --ignore=tests/test_a1_env.py`
+Run: `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/pytest tests/ -v --ignore=tests/tasks/a1/test_environment.py`
 Expected: all pass (Tasks 2-5's tests plus this task's).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add talon_rl/training/moppo.py tests/test_moppo_smoke.py
+git add talon_rl/training/moppo.py tests/core/algorithms/test_moppo.py
 git commit -m "feat: persistent fixed-horizon rollout + done-masked GAE in moppo.py
 
 Replaces per-update() episode collection with a continuous rollout (env

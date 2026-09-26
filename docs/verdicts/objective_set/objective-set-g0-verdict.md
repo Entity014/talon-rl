@@ -53,7 +53,7 @@ Decision:
 
 Unit tests:
 
-    tests/test_objective_set_actor_critic.py
+    tests/models/authority/test_objective_set.py
     4 / 4 PASS
 
 The same model instance also accepts m=2,3,4 token sets without changing parameter shapes.
@@ -136,7 +136,7 @@ This is desirable for G0 because G0 tests equivalence, not method improvement.
 
 - docs/contracts/objective_set/objective-set-generalized-morl-phase2-contract.md
 - talon_rl/objective_set_actor_critic.py
-- tests/test_objective_set_actor_critic.py
+- tests/models/authority/test_objective_set.py
 - scripts/rl/objective_set_g0_structural_parity.py
 - scripts/rl/objective_set_g0_behavioral_parity.py
 - runs/objective_set_g0_structural_parity-2026-09-25/g0_structural_parity.json

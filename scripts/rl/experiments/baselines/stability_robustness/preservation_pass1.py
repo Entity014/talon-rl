@@ -111,7 +111,7 @@ def run_freeze_b1_p1():
      files={
       'b0_reward':'talon_rl/rewards/baselines.py','environment_wrapper':'talon_rl/wrappers/scalar_reward_env.py',
       'trainer':'scripts/rl/core/algorithms/scalar_ppo.py','actor_critic':'scripts/rl/core/modules/actor_critic.py',
-      'runner':'scripts/rl/experiments/common/utilities/train_b0.py','b1_p1_tests':'tests/test_b1_p1.py',
+      'runner':'scripts/rl/experiments/common/utilities/train_b0.py','b1_p1_tests':'tests/core/algorithms/test_scalar_ppo.py',
       'b1_p1_design':'docs/baselines/stability_robustness/b1-p1-target-kl-early-stopping-freeze-draft.md',
       'monitor':'scripts/rl/experiments/common/utilities/b0_monitor_isolation_smoke.py',
       'reset_states':'artifacts/b0_smoke/b0-monitor-frozen-reset-states.npz'}

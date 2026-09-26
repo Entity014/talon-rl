@@ -77,6 +77,8 @@ The critic uses the same state, privileged context, and objective-set semantics 
 | [Rewards](talon_rl/rewards/README.md) | Objectives and reward semantics. |
 | [Optimization](talon_rl/optimization/README.md) | Scalarization and critic/optimization helpers. |
 | [RL core](scripts/rl/core/README.md) | Shared algorithms, rollout, objectives, preferences, normalization, checkpointing, and runtime. |
+| [Tests](tests/README.md) | Test suite organized by the responsibility under test: core, models, rewards, tasks, optimization, integration, and regressions. |
+| [Analysis](scripts/analysis/README.md) | Post-hoc diagnostics, traces, probes, decompositions, interventions, and audit tooling. |
 
 ### You are following the research
 

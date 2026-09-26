@@ -181,7 +181,7 @@ today) but must be addressed before real training runs on this terrain:
 
 `isaaclab.terrains` requires the real Isaac Lab package to import at all —
 same situation as the rest of `a1_env.py`/`a1_env_cfg.py`
-(`tests/test_a1_env.py` is GPU/Isaac-Sim-gated via
+(`tests/tasks/a1/test_environment.py` is GPU/Isaac-Sim-gated via
 `pytest.importorskip("isaacsim")` and skips on this repo's default 3.12
 `.venv`). Procedural terrain mesh generation is not reasonably mockable
 the way `ConstraintManager` was (see

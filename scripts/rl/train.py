@@ -33,7 +33,7 @@ class G1ConfigDump:
 # scope, and torch touching CUDA before Isaac Sim's SimulationApp owns its
 # own CUDA context causes PhysX's GPU pipeline to silently die ~15s into
 # scene setup (found 2026-09-15 running --env isaac_lab for real for the
-# first time: tests/test_a1_env.py never imports torch, which is why that
+# first time: tests/tasks/a1/test_environment.py never imports torch, which is why that
 # test didn't hit this). So for --env isaac_lab, SimulationApp must be
 # constructed before this import — deferred into main() below instead of a
 # module-scope import.

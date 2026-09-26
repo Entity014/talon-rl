@@ -121,31 +121,21 @@ class ActionsCfg:
 class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
-        # No observation had a `scale` here at all before 2026-09-17 -- raw
-        # joint_vel (A1's actuator velocity_limit=21.0 rad/s, a1.py) sat two
-        # orders of magnitude above roll_pitch or v_command, all fed straight
-        # into a plain Linear+ELU MLP with no input normalization layer.
-        # Scaled by known physical bounds (Isaac Lab's ObsTerm.scale, same
-        # mechanism its own reference locomotion configs use for this exact
-        # reason) rather than a running normalizer: these ranges are fixed
-        # hardware limits, not something that drifts with training the way
-        # reward scale does (which is why RunningMeanStd exists for rewards,
-        # not observations).
-        joint_pos = ObsTerm(func=mdp.joint_pos, scale=1.0 / 3.1416)  # absolute joint angle, no natural bound tighter than +/-pi
-        joint_vel = ObsTerm(func=mdp.joint_vel, scale=1.0 / 21.0)  # A1 actuator velocity_limit, a1.py
-        roll_pitch = ObsTerm(func=mdp.roll_pitch, scale=1.0 / 3.1416)  # radians, can swing to +/-pi mid-fall
-        foot_contact = ObsTerm(func=mdp.foot_contact_binary)  # already {0, 1}
-        last_action = ObsTerm(func=mdp.last_action, scale=1.0 / 3.0)  # must match ActorCritic.ACTION_CLIP
-        v_command = ObsTerm(func=mdp.v_command)  # already O(1): vx in [-0.3, 1.0], vy/omega_z in [-0.5, 0.5]
-        # Added 2026-09-18 (see ObservationSpaceCfg.base_ang_vel_dim's
-        # comment): no signal anywhere for how fast the trunk itself is
-        # rotating, only static roll_pitch and individual joint_vel. Isaac
-        # Lab builtins (already reachable via `from isaaclab.envs.mdp import
-        # *` in mdp/__init__.py), scale=0.25 matches jaykorea/Isaac-RL-Two-
-        # wheel-Legged-Bot's wolf_env (the reference this repo's rollout
-        # convention already cites).
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.25)
-        projected_gravity = ObsTerm(func=mdp.projected_gravity)  # already a unit vector, no scale needed
+        # Canonical 48-D layout (2026-09-26, see ObservationSpaceCfg): same
+        # terms, order and (absent) scaling as stock
+        # Isaac-Velocity-Flat-Unitree-A1-v0, so the Phase-1/V3 checkpoints,
+        # deployment/phase1.build_canonical_obs and the D3 MuJoCo adapter all
+        # read the same vector. No ObsTerm.scale: the trainers normalize obs
+        # with a running RunningMeanStd, and a scale here would break
+        # equivalence with the stock env. Term order must match
+        # ObservationSpaceCfg field order.
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel)
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel)
+        projected_gravity = ObsTerm(func=mdp.projected_gravity)
+        v_command = ObsTerm(func=mdp.v_command)
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel)
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel)
+        last_action = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -163,6 +153,8 @@ class ObservationsCfg:
         leg_length = ObsTerm(func=mdp.leg_length_extrinsic)
         joint_range = ObsTerm(func=mdp.joint_range_extrinsic)
         terrain_height = ObsTerm(func=mdp.local_terrain_height)
+        dynamic_friction = ObsTerm(func=mdp.dynamic_friction_extrinsic)
+        joint_damping = ObsTerm(func=mdp.joint_damping_extrinsic)
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -245,6 +237,13 @@ class EventCfg:
         func=mdp.randomize_joint_range,
         mode="reset",
         params={"asset_cfg": SceneEntityCfg("robot"), "scale_range": (0.8, 1.0)},  # [TBD] placeholder, not tuned
+    )
+    # Added 2026-09-26 with ExtrinsicsCfg.joint_damping_dim: gives the
+    # joint_damping channel variance without the plant ensemble wrapper.
+    randomize_passive_joint = EventTerm(
+        func=mdp.randomize_passive_joint,
+        mode="reset",
+        params={"asset_cfg": SceneEntityCfg("robot"), "blend_range": (0.0, 1.0)},  # matches plant ensemble passive_blend
     )
 
     # Dynamic perturbation (not one of the 7 RMA extrinsics -- those are static

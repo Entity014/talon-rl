@@ -281,19 +281,19 @@ asymmetric actor-critic already gives the critic more than the actor sees).
 
 ## Testing
 
-Matches this repo's existing pattern (`tests/test_running_norm.py`,
-`tests/test_d3po_loss.py`): pure math gets a dedicated unit-test file
+Matches this repo's existing pattern (`tests/core/normalization/test_running_stats.py`,
+`tests/core/objectives/test_d3po.py`): pure math gets a dedicated unit-test file
 without Isaac Sim; the Isaac Lab wiring itself needs the GPU machine
-(`tests/test_a1_env.py`'s existing skip-without-isaacsim pattern).
+(`tests/tasks/a1/test_environment.py`'s existing skip-without-isaacsim pattern).
 
-- `tests/test_env_factor_encoder.py` — shape correctness, gradient flow
+- `tests/core/modules/test_env_factor_encoder.py` — shape correctness, gradient flow
   (encoder params actually get nonzero gradients from a backward pass)
-- `tests/test_extrinsics_cfg.py` — `ExtrinsicsCfg.dim` shrinks correctly
+- `tests/tasks/a1/test_extrinsics_config.py` — `ExtrinsicsCfg.dim` shrinks correctly
   under `noise_only`; `payload_dim` matches the sum of its two sub-fields
-- `tests/test_a1_env.py` extension (GPU-gated, like the existing terrain
+- `tests/tasks/a1/test_environment.py` extension (GPU-gated, like the existing terrain
   assertion) — `privileged` obs group exists and has the expected width;
   `PolicyCfg` unchanged (still excludes all extrinsics)
-- `tests/test_moppo_smoke.py` extension — encoder checkpoint round-trips;
+- `tests/core/algorithms/test_moppo.py` extension — encoder checkpoint round-trips;
   `update()` stays finite with the encoder wired in
 
 ## Open Questions

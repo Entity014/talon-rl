@@ -21,48 +21,44 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class ObservationSpaceCfg:
-    """Prelim observation layout. Total dim = sum of the fields below."""
+    """Policy observation layout, fields in concatenation order. Total dim =
+    sum of the fields below.
 
-    joint_pos_dim: int = 12  # q  (RMA x_t component)
-    joint_vel_dim: int = 12  # qdot (RMA x_t component)
-    roll_pitch_dim: int = 2  # theta (RMA x_t component)
-    foot_contact_dim: int = 4  # g, binarized (RMA x_t component)
-    prev_action_dim: int = 12  # a_{t-1}, feedback
+    Matches the canonical 48-D Phase-1 interface (stock
+    Isaac-Velocity-Flat-Unitree-A1-v0, deployment/phase1.build_canonical_obs)
+    term for term, so one observation vector serves this env, the stock env
+    and the MuJoCo D3 adapter. Changed 2026-09-26 from the RMA-style 51-D
+    layout: roll_pitch dropped (duplicates projected_gravity), foot_contact
+    dropped (not every target robot has contact sensors; contact is inferable
+    from q/qdot/a_{t-1}, and rewards read foot_contact_force from the
+    transition dict, not from obs), base_lin_vel added.
+    """
+
+    base_lin_vel_dim: int = 3  # root COM linear velocity, body frame -- privileged on hardware, needs an estimator for a Student
+    base_ang_vel_dim: int = 3  # IMU gyro rate -- how fast the trunk itself is rotating
+    projected_gravity_dim: int = 3  # gravity direction in body frame, singularity-free tilt
     command_dim: int = 3  # v_x, v_y, omega_z target
-    preference_dim: int = 5  # w — one weight per reward-vector term (table 3.3)
-    # Added 2026-09-18: neither RMA's own x_t nor this repo previously
-    # observed trunk angular velocity at all, only the individual joints'
-    # (joint_vel) and a static roll_pitch snapshot -- no signal anywhere for
-    # how fast the trunk itself is rotating, i.e. how fast it's falling.
-    # Confirmed missing by diffing against jaykorea/Isaac-RL-Two-wheel-
-    # Legged-Bot (the reference repo moppo.py's docstring already cites for
-    # its rollout-collection convention), whose own quadruped env
-    # (wolf_env/velocity_env_cfg.py) observes both base_ang_vel and
-    # projected_gravity as standard practice. root_ang_vel_b was already
-    # read elsewhere in this codebase (reward.py's v_actual, for the yaw-
-    # rate term) but never exposed to the policy's own observation.
-    base_ang_vel_dim: int = 3  # root_ang_vel_b (IMU gyro rate) — how fast the trunk itself is rotating
-    # projected_gravity_b: gravity direction in the body frame, a unit
-    # vector — standard alternative/complement to roll_pitch in legged-gym-
-    # style observations, bounded and singularity-free unlike raw Euler
-    # angles (roll_pitch already stays, not redundant: projected_gravity
-    # collapses yaw information roll_pitch's atan2/asin form doesn't have
-    # anyway, but the two together are the common convention, not either
-    # alone).
-    projected_gravity_dim: int = 3
+    joint_pos_dim: int = 12  # q - default_q
+    joint_vel_dim: int = 12  # qdot
+    prev_action_dim: int = 12  # a_{t-1}, feedback
+    preference_dim: int = 5  # w — appended by the trainer, never by the env
+
+    @property
+    def command_slice(self) -> slice:
+        start = self.base_lin_vel_dim + self.base_ang_vel_dim + self.projected_gravity_dim
+        return slice(start, start + self.command_dim)
 
     @property
     def total_dim(self) -> int:
         return (
-            self.joint_pos_dim
-            + self.joint_vel_dim
-            + self.roll_pitch_dim
-            + self.foot_contact_dim
-            + self.prev_action_dim
-            + self.command_dim
-            + self.preference_dim
+            self.base_lin_vel_dim
             + self.base_ang_vel_dim
             + self.projected_gravity_dim
+            + self.command_dim
+            + self.joint_pos_dim
+            + self.joint_vel_dim
+            + self.prev_action_dim
+            + self.preference_dim
         )
 
 
@@ -311,6 +307,11 @@ class ExtrinsicsCfg:
     leg_length_scale_dim: int = 1
     joint_range_scale_dim: int = 1
     terrain_height_dim: int = 1
+    # Added 2026-09-26 so the Phase-5 plant ensemble's axes are observable:
+    # it varies dynamic friction (static stays 0.8) and passive joint
+    # damping/armature, neither of which the channels above could see.
+    dynamic_friction_dim: int = 1
+    joint_damping_dim: int = 1  # armature moves with damping (both scale with the same blend), so one channel covers both
 
     payload_treatment: Literal["explicit_observed_rewarded", "noise_only"] = "explicit_observed_rewarded"
 
@@ -327,6 +328,7 @@ class ExtrinsicsCfg:
         non_payload = (
             self.friction_dim + self.motor_power_scale_dim + self.leg_length_scale_dim
             + self.joint_range_scale_dim + self.terrain_height_dim
+            + self.dynamic_friction_dim + self.joint_damping_dim
         )
         if self.payload_treatment == "noise_only":
             return non_payload

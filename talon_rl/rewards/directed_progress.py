@@ -4,11 +4,11 @@ equation/constants this implements).
 
 Deliberately split from talon_rl/tasks/locomotion/a1_env/a1_env.py (the only
 caller today): that module is Isaac Lab/GPU-gated and its own test
-(tests/test_a1_env.py) silently kills the whole pytest process on this
+(tests/tasks/a1/test_environment.py) silently kills the whole pytest process on this
 machine, so any logic living only there is effectively untestable here.
 Everything that can be expressed as plain numpy on (N, ...) arrays --
 window bookkeeping, reset-on-command-change, heading projection, clipping --
-lives here instead, where tests/test_directed_progress.py can exercise it
+lives here instead, where tests/rewards/test_directed_progress.py can exercise it
 directly. a1_env.py's job is reduced to: pull root position / yaw / command
 / done out of Isaac Lab, hand them to update(), store the returned state,
 report the returned directed_progress. No Isaac Lab types appear below.

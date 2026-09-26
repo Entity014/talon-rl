@@ -7,7 +7,7 @@ Sim's bare `SimulationApp({"headless": True})` shut itself down silently,
 no traceback, right after the PhysX GPU-pipeline extension started) —
 reproduced at num_envs=4 and 64, with/without torch imported before
 SimulationApp, and even with a minimal ~20-line repro script. The *exact
-same* env-construction code run through `pytest` (tests/test_a1_env.py,
+same* env-construction code run through `pytest` (tests/tasks/a1/test_environment.py,
 and this file) succeeded reliably every time.
 
 train_prelim.py now uses the official `isaaclab.app.AppLauncher` instead of

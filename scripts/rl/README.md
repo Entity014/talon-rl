@@ -1,9 +1,7 @@
 # RL Runner
 
 <!-- nav:start -->
-[Architecture](../../docs/methods/architecture/teacher-architecture.md) · [Train and run](README.md) · [Experiments](experiments/README.md) · [Research](../../docs/README.md) · [RL core](core/README.md) · [Package](../../talon_rl/README.md)
-
-[TALON RL](../../README.md) · [RL runner](README.md)
+[TALON RL](../../README.md)
 <!-- nav:end -->
 
 This folder is the executable RL front end for TALON. It owns training, playback, simulator-transfer entry points, reusable RL infrastructure, and the research workflows built on top of that infrastructure.
@@ -24,7 +22,8 @@ This folder is the executable RL front end for TALON. It owns training, playback
 - [`experiments/`](experiments/README.md) — research questions and one-off/controlled workflows; reusable discoveries should graduate out of here.
 - `runs/` — run-oriented local outputs used by the experiment workflows.
 - `assets/` — RL-side asset generation helpers.
-- `_diagnostics_impl/` — implementation modules behind the diagnostic entry points.
+
+Post-hoc diagnostics and analysis tooling live under [`scripts/analysis/`](../analysis/README.md), not in the RL runner subtree.
 
 ## Boundary
 
