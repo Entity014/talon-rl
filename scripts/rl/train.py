@@ -89,7 +89,7 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--env", choices=["dummy", "isaac_lab"], default="dummy")
-    parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 4096 explicitly for --env isaac_lab
+    parser.add_argument("--num_envs", type=int, default=64)  # CPU-sane default for --env dummy; pass --num_envs 2048 explicitly for --env isaac_lab
     parser.add_argument(
         "--no_encoder", action="store_true",
         help="Train a deployable actor without the privileged Isaac Lab Env Factor Encoder; required by sim2sim until a student encoder exists.",

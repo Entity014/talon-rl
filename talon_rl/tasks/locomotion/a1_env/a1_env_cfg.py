@@ -51,12 +51,11 @@ from .terrain_config import A1_ROUGH_TERRAINS_CFG
 # picks one per env, independent of the runtime DR events below.
 _LEG_SCALE_VARIANTS = (0.85, 0.925, 1.0, 1.075, 1.15)
 
-# Set by Task 1's empirical VRAM sizing (2026-09-14) — replace this literal
-# if Task 1 found a different value fits the RTX 3070 Ti's 8GB better.
-_DEFAULT_NUM_ENVS = 4096  # Task 1's empirical result (2026-09-14): 4096 fits the
-# RTX 3070 Ti's 8GB with ~1.64GB free at peak (6513/8192 MiB used); 8192 was
-# not attempted (outside the tested decision tree, and the headroom trend
-# argued against it) — see task-1-report.md in this plan's SDD workspace.
+# 2048, not Task 1's 4096 (2026-09-14): per-env leg-length variants need
+# replicate_physics=False, and under it env throughput peaks at 2048 envs
+# (56.6k samples/s vs 51.4k at 4096; VRAM cost of the switch <= ~100 MiB).
+# See docs/verdicts/teacher_v4/teacher-v4-a-b-input-contract-verdict.md.
+_DEFAULT_NUM_ENVS = 2048
 
 
 @configclass
@@ -293,7 +292,9 @@ class CurriculumCfg:
 
 @configclass
 class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
-    scene: A1SceneCfg = A1SceneCfg(num_envs=_DEFAULT_NUM_ENVS, env_spacing=2.5)
+    # replicate_physics=False: with the Isaac Lab default (True) env_0's randomly
+    # chosen leg-scale variant is cloned to every env, so leg-length DR never happened.
+    scene: A1SceneCfg = A1SceneCfg(num_envs=_DEFAULT_NUM_ENVS, env_spacing=2.5, replicate_physics=False)
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     events: EventCfg = EventCfg()

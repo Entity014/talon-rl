@@ -1,6 +1,6 @@
 # Teacher V4 — V4-A / V4-B / V4-B1 Input-Contract Verdict
 
-Status: **OPEN — V4-A PASS, V4-B PASS (to be rerun), V4-B1 bugs confirmed, plumbing fixed, spawn decision pending**
+Status: **FROZEN — e_t CONTRACT; V4-A PASS, V4-B PASS on the canonical env; rollout/batch and action contracts still open**
 Date: 2026-09-26
 Branch: `v4-a-teacher`
 
@@ -133,24 +133,62 @@ Each (`replicate_physics`, N) pair ran in its own process with zero actions and 
 These numbers measure only the env step. They do not include policy forward
 or update time, so the throughput gap will be smaller during training.
 
-## Decision pending
+## Decision — canonical V4 environment
 
-Proposed canonical V4 env: **`replicate_physics=False`, `num_envs=2048`.**
-This setting gives correct morphology diversity at the best `r0`
-throughput. It runs at 67% of the throughput of the replicated 4096 setup.
-The replicated 4096 setup is faster, but its morphology diversity is fake,
-so it gives the policy a training exposure that does not match what the
-method claims.
+Decided 2026-09-26: **`replicate_physics=False`, `num_envs=2048`** in
+`IsaacLabTalonEnvCfg`. This setting gives correct morphology diversity at
+the best `r0` throughput. It runs at 67% of the throughput of the replicated
+4096 setup. The replicated 4096 setup is faster, but its morphology
+diversity is fake, so it gives the policy a training exposure that does not
+match what the method claims.
 
-Open item tied to this decision: the PPO batch per iteration halves at 2048
-envs. The two options are to double `num_steps_per_env` or to accept the
-smaller batch. Freeze this together with the action contract.
+`num_steps_per_env` is deliberately left unchanged here. Halving the env
+count halves the PPO batch per iteration. Whether to double the horizon to
+keep `N_env × H` equal belongs to V4-C0, the rollout/batch contract. A
+longer `H` is not a free change for the GAE and rollout assumptions.
+
+## Revalidation on the canonical environment
+
+Both audits ran with 64 envs on the new config.
+
+**V4-B1 regression gate** (`require_diversity=True`), report
+`runs/teacher_v4_b1_leg_length_revalidated-2026-09-26/report.json`: **PASS.**
+All 5 variants appear (13 / 10 / 13 / 13 / 15 for 0.85 … 1.15). Per env, the
+reported `e_t[3]` equals the stage `legScale`, the referenced variant file,
+and the PhysX thigh length (0.17 / 0.185 / 0.2 / 0.215 / 0.23 m).
+
+**V4-B rerun**, report
+`runs/teacher_v4_b_forward_sanity_revalidated-2026-09-26/report.json`: **PASS.**
+
+| check | before fix | canonical env |
+|---|---|---|
+| constant `e_t` channels | 3, 5 | 5 only (terrain level 0) |
+| `e_t[3]` raw std / normalized std | 0 / 0 | 0.109 / 1.0 |
+| permutation max diff | 1.2e-7 | 1.2e-7 |
+| padding max diff | 0.0 | 0.0 |
+| plant authority, median ‖Δz_t‖ / ‖Δa‖ | 0.633 / 6.2e-3 | 0.647 / 6.2e-3 |
+| preference authority, median ‖Δz_w‖ / ‖Δa‖ | 0.138 / 7.2e-4 | 0.138 / 7.2e-4 |
+| preference / plant action ratio | 0.115 | 0.116 |
+| set aliasing min / p01 ratio | 0.11 / 0.14 | 0.11 / 0.14 |
+
+The preference and aliasing rows do not change because they do not depend
+on `e_t`. The plant authority changes slightly because the leg-length
+channel now varies.
+
+Test suite: 313 passed, 1 pre-existing failure
+(`test_alive_bonus_adds_flat_reward_only_while_not_fallen`).
+
+## Frozen `e_t` contract
+
+12-D, in this order: friction (1), motor power Kp/Kd (2), leg length (1),
+joint range (1), terrain height (1), dynamic friction (1), joint damping (1),
+payload mass + CoM (4). Normalization happens outside the model, with a
+centered `RunningNormalizer`. A missing `legScale` raises.
 
 ## Next
 
-1. Apply the spawn decision in `IsaacLabTalonEnvCfg`.
-2. Rerun the V4-B1 audit with `require_diversity=True`.
-3. Rerun V4-B with a varying `e_t[3]`.
-4. Freeze the `e_t` contract and close this verdict.
-5. Freeze the action contract (Talon 0.15 / clip 3.0 / Kp 55, Kd 0.8 versus
-   canonical 0.25 / tanh ±1 / Kp 25, Kd 0.5), then V4-C.
+1. V4-C0: freeze the rollout/batch contract (`num_steps_per_env` at 2048 envs)
+   after checking what the GAE and rollout code ties to `H`.
+2. Freeze the action contract (Talon 0.15 / clip 3.0 / Kp 55, Kd 0.8 versus
+   canonical 0.25 / tanh ±1 / Kp 25, Kd 0.5).
+3. V4-C training comparison.

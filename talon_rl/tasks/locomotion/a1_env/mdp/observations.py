@@ -107,8 +107,8 @@ def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sce
     lifetime (leg length isn't reset-randomized, only variant-selected at
     spawn — see a1_env_cfg.py), so the per-env USD prim lookup below only
     needs to run once per env instance, not once per observation step: at
-    this repo's configured default of 4096 envs, re-reading on every call
-    would be 4096 USD attribute reads every single step for a value that
+    this repo's configured default of 2048 envs, re-reading on every call
+    would be 2048 USD attribute reads every single step for a value that
     never changes. Cached on the env object itself, the same pattern
     a1_env.py's load_managers() already uses for v_command_buf/
     obstacle_ahead_buf (per-env-instance state with no other natural home)."""

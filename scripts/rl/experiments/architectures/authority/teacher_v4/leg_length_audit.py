@@ -50,7 +50,7 @@ class LegLengthAudit(IsaacAudit):
     run = "teacher_v4_b1_leg_length_audit-2026-09-26"
     report = "report.json"
     num_envs = 64
-    require_diversity = False
+    require_diversity = True  # canonical env has replicate_physics=False since 2026-09-26
 
     def build_env(self):
         import gymnasium as gym
