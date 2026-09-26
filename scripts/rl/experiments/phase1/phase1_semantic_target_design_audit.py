@@ -17,6 +17,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from rl.core.offline_audit import REPO, RUNS, OfflineAudit
+from rl.experiments.shared.rank_stats import corr, spearman
 
 DISC = "trajectory_information_attribution_audit-2026-09-24/trajectory_information_attribution_report.json"
 HOLD = "relational_persistence_heldout-2026-09-24/heldout_report.json"
@@ -26,30 +27,7 @@ TARGETS = ("B0", "B1", "B2", "C")
 TOL = 1e-10
 
 
-def rankdata(x):
-    """Average ranks, ties shared, matching scipy's default."""
-    x = np.asarray(x, float)
-    o = np.argsort(x, kind="mergesort")
-    r = np.empty(len(x), float)
-    i = 0
-    while i < len(x):
-        j = i + 1
-        while j < len(x) and x[o[j]] == x[o[i]]:
-            j += 1
-        r[o[i:j]] = (i + j - 1) / 2 + 1
-        i = j
-    return r
 
-
-def corr(x, y):
-    x, y = np.asarray(x, float), np.asarray(y, float)
-    if len(x) < 2 or np.std(x) < 1e-15 or np.std(y) < 1e-15:
-        return float("nan")
-    return float(np.corrcoef(x, y)[0, 1])
-
-
-def spear(x, y):
-    return corr(rankdata(x), rankdata(y))
 
 
 def softmin2(a, b):
@@ -65,15 +43,15 @@ def metrics(samples, key):
     mask = [abs(a) > TOL and abs(b) > TOL for a, b in zip(x, y)]
     sg = (float(np.mean([np.sign(a) == np.sign(b) for a, b, m in zip(x, y, mask) if m]))
           if any(mask) else float("nan"))
-    perseed = {str(sd): spear([s["delta"][key] for s in samples if s["seed"] == sd],
+    perseed = {str(sd): spearman([s["delta"][key] for s in samples if s["seed"] == sd],
                               [s["d_sem"] for s in samples if s["seed"] == sd])
                for sd in sorted({s["seed"] for s in samples})}
-    peraxis = {a: spear([s["delta"][key] for s in samples if s["axis"] == a],
+    peraxis = {a: spearman([s["delta"][key] for s in samples if s["axis"] == a],
                         [s["d_sem"] for s in samples if s["axis"] == a]) for a in AXES}
     pf = [s for s in samples if s["pass_from"] and not s["pass_to"]]
     fp = [s for s in samples if not s["pass_from"] and s["pass_to"]]
     pos = [s for s in samples if s["delta"][key] > TOL]
-    return {"spearman": spear(x, y), "pearson": corr(x, y), "sign_agreement": sg,
+    return {"spearman": spearman(x, y), "pearson": corr(x, y), "sign_agreement": sg,
             "per_seed_spearman": perseed, "per_axis_spearman": peraxis,
             "pass_to_fail_n": len(pf),
             "pass_to_fail_false_approval_fraction":
