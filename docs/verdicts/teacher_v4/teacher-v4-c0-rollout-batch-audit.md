@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C0 Rollout/Batch Contract Audit
 
-Status: **FROZEN — H=24, 2 minibatches, 29,491,200-sample budget; trainer and objective contract open (see findings below)**
+Status: **FROZEN — V4-C: exact M0 (4096 × 24, 4 minibatches, 300 iterations); the 2048 × 24 / 2-minibatch contract applies to V4-D; objective contract frozen separately**
 Date: 2026-09-26
 Branch: `v4-a-teacher`
 
@@ -200,3 +200,18 @@ Before V4-C, one of these must be frozen:
 1. Objective contract (above).
 2. Trainer route (above).
 3. Action contract.
+
+## Superseded for V4-C (2026-09-27)
+
+V4-C now runs on `Isaac-Talon-A1-V4C-v0` (stock A1 flat + e_t, one USD,
+`replicate_physics=True`), so the throughput reason for 2048 envs does not
+apply. **V4-C uses the exact M0 sampling contract: 4096 × 24, 5 epochs × 4
+minibatches (24,576 each), 300 iterations, 29,491,200 samples.** All other
+fields of `teacher_v4_m0_matched` are unchanged.
+
+The 2048 × 24 / 2-minibatch contract above is not wrong. It moves to V4-D,
+where `Isaac-Talon-A1-v0` needs `replicate_physics=False` for per-env leg
+variants. The H-sensitivity analysis applies to both.
+
+The trainer route is decided: the V3 objective-set loop as the semantic
+core, wrapped in the M0 PPO shell. `moppo.py` is not used for V4.

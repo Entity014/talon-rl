@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C0a Objective-Contract Port Verdict
 
-Status: **PORT PASS; V4-C env = stock + e_t (C0a2 PASS); divisors not yet measured; V4-C num_envs pending**
+Status: **FROZEN for V4-C — env = stock + e_t (C0a2 PASS), divisors measured on it = T3-B divisors (C0a3); Talon-env port kept for V4-D**
 Date: 2026-09-26
 Branch: `v4-a-teacher`
 
@@ -129,3 +129,27 @@ Consequence for the V4-C0 sampling contract: this env spawns one USD, so
 exact M0 contract (4096 × 24, 4 minibatches, 300 iterations) is feasible
 again. The 2048 × 24 / 2-minibatch contract then belongs to V4-D. Pending
 user decision.
+
+## V4-C0a3 — divisors on the V4-C env (2026-09-27)
+
+Script `scripts/rl/experiments/architectures/authority/teacher_v4/divisor_calibration.py`,
+reports `runs/teacher_v4_c0a3_divisor_calibration-2026-09-27/{stock,v4c}.json`.
+Same T3-B protocol as the frozen divisors (M0 `model_299`, stochastic
+actions clamped to ±1, 16 envs × 192 steps, reset seeds 230001/230101/230201,
+`abs_mean` candidate), run on two envs:
+
+| env | T | A | O | S | vs frozen |
+|---|---:|---:|---:|---:|---|
+| stock A1 flat (control) | 1.71946 | 0.15591 | 0.015634 | 0.083112 | identical, bit for bit |
+| `Isaac-Talon-A1-V4C-v0` | 1.71946 | 0.15591 | 0.015634 | 0.083112 | identical, bit for bit |
+
+The per-seed values also match bit for bit between the two envs. That is
+expected once the V4-C parity gate holds: the physics, DR draws (stock
+`add_base_mass`), seeds and policy are the same, the repo `a1.usd` behaves
+identically to the Isaac asset, and the added e_t observation group does not
+touch the simulation. The control reproducing T3-B exactly also confirms the
+protocol port.
+
+**Objective contract for V4-C: FROZEN.** Kernels, weights and grouping are
+the stock ones (`talon_rl/rewards/objectives.py`), and the normalization is
+the existing `NORMALIZATION_DIVISORS`, now measured on the V4-C env itself.
