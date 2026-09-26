@@ -1,7 +1,9 @@
 # Objective Set
 
 <!-- nav:start -->
-[Documentation](../../README.md) · [Contracts](../README.md)
+[Architecture](../../methods/architecture/teacher-architecture.md) · [Train and run](../../../scripts/rl/README.md) · [Experiments](../../../scripts/rl/experiments/README.md) · [Research](../../README.md) · [RL core](../../../scripts/rl/core/README.md) · [Package](../../../talon_rl/README.md)
+
+[TALON RL](../../../README.md) · [Documentation](../../README.md) · [Contracts](../README.md) · [Objective Set](README.md)
 <!-- nav:end -->
 
 

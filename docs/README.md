@@ -1,37 +1,54 @@
 # Documentation
 
 <!-- nav:start -->
-[TALON RL](../README.md)
+[Architecture](methods/architecture/teacher-architecture.md) · [Train and run](../scripts/rl/README.md) · [Experiments](../scripts/rl/experiments/README.md) · [Research](README.md) · [RL core](../scripts/rl/core/README.md) · [Package](../talon_rl/README.md)
+
+[TALON RL](../README.md) · [Documentation](README.md)
 <!-- nav:end -->
 
+The research record for TALON.
 
-## Purpose
+Use this tree to answer **why a method exists, what was tested, what the evidence supported, and what conclusions were carried into the thesis**.
 
-Central index for the thesis research record.
+## Choose a path
 
-## Scope
-
-This tree separates research intent, experimental conclusions, baseline/method design, operational protocols, closures, and thesis-facing synthesis. Filenames keep historical experiment IDs for traceability.
+| section | use it for |
+|---|---|
+| [`methods/`](methods/README.md) | active method descriptions and reusable design notes |
+| [`contracts/`](contracts/README.md) | questions, treatments, controls, invariants, and gates fixed before evaluation |
+| [`verdicts/`](verdicts/README.md) | retained conclusions from completed experiments |
+| [`closures/`](closures/README.md) | branch-level and method-selection decisions |
+| [`protocols/`](protocols/README.md) | frozen evaluation, pipeline, and provenance procedures |
+| [`baselines/`](baselines/README.md) | baseline and bridge design documents |
+| [`thesis/`](thesis/README.md) | thesis-facing method, results, discussion, conclusion, and traceability |
+| [`superpowers/`](superpowers/README.md) | historical implementation plans/specifications |
 
 ## Research progression
 
-1. contracts define what must be tested
-2. experiments and artifacts provide evidence
-3. verdicts record the retained conclusion
-4. closures decide whether a branch continues
-5. thesis documents synthesize the retained evidence
+```text
+contract
+  → experiment implementation
+  → run / artifact evidence
+  → verdict
+  → closure
+  → thesis synthesis
+```
 
-## Subfolders
+## Document counts
 
-- baselines/ — 21 documents total
-- closures/ — 6 documents total
-- contracts/ — 68 documents total
-- methods/ — 6 documents total
-- protocols/ — 3 documents total
-- superpowers/ — 12 documents total
-- thesis/ — 7 documents
-- verdicts/ — 121 documents total
+- `contracts/` — 68 documents
+- `verdicts/` — 121 documents
+- `baselines/` — 21 documents
+- `closures/` — 6 documents
+- `methods/` — 6 documents
+- `protocols/` — 3 documents
+- `thesis/` — 7 documents
+- `superpowers/` — 12 historical planning/spec documents
+
+## Current architecture
+
+The active method specification is the **[Phase 1 Teacher Architecture](methods/architecture/teacher-architecture.md)**.
 
 ## Maintenance
 
-Keep provenance-bearing experiment IDs in document filenames. Move documents by role/domain and update repository references when paths change.
+Document folders are organized by **role + research domain**. Filenames intentionally retain provenance-bearing experiment IDs. When a document moves, update repository references to its new `docs/...` path.

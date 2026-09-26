@@ -1,7 +1,9 @@
 # `transfer/plant_alignment`
 
 <!-- nav:start -->
-[Experiments](../../README.md) · [Transfer](../README.md)
+[Architecture](../../../../../docs/methods/architecture/teacher-architecture.md) · [Train and run](../../../README.md) · [Experiments](../../README.md) · [Research](../../../../../docs/README.md) · [RL core](../../../core/README.md) · [Package](../../../../../talon_rl/README.md)
+
+[TALON RL](../../../../../README.md) · [RL runner](../../../README.md) · [Experiments](../../README.md) · [Transfer](../README.md) · [Plant Alignment](README.md)
 <!-- nav:end -->
 
 6 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.

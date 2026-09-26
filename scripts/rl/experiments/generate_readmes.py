@@ -8,6 +8,7 @@ import ast
 import os
 import pathlib
 import re
+import subprocess
 import sys
 
 D = pathlib.Path("scripts/rl/experiments")
@@ -39,28 +40,57 @@ def facts(p):
     return summary, tags, runs, len(src.splitlines())
 
 
-def nav_block(folder):
-    """Build a local breadcrumb for an experiment README."""
-    parts = []
-    root = pathlib.Path("scripts/rl/experiments")
-    parts.append(
-        "[Experiments]("
-        + os.path.relpath(root / "README.md", start=folder)
-        + ")"
+# The top-level README's link bar, repeated on every page so each one reaches
+# the same six entry points.
+NAV_BAR = [
+    ("Architecture", "docs/methods/architecture/teacher-architecture.md"),
+    ("Train and run", "scripts/rl/README.md"),
+    ("Experiments", "scripts/rl/experiments/README.md"),
+    ("Research", "docs/README.md"),
+    ("RL core", "scripts/rl/core/README.md"),
+    ("Package", "talon_rl/README.md"),
+]
+CRUMB_LABELS = {
+    ".": "TALON RL",
+    "scripts/rl": "RL runner",
+    "scripts/rl/core": "RL core",
+    "docs": "Documentation",
+}
+NAV_RE = re.compile(r"<!-- nav:start -->.*?<!-- nav:end -->", re.S)
+
+
+def crumb_label(folder):
+    key = folder.as_posix()
+    return CRUMB_LABELS.get(key) or folder.name.replace("_", " ").replace("-", " ").title()
+
+
+def nav_block(page):
+    """Link bar plus a breadcrumb from the repo root, for any page in the repo.
+
+    Paths are repo-relative, so run from the repo root. Every crumb is a link,
+    the last one to the page's own folder README.
+    """
+    page = pathlib.Path(page)
+    folder = page.parent
+    bar = " · ".join(
+        f"[{label}]({os.path.relpath(target, start=folder)})" for label, target in NAV_BAR
     )
+    chain = [pathlib.Path(".")] + [pathlib.Path(*folder.parts[:i + 1]) for i in range(len(folder.parts))]
+    crumbs = []
+    for d in chain:
+        # The page's own folder always gets a crumb, even before its README exists.
+        if d == folder or (d / "README.md").exists():
+            crumbs.append(f"[{crumb_label(d)}]({os.path.relpath(d / 'README.md', start=folder)})")
+    return ["<!-- nav:start -->", bar, "", " · ".join(crumbs), "<!-- nav:end -->"]
 
-    rel = folder.relative_to(root)
-    current = root
-    for name in rel.parts[:-1]:
-        current = current / name
-        readme = current / "README.md"
-        if readme.exists():
-            label = name.replace("_", " ").replace("-", " ").title()
-            parts.append(
-                f"[{label}]({os.path.relpath(readme, start=folder)})"
-            )
 
-    return ["<!-- nav:start -->", " · ".join(parts), "<!-- nav:end -->"]
+def rewrite_nav(page):
+    """Replace the page's nav block in place; return True if the text changed."""
+    text = page.read_text()
+    new = NAV_RE.sub(lambda _: "\n".join(nav_block(page)), text, count=1)
+    if new != text:
+        page.write_text(new)
+    return new != text
 
 
 def folder_readme(folder):
@@ -71,7 +101,7 @@ def folder_readme(folder):
     lines = [
         f"# `{rel}`",
         "",
-        *nav_block(folder),
+        *nav_block(folder / "README.md"),
         "",
         f"{len(files)} scripts. One line each, taken from the file's own docstring — "
         "edit the docstring, not this file.",
@@ -106,6 +136,13 @@ def folder_readme(folder):
 
 
 if __name__ == "__main__":
+    if "--nav" in sys.argv:
+        # Every hand-written page with a nav block, not just the generated ones.
+        out = subprocess.run(["git", "ls-files", "-z", "*.md"], capture_output=True, text=True, check=True).stdout
+        pages = [pathlib.Path(p) for p in out.split("\0") if p]
+        changed = [p for p in pages if "<!-- nav:start -->" in p.read_text() and rewrite_nav(p)]
+        print(f"rewrote nav in {len(changed)} pages")
+        sys.exit(0)
     apply = "--apply" in sys.argv
     only = [a.strip("/") for a in sys.argv[1:] if not a.startswith("-")]
     folders = sorted(

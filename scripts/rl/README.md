@@ -1,7 +1,9 @@
 # RL Runner
 
 <!-- nav:start -->
-[TALON RL](../../README.md)
+[Architecture](../../docs/methods/architecture/teacher-architecture.md) · [Train and run](README.md) · [Experiments](experiments/README.md) · [Research](../../docs/README.md) · [RL core](core/README.md) · [Package](../../talon_rl/README.md)
+
+[TALON RL](../../README.md) · [RL runner](README.md)
 <!-- nav:end -->
 
 This folder is the executable RL front end for TALON. It owns training, playback, simulator-transfer entry points, reusable RL infrastructure, and the research workflows built on top of that infrastructure.

@@ -1,7 +1,9 @@
 # General
 
 <!-- nav:start -->
-[Documentation](../../README.md) · [Verdicts](../README.md)
+[Architecture](../../methods/architecture/teacher-architecture.md) · [Train and run](../../../scripts/rl/README.md) · [Experiments](../../../scripts/rl/experiments/README.md) · [Research](../../README.md) · [RL core](../../../scripts/rl/core/README.md) · [Package](../../../talon_rl/README.md)
+
+[TALON RL](../../../README.md) · [Documentation](../../README.md) · [Verdicts](../README.md) · [General](README.md)
 <!-- nav:end -->
 
 

@@ -1,7 +1,9 @@
 # rsl_rl Integration
 
 <!-- nav:start -->
-[RL runner](../../../README.md) · [RL core](../../README.md) · [Integration](../README.md)
+[Architecture](../../../../../docs/methods/architecture/teacher-architecture.md) · [Train and run](../../../README.md) · [Experiments](../../../experiments/README.md) · [Research](../../../../../docs/README.md) · [RL core](../../README.md) · [Package](../../../../../talon_rl/README.md)
+
+[TALON RL](../../../../../README.md) · [RL runner](../../../README.md) · [RL core](../../README.md) · [Integration](../README.md) · [Rsl Rl](README.md)
 <!-- nav:end -->
 
 

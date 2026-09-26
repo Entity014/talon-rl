@@ -1,26 +1,37 @@
 # TALON RL
 
+**Terrain-Adaptive Locomotion via Objective Negotiation**
+
 Preference-conditioned multi-objective locomotion for the **Unitree A1**.
 
-[Teacher architecture](docs/methods/architecture/teacher-architecture.md) · [Train and run](scripts/rl/README.md) · [Experiments](scripts/rl/experiments/README.md) · [Research docs](docs/README.md) · [RL core](scripts/rl/core/README.md)
+[Architecture](docs/methods/architecture/teacher-architecture.md) · [Train and run](scripts/rl/README.md) · [Experiments](scripts/rl/experiments/README.md) · [Research](docs/README.md) · [RL core](scripts/rl/core/README.md) · [Package](talon_rl/README.md)
 
 ---
 
-This repo is the research stack for **TALON — Terrain-Adaptive Locomotion via Objective Negotiation**. It contains the Unitree A1 task, reusable RL infrastructure, preference-conditioned model families, simulator-transfer tooling, and the experiment record that explains how the current method was selected.
+**TALON is a locomotion research stack for teaching one quadruped policy to negotiate multiple objectives, adapt to changing robot dynamics, and preserve controllable behavior across simulation and deployment conditions.**
 
-The active target is a **privileged teacher** that sees robot state, plant/environment factors, and a variable-cardinality objective set. Instead of appending a fixed preference vector to the observation, TALON encodes the requested objectives as a set and uses that representation to realize a preference-specific policy from a learned policy family.
+Instead of training one controller for one fixed trade-off, TALON conditions a policy family on an objective-weight set. The current work extends that controller with privileged plant context for a teacher–student adaptation pipeline.
 
-## What TALON is building
+## What TALON does
 
-The teacher has three inputs:
-
-| input | role |
+| capability | what it means |
 |---|---|
-| robot state + previous action | current control context |
-| privileged plant/environment factors | true dynamics/environment context during teacher training |
-| objective-weight set | requested multi-objective behavior |
+| **Objective trade-offs** | Change the objective weights and expose a different locomotion behavior without training a separate controller for every trade-off. |
+| **Plant-aware control** | The privileged teacher conditions on plant/environment context such as mass, CoM, friction, terrain, and actuator strength. |
+| **Policy families** | A preference-set latent realizes a policy from a learned low-dimensional family instead of only appending a preference vector to the observation. |
+| **Transfer analysis** | The research stack includes deployment-equivalence, Isaac → MuJoCo, plant-alignment, controller-robustness, and ensemble-robustness studies. |
 
-The current architecture is:
+> Future result figures, rollout GIFs, and comparison videos belong here — close to the capabilities they demonstrate.
+
+## Why TALON?
+
+Most locomotion policies are trained around one fixed objective balance. TALON studies a harder question:
+
+> Can one controller expose a usable trade-off interface while remaining stable under learning, changing dynamics, and simulator transfer?
+
+That question drives both the architecture and the experiment record in this repository.
+
+## Architecture at a glance
 
 ```text
 robot state + previous action
@@ -28,121 +39,100 @@ robot state + previous action
             v
         State Trunk -----------+
                                |
-privileged env factors         |
+privileged plant factors       |
             |                  |
             v                  |
-   Env Factor Encoder ---------+----> Conditional Policy
+    Env Factor Encoder --------+----> Conditional Policy
                                |       params = theta(z_w)
 objective-weight set           |               |
             |                  |               v
             v                  |            action
-   Set Encoder -> z_w          |               |
-            |                  |               v
-            v                  +-------> robot dynamics
-   Family Hypernetwork
-            |
-            v
- theta(z_w) = theta_0 + sum_k c_k B_k
+       Set Encoder             |
+            |                  |
+           z_w                 |
+            |                  |
+            v                  |
+   Family Hypernetwork --------+
 ```
 
-The critic uses the same state, privileged context, and objective-set semantics and predicts values through a shared objective-query mechanism.
+The critic uses the same state, privileged context, and objective-set semantics through a shared objective-query value mechanism.
 
-The full architecture, dimensions, and design rationale live in **[docs/methods/architecture/teacher-architecture.md](docs/methods/architecture/teacher-architecture.md)**.
+→ **[Full teacher architecture](docs/methods/architecture/teacher-architecture.md)**
 
 ## Where to find things
 
-The links below go to the **README / landing page for each subsystem** first. Those pages explain the local structure and point to the concrete implementation files.
-
-### You want to train or run a policy
+### You want to train or run TALON
 
 | start here | what you will find |
 |---|---|
-| [RL runner](scripts/rl/README.md) | Training, playback, and sim-to-sim entry points. Start here for `train.py`, `play.py`, and `sim2sim.py`. |
-| [RL core](scripts/rl/core/README.md) | Reusable algorithms, rollout/GAE, objectives, preferences, normalization, checkpoints, runtime, and integration boundaries. |
-| [Unitree A1 task](talon_rl/tasks/locomotion/a1_env/README.md) | The Isaac Lab locomotion task: scene/MDP configuration, observations, actions, terrain, events, and terminations. |
-| [Teacher architecture](docs/methods/architecture/teacher-architecture.md) | The active Phase 1 teacher design: state trunk, privileged factor encoder, objective-set encoder, policy-family hypernetwork, and objective-query critic. |
+| [RL runner](scripts/rl/README.md) | Training, playback, evaluation, and sim-to-sim entry points. |
+| [Unitree A1 task](talon_rl/tasks/locomotion/a1_env/README.md) | Isaac Lab locomotion environment, observations, actions, terrain, events, and terminations. |
+| [Teacher architecture](docs/methods/architecture/teacher-architecture.md) | Current model design and teacher-stage data flow. |
 
-### You are changing the learning architecture
+### You are changing the method
 
 | start here | what you will find |
 |---|---|
-| [Models](talon_rl/models/README.md) | Actor/critic architecture families, grouped by mechanism rather than historical experiment ID. |
-| [Rewards](talon_rl/rewards/README.md) | Locomotion reward terms, objective grouping, and reward-vector semantics. |
-| [Curricula](talon_rl/curricula/README.md) | Command exposure and curriculum state-machine logic. |
-| [Optimization](talon_rl/optimization/README.md) | Reusable scalarization, scalar-critic, and optimization helpers. |
-| [Wrappers](talon_rl/wrappers/README.md) | Environment/model adapters such as scalar-reward and plant-ensemble wrappers. |
-| [TALON package](talon_rl/README.md) | Package-level map showing how models, rewards, tasks, deployment, optimization, and wrappers fit together. |
+| [Models](talon_rl/models/README.md) | Actor/critic and preference-conditioning architectures. |
+| [Rewards](talon_rl/rewards/README.md) | Objectives and reward semantics. |
+| [Optimization](talon_rl/optimization/README.md) | Scalarization and critic/optimization helpers. |
+| [RL core](scripts/rl/core/README.md) | Shared algorithms, rollout, objectives, preferences, normalization, checkpointing, and runtime. |
 
 ### You are following the research
 
 | start here | what you will find |
 |---|---|
-| [Experiments](scripts/rl/experiments/README.md) | Executable research workflows grouped by architecture, baseline, diagnostic, evaluation, and transfer responsibility. |
-| [Research docs](docs/README.md) | Master index for the complete research record and the contract → evidence → verdict → closure → thesis chain. |
-| [Contracts](docs/contracts/README.md) | Questions, treatment/control definitions, invariants, and pass/fail gates fixed before evaluation. |
-| [Verdicts](docs/verdicts/README.md) | Retained conclusions from completed experiments, including failed/blocked branches and causal interpretations. |
-| [Closures](docs/closures/README.md) | Branch-level decisions that lock method selection or close a phase so resolved alternatives are not reopened. |
-| [Thesis](docs/thesis/README.md) | Method/results/discussion/conclusion synthesis plus traceability and figure/table production notes. |
+| [Research docs](docs/README.md) | The map of methods, contracts, verdicts, closures, protocols, and thesis synthesis. |
+| [Experiments](scripts/rl/experiments/README.md) | Executable research workflows grouped by responsibility. |
+| [Contracts](docs/contracts/README.md) | What was fixed before an experiment was evaluated. |
+| [Verdicts](docs/verdicts/README.md) | What the evidence supports. |
+| [Closures](docs/closures/README.md) | Which branches are closed and which direction remains active. |
+| [Thesis](docs/thesis/README.md) | Thesis-facing method, results, discussion, conclusion, and traceability. |
 
 ## Under the hood
 
-The repository is split into three layers.
-
-### `talon_rl/` — reusable task and model package
-
-This is the installed Python package.
-
 ```text
 talon_rl/
-├── assets/          robot assets and configuration
-├── curricula/       curriculum and command scheduling
-├── deployment/      deployment/runtime and simulator adapters
-├── isaaclab/        local Isaac Lab extensions
-├── models/          actor/critic architecture families
-├── optimization/    reusable optimization helpers
-├── rewards/         reward/objective definitions
-├── tasks/           robot task definitions
-└── wrappers/        environment/model wrappers
+├── models/
+├── rewards/
+├── tasks/
+├── deployment/
+├── optimization/
+└── wrappers/
+
+scripts/rl/
+├── core/
+└── experiments/
+
+docs/
+├── methods/
+├── contracts/
+├── verdicts/
+├── closures/
+└── thesis/
 ```
 
-### `scripts/rl/core/` — reusable RL infrastructure
+Reusable mechanisms live in `talon_rl/` and `scripts/rl/core/`. Scientific questions live in `scripts/rl/experiments/`, with their contracts, verdicts, and closures under `docs/`.
 
-Training machinery lives here rather than inside the task package.
+## Research status
 
-```text
-core/
-├── algorithms/
-├── checkpoint/
-├── diagnostics/
-├── envs/
-├── experiment_io/
-├── integration/
-├── modules/
-├── normalization/
-├── objectives/
-├── policies/
-├── preferences/
-├── rollout/
-└── runtime/
-```
+**Current**
 
-Environment implementations satisfy the structural `TalonEnv` contract; task packages do not need to inherit from a training-framework base class.
+- **Phase 1 — privileged teacher architecture**
 
-### `scripts/rl/experiments/` — research workflows
+**Completed foundations**
 
-Experiments are organized by **what they investigate**, not only by historical phase number.
+- ✓ preference-conditioned policy-family research
+- ✓ preference-authority and semantic diagnostics
+- ✓ deployment-equivalence analysis
+- ✓ Isaac → MuJoCo transfer studies
+- ✓ plant-alignment and ensemble-robustness studies
 
-```text
-experiments/
-├── architectures/
-├── baselines/
-├── common/
-├── diagnostics/
-├── evaluation/
-└── transfer/
-```
+**Next**
 
-Historical IDs such as `B0`, `V2B`, `C25`, `AI-C2`, and `Phase5-E2` are retained inside stage names, run directories, contracts, and verdicts so the thesis lineage is still auditable.
+`teacher implementation → adaptation student → deployment validation`
+
+For the experiment lineage and retained evidence, start at **[docs/README.md](docs/README.md)**.
 
 ## Quickstart
 
@@ -169,72 +159,8 @@ python scripts/rl/sim2sim.py
 
 Isaac Lab training requires the project's Isaac Lab / Isaac Sim environment and a compatible GPU setup.
 
-## How the research record works
+## Thesis and research record
 
-TALON keeps the experimental history in the repo instead of collapsing it into one final implementation.
+The thesis-facing documents live under [`docs/thesis/`](docs/thesis/README.md). The complete evidence chain is indexed from [`docs/README.md`](docs/README.md).
 
-```text
-contract
-   |
-   v
-experiment implementation
-   |
-   v
-run / artifact evidence
-   |
-   v
-verdict
-   |
-   v
-closure
-   |
-   v
-thesis synthesis
-```
-
-That distinction matters:
-
-- **contracts** say what must be tested;
-- **experiments** produce the evidence;
-- **verdicts** record what the evidence supports;
-- **closures** decide what branch remains active;
-- **thesis docs** synthesize the retained chain.
-
-Start at **[docs/README.md](docs/README.md)** if you are trying to reconstruct why a design decision exists.
-
-## Current status
-
-Completed research in this repository includes:
-
-- deterministic scalar locomotion and reference-policy reproduction,
-- reward-preserving vectorization,
-- preference-conditioned PPO / MORL baselines,
-- preference-authority and policy-family architecture studies,
-- critic representation and semantic-credit diagnostics,
-- simulator-transfer and plant-alignment studies,
-- controller-transfer and ensemble-robustness studies.
-
-The active next implementation is the **Phase 1 privileged teacher architecture** described above.
-
-Its goal is to establish a controllable, environment-aware policy family before a later student/adaptation stage removes direct access to privileged environment factors.
-
-## TienKung sibling task
-
-[`talon_rl/tasks/manipulation/tienkung_env/`](talon_rl/tasks/manipulation/tienkung_env/) and [`talon_rl/assets/tienkung2_lite/`](talon_rl/assets/tienkung2_lite/) are a sibling research application that reuses TALON's generic infrastructure.
-
-They are **not** part of the defended Unitree A1 locomotion contribution.
-
-## Repository rule of thumb
-
-```text
-source folder     = responsibility / mechanism
-source file       = concrete responsibility
-experiment stage  = historical provenance
-
-docs folder       = document role + research domain
-docs filename     = provenance-bearing research identity
-```
-
-If you are adding reusable code, it should usually go into `talon_rl/` or `scripts/rl/core/`.
-
-If you are testing a scientific question, it belongs under `scripts/rl/experiments/` with its contract/verdict trail under `docs/`.
+A formal citation file and repository license have not yet been added; when they are defined, they should live at the repository root rather than being duplicated across subsystem READMEs.

@@ -1,5 +1,11 @@
 # Phase 1 Teacher Architecture
 
+<!-- nav:start -->
+[Architecture](teacher-architecture.md) · [Train and run](../../../scripts/rl/README.md) · [Experiments](../../../scripts/rl/experiments/README.md) · [Research](../../README.md) · [RL core](../../../scripts/rl/core/README.md) · [Package](../../../talon_rl/README.md)
+
+[TALON RL](../../../README.md) · [Documentation](../../README.md) · [Methods](../README.md) · [Architecture](README.md)
+<!-- nav:end -->
+
 The active TALON training direction is a privileged teacher that combines robot state, environment context, and a variable-cardinality objective set to realize a preference-specific locomotion policy.
 
 ## Overview

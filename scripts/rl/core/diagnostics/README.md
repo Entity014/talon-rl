@@ -1,7 +1,9 @@
 # Diagnostics
 
 <!-- nav:start -->
-[RL runner](../../README.md) · [RL core](../README.md)
+[Architecture](../../../../docs/methods/architecture/teacher-architecture.md) · [Train and run](../../README.md) · [Experiments](../../experiments/README.md) · [Research](../../../../docs/README.md) · [RL core](../README.md) · [Package](../../../../talon_rl/README.md)
+
+[TALON RL](../../../../README.md) · [RL runner](../../README.md) · [RL core](../README.md) · [Diagnostics](README.md)
 <!-- nav:end -->
 
 
