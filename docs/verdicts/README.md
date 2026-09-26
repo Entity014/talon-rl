@@ -32,6 +32,7 @@ Verdicts summarize what the evidence supports, what failed, what remains confoun
 - [objective_set/](objective_set/README.md) — 7 documents
 - [preference_architectures/](preference_architectures/README.md) — 35 documents
 - [preference_control/](preference_control/README.md) — 3 documents
+- [teacher_v4/](teacher_v4/README.md) — 1 document
 - [transfer/](transfer/README.md) — 19 documents
 
 ## Maintenance
