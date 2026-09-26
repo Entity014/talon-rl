@@ -24,8 +24,8 @@ Contains dated implementation plans and design specs created before or during de
 
 ## Subfolders
 
-- plans/ — 6 documents
-- specs/ — 6 documents
+- [plans/](plans/README.md) — 6 documents
+- [specs/](specs/README.md) — 6 documents
 
 ## Maintenance
 

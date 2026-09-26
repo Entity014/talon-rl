@@ -24,9 +24,9 @@ Protocols differ from research contracts: they specify how to execute or freeze 
 
 ## Subfolders
 
-- evaluation/ — 1 documents
-- freeze/ — 1 documents
-- pipeline/ — 1 documents
+- [evaluation/](evaluation/README.md) — 1 documents
+- [freeze/](freeze/README.md) — 1 documents
+- [pipeline/](pipeline/README.md) — 1 documents
 
 ## Maintenance
 

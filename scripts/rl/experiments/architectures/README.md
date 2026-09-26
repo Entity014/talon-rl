@@ -9,9 +9,9 @@
 
 Architecture and policy-control research grouped by mechanism.
 
-- `authority/`: preference-authority isolation and objective-set authority.
-- `foundations/`: reusable shared-policy/critic foundations and policy-family feasibility.
-- `pivots/`: controlled scalarization and scalar-critic pivot studies.
-- `preference_architectures/`: preference-conditioning mechanisms and downstream semantic diagnostics.
-- `preference_control/`: behavior ordering, slope control, and separated-anchor control.
-- `shared_policy/`: shared actor/critic integration, routing, and specialist-alignment studies.
+- [`authority/`](authority/README.md): preference-authority isolation and objective-set authority.
+- [`foundations/`](foundations/README.md): reusable shared-policy/critic foundations and policy-family feasibility.
+- [`pivots/`](pivots/README.md): controlled scalarization and scalar-critic pivot studies.
+- [`preference_architectures/`](preference_architectures/README.md): preference-conditioning mechanisms and downstream semantic diagnostics.
+- [`preference_control/`](preference_control/README.md): behavior ordering, slope control, and separated-anchor control.
+- [`shared_policy/`](shared_policy/README.md): shared actor/critic integration, routing, and specialist-alignment studies.

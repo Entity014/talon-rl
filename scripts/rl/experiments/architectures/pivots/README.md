@@ -9,5 +9,5 @@
 
 Controlled optimization pivots.
 
-- `scalarization/`: early-vs-late scalarization experiments.
-- `scalar_critic/`: scalar-critic/value-path pivot experiments.
+- [`scalarization/`](scalarization/README.md): early-vs-late scalarization experiments.
+- [`scalar_critic/`](scalar_critic/README.md): scalar-critic/value-path pivot experiments.

@@ -9,5 +9,5 @@
 
 Authority-focused architecture research.
 
-- `isolated/`: authority-isolated actor/critic experiments.
-- `objective_set/`: objective-set authority and critic-isolation experiments.
+- [`isolated/`](isolated/README.md): authority-isolated actor/critic experiments.
+- [`objective_set/`](objective_set/README.md): objective-set authority and critic-isolation experiments.

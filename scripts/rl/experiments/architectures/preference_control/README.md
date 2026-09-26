@@ -9,6 +9,6 @@
 
 Explicit preference-to-behavior control studies.
 
-- `behavior_ordering/`: preference/behavior ordering audits.
-- `slope_control/`: prospective semantic slope-control validation.
-- `separated_anchor/`: separated-anchor policy control and evaluation.
+- [`behavior_ordering/`](behavior_ordering/README.md): preference/behavior ordering audits.
+- [`slope_control/`](slope_control/README.md): prospective semantic slope-control validation.
+- [`separated_anchor/`](separated_anchor/README.md): separated-anchor policy control and evaluation.

@@ -9,12 +9,12 @@
 
 Preference-conditioned policy architecture families grouped by mechanism.
 
-- `preference_embedding/`: minimal preference embedding and authority-sensitivity gates.
-- `film_conditioning/`: FiLM conditioning, update geometry, temporal credit, and retention.
-- `residual_experts/`: preference-gated residual expert architecture.
-- `hypernetwork/`: preference-conditioned hypernetwork architecture.
-- `private_residual/`: private residual/subspace architecture.
-- `policy_family/`: generated policy-family parameterization.
-- `semantic_diagnostics/`: downstream critic, causal-semantic, gradient, and stochastic-objective diagnostics.
+- [`preference_embedding/`](preference_embedding/README.md): minimal preference embedding and authority-sensitivity gates.
+- [`film_conditioning/`](film_conditioning/README.md): FiLM conditioning, update geometry, temporal credit, and retention.
+- [`residual_experts/`](residual_experts/README.md): preference-gated residual expert architecture.
+- [`hypernetwork/`](hypernetwork/README.md): preference-conditioned hypernetwork architecture.
+- [`private_residual/`](private_residual/README.md): private residual/subspace architecture.
+- [`policy_family/`](policy_family/README.md): generated policy-family parameterization.
+- [`semantic_diagnostics/`](semantic_diagnostics/README.md): downstream critic, causal-semantic, gradient, and stochastic-objective diagnostics.
 
 Legacy IDs V2A/V2B/V2C/V2H/V2K/V2PF remain in stage names and run artifacts only.

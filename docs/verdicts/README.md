@@ -25,14 +25,14 @@ Verdicts summarize what the evidence supports, what failed, what remains confoun
 
 ## Subfolders
 
-- authority/ — 39 documents
-- diagnostics/ — 15 documents
-- evaluation/ — 0 documents
-- general/ — 3 documents
-- objective_set/ — 7 documents
-- preference_architectures/ — 35 documents
-- preference_control/ — 3 documents
-- transfer/ — 19 documents
+- [authority/](authority/README.md) — 39 documents
+- [diagnostics/](diagnostics/README.md) — 15 documents
+- [evaluation/](evaluation/README.md) — 0 documents
+- [general/](general/README.md) — 3 documents
+- [objective_set/](objective_set/README.md) — 7 documents
+- [preference_architectures/](preference_architectures/README.md) — 35 documents
+- [preference_control/](preference_control/README.md) — 3 documents
+- [transfer/](transfer/README.md) — 19 documents
 
 ## Maintenance
 

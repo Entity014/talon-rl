@@ -9,6 +9,6 @@
 
 Reusable policy/critic foundations.
 
-- `symmetric_foundation/`: symmetric shared-foundation training.
-- `critic_foundation/`: critic repair, mapping, semantic support, and frozen-head refresh.
-- `policy_family_audits/`: post-foundation policy-family/interpolation feasibility audits.
+- [`symmetric_foundation/`](symmetric_foundation/README.md): symmetric shared-foundation training.
+- [`critic_foundation/`](critic_foundation/README.md): critic repair, mapping, semantic support, and frozen-head refresh.
+- [`policy_family_audits/`](policy_family_audits/README.md): post-foundation policy-family/interpolation feasibility audits.

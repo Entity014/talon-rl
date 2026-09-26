@@ -25,14 +25,14 @@ Contracts should describe what must be measured before results are known. They s
 
 ## Subfolders
 
-- authority/ — 22 documents
-- diagnostics/ — 12 documents
-- evaluation/ — 0 documents
-- general/ — 1 documents
-- objective_set/ — 7 documents
-- preference_architectures/ — 8 documents
-- preference_control/ — 3 documents
-- transfer/ — 15 documents
+- [authority/](authority/README.md) — 22 documents
+- [diagnostics/](diagnostics/README.md) — 12 documents
+- [evaluation/](evaluation/README.md) — 0 documents
+- [general/](general/README.md) — 1 documents
+- [objective_set/](objective_set/README.md) — 7 documents
+- [preference_architectures/](preference_architectures/README.md) — 8 documents
+- [preference_control/](preference_control/README.md) — 3 documents
+- [transfer/](transfer/README.md) — 15 documents
 
 ## Maintenance
 

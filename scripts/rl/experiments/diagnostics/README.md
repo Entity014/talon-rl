@@ -9,8 +9,8 @@
 
 Cross-cutting analysis workflows.
 
-- `cross_cutting/`: retained multi-topic diagnostics.
-- `relational_objectives/`: relational objective design and held-out persistence.
-- `semantic_robustness/`: semantic-gate factorization and robustness.
-- `trajectory_information/`: trajectory-level objective sufficiency/information.
-- `update_effects/`: update-effect, visitation, and related causal audits.
+- [`cross_cutting/`](cross_cutting/README.md): retained multi-topic diagnostics.
+- [`relational_objectives/`](relational_objectives/README.md): relational objective design and held-out persistence.
+- [`semantic_robustness/`](semantic_robustness/README.md): semantic-gate factorization and robustness.
+- [`trajectory_information/`](trajectory_information/README.md): trajectory-level objective sufficiency/information.
+- [`update_effects/`](update_effects/README.md): update-effect, visitation, and related causal audits.

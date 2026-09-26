@@ -26,10 +26,10 @@ These documents explain how the research substrate evolved from scalar locomotio
 
 ## Subfolders
 
-- multiobjective_bridge/ — 7 documents
-- reference_policy/ — 3 documents
-- scalar_substrate/ — 4 documents
-- stability_robustness/ — 7 documents
+- [multiobjective_bridge/](multiobjective_bridge/README.md) — 7 documents
+- [reference_policy/](reference_policy/README.md) — 3 documents
+- [scalar_substrate/](scalar_substrate/README.md) — 4 documents
+- [stability_robustness/](stability_robustness/README.md) — 7 documents
 
 ## Maintenance
 

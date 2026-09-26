@@ -16,7 +16,7 @@ framework-specific assumptions out of policy and objective abstractions.
 
 | Folder | Role | Status |
 | --- | --- | --- |
-| `rsl_rl/` | rsl_rl compatibility wrappers and integration helpers | Transitional |
+| [`rsl_rl/`](rsl_rl/README.md) | rsl_rl compatibility wrappers and integration helpers | Transitional |
 
 ## Rules
 

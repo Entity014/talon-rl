@@ -84,10 +84,28 @@ def nav_block(page):
     return ["<!-- nav:start -->", bar, "", " · ".join(crumbs), "<!-- nav:end -->"]
 
 
+# A subfolder named at the start of a bullet or table row: "- name/", "- `name/`"
+# or "| `name/` |". Already-linked entries start with "[" and never match.
+CHILD_RE = re.compile(r"^(- |\| )(`?)([\w.-]+)/\2(?=[\s:|]|$)", re.M)
+
+
+def link_children(page, text):
+    """Turn subfolder names in a page's lists into links to their READMEs."""
+    def link(m):
+        lead, tick, name = m.groups()
+        if not (page.parent / name / "README.md").exists():
+            return m.group(0)
+        return f"{lead}[{tick}{name}/{tick}]({name}/README.md)"
+    # Split on code fences so folder trees inside ``` blocks stay untouched.
+    parts = re.split(r"(```.*?```)", text, flags=re.S)
+    return "".join(p if p.startswith("```") else CHILD_RE.sub(link, p) for p in parts)
+
+
 def rewrite_nav(page):
-    """Replace the page's nav block in place; return True if the text changed."""
+    """Rewrite the page's nav block and link its subfolder list; True if changed."""
     text = page.read_text()
     new = NAV_RE.sub(lambda _: "\n".join(nav_block(page)), text, count=1)
+    new = link_children(page, new)
     if new != text:
         page.write_text(new)
     return new != text

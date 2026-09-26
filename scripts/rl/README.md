@@ -20,8 +20,8 @@ This folder is the executable RL front end for TALON. It owns training, playback
 
 ## Structure
 
-- `core/` — reusable training infrastructure; new generic RL code belongs here.
-- `experiments/` — research questions and one-off/controlled workflows; reusable discoveries should graduate out of here.
+- [`core/`](core/README.md) — reusable training infrastructure; new generic RL code belongs here.
+- [`experiments/`](experiments/README.md) — research questions and one-off/controlled workflows; reusable discoveries should graduate out of here.
 - `runs/` — run-oriented local outputs used by the experiment workflows.
 - `assets/` — RL-side asset generation helpers.
 - `_diagnostics_impl/` — implementation modules behind the diagnostic entry points.

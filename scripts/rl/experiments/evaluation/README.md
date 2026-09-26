@@ -9,4 +9,4 @@
 
 Final evaluation workflows.
 
-- `locomotion/`: final locomotion scoring and shard orchestration.
+- [`locomotion/`](locomotion/README.md): final locomotion scoring and shard orchestration.

@@ -23,10 +23,10 @@ Contains architecture amendments, transfer/deployment explanations, MDP document
 
 ## Subfolders
 
-- architecture/ — 1 documents
-- general/ — 5 documents
-- retention/ — 0 documents
-- transfer/ — 0 documents
+- [architecture/](architecture/README.md) — 1 documents
+- [general/](general/README.md) — 5 documents
+- [retention/](retention/README.md) — 0 documents
+- [transfer/](transfer/README.md) — 0 documents
 
 ## Maintenance
 

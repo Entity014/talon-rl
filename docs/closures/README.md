@@ -24,9 +24,9 @@ Closures consolidate several verdicts into a branch-level decision so later work
 
 ## Subfolders
 
-- method_selection/ — 2 documents
-- phase_closures/ — 3 documents
-- synthesis/ — 1 documents
+- [method_selection/](method_selection/README.md) — 2 documents
+- [phase_closures/](phase_closures/README.md) — 3 documents
+- [synthesis/](synthesis/README.md) — 1 documents
 
 ## Maintenance
 

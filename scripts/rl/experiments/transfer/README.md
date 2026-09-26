@@ -9,7 +9,7 @@
 
 Deployment and simulator-transfer research.
 
-- `deployment_contract/`: deployment authority, runtime parity, interface mapping, and semantic transfer.
-- `plant_alignment/`: Isaac/MuJoCo plant characterization, actuator matching, and passive dynamics.
-- `controller_robustness/`: actor sensitivity, closed-loop gain, and trajectory divergence.
-- `ensemble_robustness/`: plant-ensemble definition, validation, training, source-domain evaluation, and verdicts.
+- [`deployment_contract/`](deployment_contract/README.md): deployment authority, runtime parity, interface mapping, and semantic transfer.
+- [`plant_alignment/`](plant_alignment/README.md): Isaac/MuJoCo plant characterization, actuator matching, and passive dynamics.
+- [`controller_robustness/`](controller_robustness/README.md): actor sensitivity, closed-loop gain, and trajectory divergence.
+- [`ensemble_robustness/`](ensemble_robustness/README.md): plant-ensemble definition, validation, training, source-domain evaluation, and verdicts.

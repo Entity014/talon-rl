@@ -36,14 +36,14 @@ contract
 
 ## Document counts
 
-- `contracts/` — 68 documents
-- `verdicts/` — 121 documents
-- `baselines/` — 21 documents
-- `closures/` — 6 documents
-- `methods/` — 6 documents
-- `protocols/` — 3 documents
-- `thesis/` — 7 documents
-- `superpowers/` — 12 historical planning/spec documents
+- [`contracts/`](contracts/README.md) — 68 documents
+- [`verdicts/`](verdicts/README.md) — 121 documents
+- [`baselines/`](baselines/README.md) — 21 documents
+- [`closures/`](closures/README.md) — 6 documents
+- [`methods/`](methods/README.md) — 6 documents
+- [`protocols/`](protocols/README.md) — 3 documents
+- [`thesis/`](thesis/README.md) — 7 documents
+- [`superpowers/`](superpowers/README.md) — 12 historical planning/spec documents
 
 ## Current architecture
 
