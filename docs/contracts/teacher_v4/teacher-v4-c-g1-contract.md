@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C G1 Cardinality-Generalization Contract
 
-Status: **DRAFT — to be frozen before any V4-C evaluation is run** (training started 2026-09-27 under the frozen training contracts; no evaluation has been run)
+Status: **PREDECLARED — FROZEN 2026-09-27, before any V4-C training run finished and before any evaluation**
 Date: 2026-09-27
 
 ## Question
@@ -34,8 +34,8 @@ there, so held-out cardinality was never cleanly tested).
 | budget | 8 × 32 × 30 updates | 4096 × 24 × 300 iterations | from-scratch regime = M0 |
 | set sampling | one cardinality and subset per update, all lanes | per env, redrawn when its episode ends | persistent rollouts |
 | edge retention | yes, vs G0 | none | no reference to retain |
-| authority gate reference | same fold's G0 init | V3 G0 model (Phase-1 authority level) | V4 has no G0; random-init authority (≈7e-4) is not a meaningful reference |
-| probe e_t | none | normalizer mean (normalized zeros), nominal plant | TeacherV4 needs e_t |
+| authority gate reference | same fold's G0 init | V3 G0 model (Phase-1 authority level), same probes and sets | V4 has no G0; random-init authority (≈7e-4) is no functional standard; the seed-matched V3 G1 u30 belongs to a branch whose seen-support semantics failed |
+| probe e_t | none | one fixed physical nominal stock plant for every state and model (see below) | TeacherV4 needs e_t; plant variation must not enter the authority metric |
 | training logs | per-update ids/weights/queried tokens | per-iteration aggregates | held-out exclusion is structural: the sampler draws only from `--cardinalities` (gate `test_objective_set_sampler_contract`) |
 
 ## Leakage
@@ -54,7 +54,7 @@ checkpoint.
 
 `scripts/rl/experiments/architectures/authority/teacher_v4/g1_evaluate.py`,
 a port of `objective_set_g1_evaluate.py` with only the model API, the env id,
-and the authority reference changed. Everything else is identical: 8 envs ×
+the authority reference and the probe plant context changed. Everything else is identical: 8 envs ×
 64 steps × 4 suites, suite seeds, all m = 2, 3, 4 sets, endpoint / center /
 continuum / interior / critic / survival criteria and thresholds, fixed
 probe states, permutation tolerance 1e-6, authority threshold 0.75.
@@ -70,7 +70,26 @@ Per fold/seed:
 5. **Cross-seed:** reported as k/3 per fold. G1 is supported only if both
    folds pass on the three-seed characterization, as in V3 G1.
 
-## Open before freezing
+## Authority gate
 
-- Authority reference: V3 G0 model (proposed above), versus the same fold
-  and seed's V3 G1 u30 model, versus an absolute threshold.
+Primary (gated), per evaluated set and per metric, exactly as V3 G1:
+
+    pairwise authority(V4, iteration 300) >= 0.75 × pairwise authority(V3 G0)
+    tangent Jacobian authority(V4, iteration 300) >= 0.75 × tangent authority(V3 G0)
+
+Reference `runs/objective_set_g0_structural_parity-2026-09-25/objective_set_g0_init.pt`,
+probe states `runs/update_functional_effect_audit-2026-09-24/fixed_probe_states.npz`,
+the same active sets and preferences for both models.
+
+Plant context for V4 on the probes: the **physical nominal stock plant**,
+not normalized zeros. Normalized zeros would be the training mean of e_t,
+which includes the +1 kg mean of stock `add_base_mass` (−1…+3 kg). The
+evaluator takes the live e_t (in V4-C every channel but trunk mass is
+constant, which it asserts), sets trunk mass to the asset's
+pre-randomization mass (`robot.data.default_mass`), and passes it through
+the checkpoint's frozen e_t normalizer. The raw and normalized vectors are
+written to the report. V3 G0 has no e_t and sees the same probe states.
+
+Descriptive only, never gated: V4's authority at initialization (rebuilt
+from the training seed exactly as `train_v4c.py` builds it) and the growth
+ratio iteration 300 / init.

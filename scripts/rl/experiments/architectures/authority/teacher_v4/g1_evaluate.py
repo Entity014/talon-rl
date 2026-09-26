@@ -8,7 +8,10 @@ Changed, as declared in docs/contracts/teacher_v4/teacher-v4-c-g1-contract.md:
 the model API (e_t from the env, normalized with the checkpoint's own
 normalizer), and the authority reference (V4 has no G0 init, so the
 reference is the V3 G0 model, i.e. the Phase-1 authority level, on the same
-probes and sets; probe e_t is the normalizer mean, i.e. normalized zeros).
+probes and sets; probe e_t is the physical nominal stock plant, i.e. the
+live constant channels with the trunk at its pre-randomization mass, passed
+through the checkpoint's frozen normalizer). The authority of the V4 init
+(rebuilt from the training seed) is reported, never gated.
 """
 from __future__ import annotations
 
@@ -131,15 +134,16 @@ class G1Evaluate(IsaacAudit):
                 "critic": {"ev": [ev(H0[:, :, j], V[:32, :, j]) for j in range(m)] + [ev(H1[:, :, j], V[32:, :, j]) for j in range(m)],
                            "bias": [float(np.mean(V[:32, :, j] - H0[:, :, j])) for j in range(m)] + [float(np.mean(V[32:, :, j] - H1[:, :, j])) for j in range(m)]}}
 
-    def authority(self, ids):
+    def authority(self, ids, model=None):
         from talon_rl.models.authority.objective_set import canonical_tokens
         from torch.func import jacrev, vmap
+        model = model or self.model
         probe, e0 = self.probe, self.probe_e
         dev = probe.device; m = len(ids); P = len(probe)
         base = canonical_tokens(device=dev)[torch.tensor(ids, device=dev)]
         ids_t = torch.tensor(ids, device=dev).repeat(P, 1)
         prefs = [center_w(m)] + [heavy_w(m, h) for h in range(m)]
-        v4 = lambda o, w: self.model.act_inference(o, e0[:o.shape[0]], ids_t[:o.shape[0]], w)  # noqa: E731
+        v4 = lambda o, w: model.act_inference(o, e0[:o.shape[0]], ids_t[:o.shape[0]], w)  # noqa: E731
         g0 = lambda o, w: self.g0.act_inference_from_set(o, base.unsqueeze(0).repeat(o.shape[0], 1, 1), w)  # noqa: E731
 
         def pair(f):
@@ -208,6 +212,9 @@ class G1Evaluate(IsaacAudit):
         for x in rows: cev += x["critic"]["ev"]; cb += x["critic"]["bias"]; surv.append(x["survival"])
         critic = {"ev_mean": float(np.mean(cev)), "negative_fraction": float(np.mean(np.asarray(cev) < 0)), "mean_abs_bias": float(np.mean(np.abs(cb)))}
         auth = self.authority(ids); perm = self.permutation_drift(ids)
+        init = self.authority(ids, self.init_model)
+        auth["init_pairwise"], auth["init_tangent"] = init["pairwise"], init["tangent"]  # descriptive only
+        auth["pairwise_growth_from_init"] = auth["pairwise"] / (init["pairwise"] + 1e-12)
         rng = np.random.default_rng(20260925 + set_index); interiors = []
         for k in range(3):
             wv = rng.dirichlet(np.ones(m)).astype(np.float32)
@@ -239,7 +246,21 @@ class G1Evaluate(IsaacAudit):
         self.g0 = ObjectiveSetAuthorityIsolatedWideCritic(48, ad).cuda()
         self.g0.load_state_dict(torch.load(G0, map_location="cuda", weights_only=False)["model"]); self.g0.eval()
         self.probe = torch.tensor(np.load(PROBE)["obs"], device="cuda", dtype=torch.float32)
-        self.probe_e = torch.zeros(len(self.probe), 12, device="cuda")  # normalizer mean = nominal plant
+        # Physical nominal stock plant, not normalized zeros (= the training mean,
+        # which includes the +1 kg mean of add_base_mass). In V4-C every e_t
+        # channel but trunk mass is constant; take env 0 and reset the mass.
+        robot = env.unwrapped.scene["robot"]
+        e_live = obs["privileged"]
+        others = [i for i in range(12) if i != 8]
+        if float(e_live[:, others].std(0).max()) > 1e-6:
+            raise RuntimeError("an e_t channel other than trunk mass varies; nominal plant is not defined this way")
+        e_raw = e_live[0].clone()
+        e_raw[8] = robot.data.default_mass[0, robot.find_bodies("trunk")[0][0]].to(e_raw.device)
+        self.e_ref_raw = e_raw.tolist()
+        e_ref = torch.as_tensor(self.norm.transform(e_raw.cpu().numpy()[None]), dtype=torch.float32, device="cuda")
+        self.probe_e = e_ref.repeat(len(self.probe), 1)
+        torch.manual_seed(self.train_seed)  # train_v4c.py builds TeacherV4 right after this call
+        self.init_model = TeacherV4().cuda().eval()
         sets = []; si = 0
         for m in (2, 3, 4):
             role = "heldout" if m == FOLDS[self.fold]["holdout"] else ("seen" if m in FOLDS[self.fold]["seen"] else "other")
@@ -250,6 +271,7 @@ class G1Evaluate(IsaacAudit):
         anchor_pass = anchor["criteria"]["required_semantics"] and anchor["criteria"]["critic_valid"] and anchor["criteria"]["endpoint_survival"]
         rep = {"schema": "teacher_v4_c_g1_evaluation_v1", "fold": self.fold, "seed": self.train_seed,
                "checkpoint": str(self.ck.relative_to(REPO)), "checkpoint_sha256": self.sha(self.ck), "authority_reference": str(G0.relative_to(REPO)),
+               "probe_e_t_raw": self.e_ref_raw, "probe_e_t_normalized": self.probe_e[0].tolist(),
                "sets": sets, "summary": {"heldout_set_count": len(held), "heldout_pass_count": sum(x["pass"] for x in held),
                                          "seen_pass_count": sum(x["pass"] for x in seen), "seen_set_count": len(seen),
                                          "heldout_cardinality_pass": held_pass, "full_set_anchor_pass": bool(anchor_pass),
