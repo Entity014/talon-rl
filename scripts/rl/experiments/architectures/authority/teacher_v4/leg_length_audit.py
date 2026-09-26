@@ -50,6 +50,7 @@ class LegLengthAudit(IsaacAudit):
     run = "teacher_v4_b1_leg_length_audit-2026-09-26"
     report = "report.json"
     num_envs = 64
+    require_diversity = False
 
     def build_env(self):
         import gymnasium as gym
@@ -112,8 +113,28 @@ class LegLengthAudit(IsaacAudit):
             "FR_calf_to_foot_m": dict(Counter(round(r["FR_calf_to_foot_m"], 4) for r in rows if r["FR_calf_to_foot_m"] is not None)),
         }
         out["summary"]["referenced_variant_files"] = {str(k): v for k, v in out["summary"]["referenced_variant_files"].items()}
+
+        def file_scale(r):
+            files = [x for x in r["referenced_layers"] if "leg_scale" in x]
+            return float(files[0].removeprefix("unitree_a1_leg_scale_").removesuffix(".usd")) if len(files) == 1 else None
+
+        # Regression gate: e_t must report the variant PhysX actually simulates, per env.
+        checks = {
+            "one_variant_file_per_env": all(file_scale(r) is not None for r in rows),
+            "reported_matches_stage_legScale": all(r["legScale"] is not None and abs(r["reported_e_t_leg_length"] - r["legScale"]) < 1e-5 for r in rows),
+            "reported_matches_variant_file": all(file_scale(r) is not None and abs(r["reported_e_t_leg_length"] - file_scale(r)) < 1e-5 for r in rows),
+            "physx_thigh_length_matches_reported": all(abs(r["FR_thigh_to_calf_m"] - 0.2 * r["reported_e_t_leg_length"]) < 1e-3 for r in rows),
+        }
+        # Diversity needs replicate_physics=False; reported, gated only when asked.
+        out["unique_variants"] = len({round(r["reported_e_t_leg_length"], 4) for r in rows})
+        if self.require_diversity:
+            checks["more_than_one_variant"] = out["unique_variants"] > 1
+        out["checks"] = checks
+        out["pass"] = all(checks.values())
         self.write(out)
-        print(out["summary"], flush=True)
+        print(out["summary"], checks, "PASS" if out["pass"] else "FAIL", flush=True)
+        if not out["pass"]:
+            raise SystemExit(1)
         return out
 
 

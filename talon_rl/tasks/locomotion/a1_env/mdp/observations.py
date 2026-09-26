@@ -116,9 +116,17 @@ def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sce
         asset: Articulation = env.scene[asset_cfg.name]
         scales = []
         for i in range(env.num_envs):
-            prim = asset._root_physx_view.prim_paths[i]  # noqa: SLF001 — no public per-env prim accessor
-            attr = env.sim.stage.GetPrimAtPath(prim).GetAttribute("legScale")
-            scales.append(attr.Get() if attr.IsValid() else 1.0)
+            root = asset._root_physx_view.prim_paths[i]  # noqa: SLF001 — no public per-env prim accessor
+            # legScale sits on the variant's default prim (.../Robot), not on the
+            # articulation root (.../Robot/trunk), so walk up to it. Reading the root
+            # alone and falling back to 1.0 made e_t report 1.0 while PhysX simulated
+            # another variant (V4-B1 audit, 2026-09-26), so a miss must raise.
+            prim = env.sim.stage.GetPrimAtPath(root)
+            while prim.IsValid() and not prim.GetAttribute("legScale").IsValid():
+                prim = prim.GetParent()
+            if not prim.IsValid():
+                raise RuntimeError(f"no legScale attribute on {root} or any ancestor; is the robot spawned from a leg-scale variant USD?")
+            scales.append(float(prim.GetAttribute("legScale").Get()))
         env._leg_scale_cache = torch.tensor(scales, device=asset.device).unsqueeze(-1)
     return env._leg_scale_cache
 
