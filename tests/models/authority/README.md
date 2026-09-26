@@ -7,6 +7,7 @@ Objective-set and authority-oriented models.
 ## Test modules
 
 - `test_objective_set.py`
+- `test_teacher_v4.py`
 
 ## Rule
 

@@ -9,3 +9,4 @@
 
 - `isolated.py`: authority-isolated actor/critic family.
 - `objective_set.py`: objective-set-conditioned authority model.
+- `teacher_v4.py`: V4 privileged teacher (state trunk, env-factor encoder, DeepSets objective set, family residual actor, objective-query critic).
