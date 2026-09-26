@@ -115,3 +115,15 @@ def test_state_dict_round_trip_preserves_stats():
     assert np.allclose(restored.mean, rms.mean)
     assert np.allclose(restored.var, rms.var)
     assert restored.count == rms.count
+
+
+def test_constant_float32_channel_stays_exactly_constant_over_large_batches():
+    """float32 batch statistics drifted: 300 updates of 98,304 identical 0.8
+    values left mean 0.799936 and var 4e-9, so a constant channel normalized
+    to 0.536 instead of 0 (V4-C e_t friction, 2026-09-27)."""
+    rms = RunningMeanStd(dim=1)
+    x = np.full((98304, 1), 0.8, dtype=np.float32)
+    for _ in range(300):
+        rms.update(x)
+    assert rms.var[0] < 1e-20
+    assert rms.normalize(x[:1], center=True)[0, 0] == 0.0

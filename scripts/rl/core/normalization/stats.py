@@ -29,6 +29,10 @@ class RunningMeanStd:
 
     def update(self, x: np.ndarray) -> None:
         """x: (batch, dim)."""
+        # float64, not the caller's float32: numpy's float32 mean of 98,304
+        # identical 0.8 values is 0.79994, which gave constant e_t channels a
+        # fake variance and a normalized offset (found 2026-09-27, V4-C).
+        x = np.asarray(x, dtype=np.float64)
         batch_mean = x.mean(axis=0)
         batch_var = x.var(axis=0)
         batch_count = x.shape[0]
