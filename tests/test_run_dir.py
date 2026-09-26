@@ -4,7 +4,7 @@ import pytest
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg
 
-from rl.core.run_dir import checkpoint_run_dir, dump_config, make_run_dir, resolve_checkpoint
+from rl.core.experiment_io.run_dir import checkpoint_run_dir, dump_config, make_run_dir, resolve_checkpoint
 
 
 def test_make_run_dir_with_explicit_name(tmp_path):

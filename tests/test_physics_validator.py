@@ -3,7 +3,7 @@ import tempfile
 
 import numpy as np
 
-from rl.core.physics_validator import PhysicsValidator
+from rl.core.diagnostics.physics_validator import PhysicsValidator
 
 
 def test_survival_counts_falls_and_caps_at_steps_for_survivors():

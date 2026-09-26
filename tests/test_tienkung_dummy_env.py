@@ -1,6 +1,6 @@
 import numpy as np
 
-from talon_rl.envs.base_env import BaseTalonEnv
+from rl.core.envs.base import TalonEnv
 from talon_rl.tasks.manipulation.tienkung_env.config import ActionSpaceCfg, ObservationSpaceCfg
 from talon_rl.tasks.manipulation.tienkung_env.dummy_env import DummyTalonEnv
 
@@ -14,7 +14,7 @@ def _make_env(num_envs=4, horizon=5, seed=0):
 
 def test_satisfies_base_contract_and_shapes():
     env, obs_cfg, action_cfg = _make_env(num_envs=4)
-    assert isinstance(env, BaseTalonEnv)
+    assert isinstance(env, TalonEnv)
     assert env.num_envs == 4
     assert env.obs_dim == obs_cfg.total_dim - obs_cfg.preference_dim
     assert env.action_dim == action_cfg.dim

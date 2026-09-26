@@ -17,7 +17,7 @@ import torch
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
 from rl.core.algorithms.moppo import MOPPOConfig, MOPPOTrainer
-from rl.core.dummy_env import DummyTalonEnv
+from rl.core.envs.dummy import DummyTalonEnv
 
 
 def test_moppo_runs_a_few_updates_without_nans():
@@ -187,7 +187,7 @@ def test_d3po_update_produces_finite_losses():
 
 
 def test_reward_normalization_bounds_reward_magnitude():
-    """CLAUDE.md/docs/mdp.md document that smoothness sits around -300 while
+    """CLAUDE.md/docs/methods/general/mdp.md document that smoothness sits around -300 while
     progress sits around 0-1 in raw scale — running per-objective
     normalization must bring every stored reward within the normalizer's
     clip range regardless of that raw-scale gap."""
@@ -856,6 +856,26 @@ def test_push_obs_normalizes_before_pushing_onto_the_stack():
     pushed = trainer.stack.policy_obs
     assert not np.allclose(pushed, raw_obs.reshape(pushed.shape))
     assert np.all(np.abs(pushed) <= 10.0 + 1e-4)  # RunningMeanStd's default clip
+
+
+def test_push_obs_can_freeze_normalizer_for_evaluation():
+    """Final evaluation must use the checkpoint's observation statistics;
+    inference samples must not mutate them while commands/preferences change."""
+    obs_cfg = ObservationSpaceCfg()
+    env = DummyTalonEnv(obs_cfg, ActionSpaceCfg(), num_envs=4, horizon=40, seed=0)
+    trainer = MOPPOTrainer(
+        env, obs_cfg, RewardVectorCfg(), PreferenceCfg(), moppo_cfg=MOPPOConfig(), seed=0
+    )
+    before = trainer.obs_norm.state_dict()
+    raw_obs = np.full((4, env.obs_dim), 1000.0, dtype=np.float32)
+
+    trainer.push_obs(
+        raw_obs, done_mask=np.zeros(4, dtype=bool), update_normalizer=False
+    )
+
+    after = trainer.obs_norm.state_dict()
+    for key in before:
+        assert np.array_equal(before[key], after[key])
 
 
 def test_obs_norm_state_round_trips_through_checkpoint():

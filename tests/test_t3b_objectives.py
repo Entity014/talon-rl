@@ -1,5 +1,5 @@
 import numpy as np
-from talon_rl.t3b_objectives import (
+from talon_rl.rewards.objectives import (
     OBJECTIVE_ORDER,NORMALIZATION_DIVISORS,raw_objective_vector,
     normalize_objectives,normalized_objective_vector,scalarize,
     REGULARIZER_TERMS,CONSTRAINT_TERMS,

@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from rl.core.analyzer import Analyzer
+from rl.core.diagnostics.analyzer import Analyzer
 
 
 def test_record_collects_requested_items_only():

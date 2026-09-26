@@ -1,5 +1,5 @@
 import torch
-from talon_rl.t4_actor_critic import T4SharedActorCritic,vector_gae,scalarized_late_weighted_ppo,vector_value_loss
+from talon_rl.models.foundations.four_objective import T4SharedActorCritic,vector_gae,scalarized_late_weighted_ppo,vector_value_loss
 
 def test_shapes_and_simplex():
     m=T4SharedActorCritic(48,12)

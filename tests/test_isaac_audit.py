@@ -10,8 +10,9 @@ import json
 
 import pytest
 
-from rl.core import isaac_audit, run_report
-from rl.core.isaac_audit import IsaacAudit, obs_tensor
+from rl.core.diagnostics import isaac_audit
+from rl.core.experiment_io import run_report
+from rl.core.diagnostics.isaac_audit import IsaacAudit, obs_tensor
 
 
 class _Demo(IsaacAudit):

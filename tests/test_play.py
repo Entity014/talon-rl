@@ -3,7 +3,7 @@ import numpy as np
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, PreferenceCfg, RewardVectorCfg
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
-from rl.core.dummy_env import DummyTalonEnv
+from rl.core.envs.dummy import DummyTalonEnv
 
 
 def test_trainer_act_inference_is_deterministic_and_correctly_shaped():

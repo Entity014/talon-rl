@@ -1,8 +1,8 @@
 import torch
 
-from talon_rl.v1c_actor_critic import V1CSharedActorCritic
-from talon_rl.v2_behavior_actor_critic import V2BehaviorActorCritic, initialize_from_v1c
-from talon_rl.v2_r1_behavior_actor_critic import FILM_AUTHORITY_R1, V2R1BehaviorActorCritic
+from talon_rl.models.foundations.three_objective import V1CSharedActorCritic
+from talon_rl.models.behavior.latent import V2BehaviorActorCritic, initialize_from_v1c
+from talon_rl.models.behavior.high_authority import FILM_AUTHORITY_R1, V2R1BehaviorActorCritic
 
 
 def _post_film(model, obs, w, alpha):

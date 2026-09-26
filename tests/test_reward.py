@@ -1,7 +1,7 @@
 import numpy as np
 
 from talon_rl.config import RewardVectorCfg
-from talon_rl.reward import (
+from talon_rl.rewards.locomotion import (
     balance_reward,
     clearance_reward,
     compute_reward_vector,
@@ -9,8 +9,39 @@ from talon_rl.reward import (
     energy_reward,
     impact_reward,
     progress_reward,
+    signed_engagement,
     smoothness_reward,
 )
+
+
+def test_signed_engagement_is_one_at_zero_command():
+    """Zero command has nothing to engage with -- a stationary lane isn't
+    disengaging from anything, so it must read fully engaged regardless of
+    v_x (used as balance_reward's alive-gate: standing still under a
+    genuine stop command must still get full survival credit)."""
+    v_actual_x = np.array([0.0, 5.0, -5.0])
+    e = signed_engagement(v_actual_x, np.zeros(3))
+    assert np.allclose(e, 1.0)
+
+
+def test_signed_engagement_zero_for_wrong_direction_or_standing_still():
+    e = signed_engagement(np.array([0.0, -0.3]), np.array([0.5, 0.5]))
+    assert np.allclose(e, 0.0)
+
+
+def test_signed_engagement_reaches_one_at_commanded_speed_and_clips_on_overshoot():
+    e = signed_engagement(np.array([0.5, 1.0]), np.array([0.5, 0.5]))
+    assert np.allclose(e, [1.0, 1.0])  # overshoot isn't extra credit
+
+
+def test_signed_engagement_sign_convention_for_reverse_command():
+    """A reverse command (c_x<0) must reward negative v_x, not positive --
+    a sign error here would make progress_reward reward driving forward
+    under a "go backward" command."""
+    e_correct_direction = signed_engagement(np.array([-0.25]), np.array([-0.5]))
+    e_wrong_direction = signed_engagement(np.array([0.25]), np.array([-0.5]))
+    assert e_correct_direction[0] > 0.0
+    assert e_wrong_direction[0] == 0.0
 
 
 def test_progress_reward_is_max_at_zero_error():
@@ -22,18 +53,43 @@ def test_progress_reward_is_max_at_zero_error():
     assert np.all(r_diff < 1.0)
 
 
-def test_progress_reward_gives_positive_bonus_for_a_proper_touchdown():
-    """Found 2026-09-18: every OTHER grouped sub-penalty this session taxes
-    bad behavior, but none give a POSITIVE incentive to actually take a
-    step -- a "stand still" policy pays every one of them their minimum.
-    feet_air_time_reward is different in kind: a foot airborne for close to
-    0.5s before landing (a proper stride, legged_gym/Rudin et al. 2022)
-    should beat a policy with the same tracking error but no such bonus."""
+def test_progress_reward_gates_wrong_direction_to_near_zero():
+    """R1 (2026-09-20, artifacts/r1_freeze/FREEZE.md): the whole tracking
+    term is gated by signed_engagement, not just the exp-kernel error --
+    moving opposite the command must score at the engagement floor (0),
+    not whatever the exp-kernel's coincidental error happens to compute."""
+    v_command = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
+    v_wrong_direction = np.tile(np.array([-0.5, 0.0, 0.0]), (2, 1))
+    reward = progress_reward(v_wrong_direction, v_command, std=0.5)
+    assert np.allclose(reward, 0.0)
+
+
+def test_progress_reward_hip_activation_is_gated_by_engagement():
+    """Moved here from balance_reward (R1 freeze) -- must reward the
+    SMALLER side's own activity (not a symmetry comparison), same as
+    before, but now pay zero while the lane isn't engaging the command
+    (standing still or moving the wrong way), matching R1's "no gait-
+    support credit without actual locomotion" design."""
+    v_command = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
+    v_engaged = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
+    v_disengaged = np.zeros((2, 3))
+    hip_L = np.array([5.0, 5.0])
+    hip_R = np.array([0.01, 0.01])
+
+    engaged = progress_reward(v_engaged, v_command, std=0.5, hip_qdot_L=hip_L, hip_qdot_R=hip_R, hip_activation_coef=0.02)
+    disengaged = progress_reward(v_disengaged, v_command, std=0.5, hip_qdot_L=hip_L, hip_qdot_R=hip_R, hip_activation_coef=0.02)
+    no_hip_term = progress_reward(v_engaged, v_command, std=0.5)
+
+    assert np.allclose(engaged, no_hip_term + 0.02 * 0.01)  # bonus tracks the SMALLER side (R)
+    assert np.allclose(disengaged, 0.0)  # standing still: no hip bonus despite hip motion
+
+
+def test_progress_reward_directed_progress_is_added_and_scaled_by_coef():
     v = np.tile(np.array([0.5, 0.0, 0.0]), (2, 1))
-    r_no_bonus = progress_reward(v, v, std=0.5)
-    r_with_bonus = progress_reward(v, v, std=0.5, foot_air_time_reward=np.array([2.0, 0.0]))
-    assert r_with_bonus[0] > r_no_bonus[0]  # proper stride: bonus applied
-    assert r_with_bonus[1] == r_no_bonus[1]  # no touchdown event this step: unchanged
+    directed = np.array([1.0, 0.4])
+    no_directed = progress_reward(v, v, std=0.5)
+    with_directed = progress_reward(v, v, std=0.5, directed_progress=directed, directed_coef=1.0)
+    assert np.allclose(with_directed, no_directed + directed)
 
 
 def test_progress_reward_zeroes_out_on_terminal_fall_step():
@@ -228,25 +284,6 @@ def test_balance_reward_penalizes_vertical_bounce():
     assert np.all(r_bouncing < 0.0)
 
 
-def test_balance_reward_hip_activation_rewards_the_smaller_side():
-    """hip_activation_coef must reward min(|hip_qdot_L|, |hip_qdot_R|) --
-    the SMALLER side's own activity, not a symmetry comparison between
-    them. A frozen-R/active-L lane (the exact pattern gait_joint_trace.py
-    diagnosed 2026-09-20) must score near-zero bonus regardless of how
-    large L's own activity is, since the reward exists to stop a hip
-    collapsing to near-zero, not to reward total motion."""
-    flat = np.zeros((2, 2))
-    frozen_R = balance_reward(
-        flat, hip_qdot_L=np.array([5.0, 5.0]), hip_qdot_R=np.array([0.01, 0.01]), hip_activation_coef=0.02,
-    )
-    both_active = balance_reward(
-        flat, hip_qdot_L=np.array([5.0, 5.0]), hip_qdot_R=np.array([5.0, 5.0]), hip_activation_coef=0.02,
-    )
-    assert np.allclose(frozen_R, 0.02 * 0.01, atol=1e-6)  # bonus tracks the SMALLER side (R), not L
-    assert np.allclose(both_active, 0.02 * 5.0)
-    assert np.all(both_active > frozen_R)
-
-
 def test_balance_reward_hip_sym_penalizes_deviation_from_mirror_symmetry():
     """UNITREE_A1_CFG's own default standing pose (FL_hip=+0.1, FR_hip=
     -0.1) means hip_q_L = -hip_q_R at the symmetric stance -- hip_sym_coef
@@ -290,6 +327,57 @@ def test_alive_bonus_adds_flat_reward_only_while_not_fallen():
 
     assert reward[1] == 0.3  # still alive this step: +alive_bonus, no penalty
     assert reward[0] == 0.3 - 5.0  # fell this step: alive_bonus still added, then fall_penalty subtracted
+
+
+def test_alive_bonus_gated_by_engagement_under_nonzero_command():
+    """R1 (2026-09-20, artifacts/r1_freeze/FREEZE.md): Final Locomotion
+    Evaluation v1 found a checkpoint surviving nearly every episode while
+    barely locomoting -- the unconditional alive_bonus was paying full
+    survival credit for standing still under a real command. A lane
+    standing still under a nonzero command must lose (most of) its
+    alive_bonus; a lane standing still under a ZERO command must not."""
+    roll_pitch = np.zeros((2, 2))
+    v_command = np.array([[0.5, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    v_standing_still = np.zeros((2, 3))
+
+    reward = balance_reward(roll_pitch, alive_bonus=1.0, v_actual=v_standing_still, v_command=v_command)
+
+    assert reward[0] == 0.0    # nonzero command, not engaged: alive_bonus fully gated off
+    assert reward[1] == 1.0    # zero command, standing still is correct: full alive_bonus
+
+
+def test_alive_bonus_ungated_when_no_command_context_given():
+    """Backward-compat default (DummyTalonEnv, callers without command
+    context): omitting v_actual/v_command must reproduce the pre-R1
+    unconditional alive_bonus, not silently zero it out."""
+    roll_pitch = np.zeros((2, 2))
+    reward = balance_reward(roll_pitch, alive_bonus=1.0)
+    assert np.allclose(reward, 1.0)
+
+
+def test_compute_reward_vector_propagates_directed_progress_into_progress_term():
+    """Integration check (R1, 2026-09-20): a1_env.py's directed_progress
+    transition key must actually reach progress_reward through
+    compute_reward_vector's dispatch table, not get silently dropped (e.g.
+    a stale t.get(...) key name mismatch would pass None forever and no
+    test would catch it without this)."""
+    cfg = RewardVectorCfg(active=(True, False, False, False))
+    n = 2
+    v = np.tile(np.array([0.5, 0.0, 0.0]), (n, 1))
+    transition_without = {
+        "obs": np.zeros((n, 1)), "v_actual": v, "v_command": v,
+        "obstacle_dist": np.ones(n), "joint_torque": np.ones((n, 12)), "joint_vel": np.ones((n, 12)),
+        "foot_contact_force": np.zeros((n, 4)), "action": np.zeros((n, 12)), "prev_action": np.zeros((n, 12)),
+        "joint_acc": np.zeros((n, 12)), "roll_pitch": np.zeros((n, 2)),
+    }
+    transition_with = dict(transition_without, directed_progress=np.array([0.8, 0.3], dtype=np.float32))
+
+    r_without = compute_reward_vector(transition_without, cfg)
+    r_with = compute_reward_vector(transition_with, cfg)
+
+    assert not np.allclose(r_with[:, 0], r_without[:, 0])  # must actually change the progress term
+    assert np.allclose(r_with[:, 0] - r_without[:, 0], [0.8, 0.3], atol=1e-6)  # coef 1.0 default: additive as-is
+    assert r_with.dtype == np.float32
 
 
 def test_compute_reward_vector_respects_active_mask_and_order():

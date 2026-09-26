@@ -1,5 +1,5 @@
 """mdp.terrain_levels_vel's promotion-dwell requirement (added 2026-09-18)
-lives in talon_rl.curriculum_streak as pure tensor math specifically so it
+lives in talon_rl.curricula.streak as pure tensor math specifically so it
 can be tested without importing the a1_env package, which requires a live
 Isaac Sim `carb` context just to import (see
 talon_rl/tasks/locomotion/a1_env/__init__.py) -- test_a1_env.py is the
@@ -8,7 +8,7 @@ GPU/Isaac-Sim-gated integration test, this is the logic-only unit test.
 
 import torch
 
-from talon_rl.curriculum_streak import apply_promote_streak
+from talon_rl.curricula.streak import apply_promote_streak
 
 REQUIRED = 3
 

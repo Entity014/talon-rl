@@ -11,7 +11,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _runs_under_tmp(tmp_path, monkeypatch):
-    from rl.core import run_report
+    from rl.core.experiment_io import run_report
 
     monkeypatch.setattr(run_report, "RUNS", tmp_path / "runs")
     monkeypatch.setattr(run_report, "ARTIFACTS", tmp_path / "artifacts")

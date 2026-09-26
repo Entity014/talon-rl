@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from rl.core.losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
+from rl.core.objectives.losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
 
 
 def test_normalize_per_objective_gives_zero_mean_unit_std_per_column():

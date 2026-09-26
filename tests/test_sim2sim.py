@@ -7,7 +7,7 @@ import torch
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, RewardVectorCfg
 
 from rl.core.modules import ActorCritic
-from rl.core.sim2sim import (
+from rl.core.runtime.sim2sim import (
     ISAAC_TO_MUJOCO_PERM,
     MUJOCO_TO_ISAAC_PERM,
     _ISAAC_LAB_JOINT_ORDER,
@@ -18,7 +18,7 @@ from rl.core.sim2sim import (
     quat_to_roll_pitch,
     rollout,
 )
-from rl.core.wrapper import export_policy_as_jit
+from rl.core.runtime.exporter import export_policy_as_jit
 
 A1_SCENE_XML = "talon_rl/assets/data/Robots/unitree_a1/mujoco/scene.xml"
 

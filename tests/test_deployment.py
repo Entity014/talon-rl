@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from rl.core.deployment import PolicyRuntime, PolicyRuntimeConfig
+from rl.core.runtime.deployment import PolicyRuntime, PolicyRuntimeConfig
 
 
 class FixedPolicy(torch.nn.Module):

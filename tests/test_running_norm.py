@@ -1,6 +1,6 @@
 import numpy as np
 
-from rl.core.running_norm import RunningMeanStd
+from rl.core.normalization.stats import RunningMeanStd
 
 
 def test_single_batch_matches_numpy_mean_and_var():

@@ -2,8 +2,8 @@ import sys
 from pathlib import Path
 import torch
 ROOT=Path(__file__).resolve().parents[1];sys.path[:0]=[str(ROOT),str(ROOT/"scripts")]
-from talon_rl.v1c_actor_critic import V1CSharedActorCritic
-from talon_rl.v2_r2_projected_actor_critic import V2R2ProjectedActorCritic, initialize_from_v1c
+from talon_rl.models.foundations.three_objective import V1CSharedActorCritic
+from talon_rl.models.behavior.projected import V2R2ProjectedActorCritic, initialize_from_v1c
 
 def basis():
     q,_=torch.linalg.qr(torch.randn(128,2))

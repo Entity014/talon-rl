@@ -1,7 +1,7 @@
 import torch
 
 from rl.core.modules.actor_critic import ActorCritic
-from rl.core.wrapper.exporter import export_policy_as_jit
+from rl.core.runtime.exporter import export_policy_as_jit
 
 
 def test_act_inference_is_deterministic():

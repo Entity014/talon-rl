@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from rl.core.freeze import Freeze
+from rl.core.experiment_io.freeze import Freeze
 
 
 class _Demo(Freeze):
@@ -27,7 +27,7 @@ class _Demo(Freeze):
 
 @pytest.fixture
 def run_dir(tmp_path, monkeypatch):
-    import rl.core.run_report as mod
+    import rl.core.experiment_io.run_report as mod
     runs = tmp_path / "runs"
     (runs / "demo-run").mkdir(parents=True)
     (runs / "demo-run" / "input.json").write_text('{"n": 1}')

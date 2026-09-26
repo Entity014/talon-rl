@@ -16,8 +16,8 @@ pytest.importorskip("isaacsim")
 import numpy as np
 
 from talon_rl.config import ActionSpaceCfg, ObservationSpaceCfg, RewardVectorCfg
-from talon_rl.envs.base_env import BaseTalonEnv
-from talon_rl.reward import compute_reward_vector
+from rl.core.envs.base import TalonEnv
+from talon_rl.rewards.locomotion import compute_reward_vector
 
 
 def test_isaac_lab_env_implements_base_contract():
@@ -84,7 +84,7 @@ def test_isaac_lab_env_implements_base_contract():
 
         obs_cfg = ObservationSpaceCfg()
         action_cfg = ActionSpaceCfg()
-        assert isinstance(env, BaseTalonEnv)
+        assert isinstance(env, TalonEnv)
         assert env.num_envs == 4
         assert env.obs_dim == obs_cfg.total_dim - obs_cfg.preference_dim
         assert env.action_dim == action_cfg.dim
