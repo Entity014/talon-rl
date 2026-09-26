@@ -175,8 +175,10 @@ The preference and aliasing rows do not change because they do not depend
 on `e_t`. The plant authority changes slightly because the leg-length
 channel now varies.
 
-Test suite: 313 passed, 1 pre-existing failure
-(`test_alive_bonus_adds_flat_reward_only_while_not_fallen`).
+Test suite: 313 passed, 1 failure
+(`test_alive_bonus_adds_flat_reward_only_while_not_fallen`). The failure was
+an exact float32-vs-literal comparison in the test, not a reward bug. It was
+fixed in `c882db1` and the suite is now 314 passed, sim2sim 13 passed.
 
 ## Frozen `e_t` contract
 
@@ -187,8 +189,8 @@ centered `RunningNormalizer`. A missing `legScale` raises.
 
 ## Next
 
-1. V4-C0: freeze the rollout/batch contract (`num_steps_per_env` at 2048 envs)
-   after checking what the GAE and rollout code ties to `H`.
+1. V4-C0: freeze the rollout/batch contract. The audit is in
+   [teacher-v4-c0-rollout-batch-audit.md](teacher-v4-c0-rollout-batch-audit.md).
 2. Freeze the action contract (Talon 0.15 / clip 3.0 / Kp 55, Kd 0.8 versus
    canonical 0.25 / tanh ±1 / Kp 25, Kd 0.5).
 3. V4-C training comparison.
