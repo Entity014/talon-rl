@@ -14,9 +14,9 @@ import traceback
 
 import torch
 
-from rl.core.run_report import REPO, RUNS, RunReport
+from rl.core.run_report import ARTIFACTS, REPO, RUNS, RunReport
 
-__all__ = ["IsaacAudit", "obs_tensor", "REPO", "RUNS", "A1_USD", "TASK"]
+__all__ = ["IsaacAudit", "obs_tensor", "ARTIFACTS", "REPO", "RUNS", "A1_USD", "TASK"]
 
 A1_USD = REPO / "talon_rl/assets/data/Robots/unitree_a1/a1.usd"
 TASK = "Isaac-Velocity-Flat-Unitree-A1-v0"
