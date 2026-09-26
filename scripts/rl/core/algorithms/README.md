@@ -21,6 +21,7 @@ by algorithm responsibility rather than thesis experiment chronology.
 | `vector_ppo.py` | Vector/preference PPO primitives + function-preserving variants | Experimental |
 | `amor.py` | AMOR early-scalarization family + scale-aligned variant | Experimental |
 | `moppo.py` | Full preference-conditioned MOPPO trainer/config | Transitional; monolithic |
+| `objective_set_ppo.py` | V4 objective-set MORL loss in the M0 (rsl_rl) PPO shell: sampler, GAE, losses, adaptive KL, update | V4-C canonical |
 
 ## Dependency Rules
 
