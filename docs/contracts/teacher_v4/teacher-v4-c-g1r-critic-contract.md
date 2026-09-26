@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C G1-R Revised Critic-Validation Contract
 
-Status: **DRAFT — to be frozen before any G1-R evaluation runs**
+Status: **PREDECLARED — FROZEN 2026-09-27, before any G1-R evaluation; evaluator `g1r_critic_evaluate.py` at commit `23c4308`**
 Date: 2026-09-27
 
 ## Purpose
@@ -78,3 +78,11 @@ No threshold, horizon, checkpoint or set changes after results are seen.
   the run's G1-R result.
 - Script, output file names and this contract's commit hash are recorded in
   each output.
+
+## Wording fixed in advance
+
+Even if G1-R passes 6/6, the original result is not revised:
+
+    Original G1: FAIL under the preregistered H32 critic contract.
+    G1-R: follow-up result under a revised, critic-independent
+          long-horizon target.
