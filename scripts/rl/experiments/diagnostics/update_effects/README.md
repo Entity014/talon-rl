@@ -1,0 +1,18 @@
+# `diagnostics/update_effects`
+
+<!-- nav:start -->
+[Experiments](../../README.md) · [Diagnostics](../README.md)
+<!-- nav:end -->
+
+1 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+
+| file | lines | tags | description |
+|---|---:|---|---|
+| `workflow.py` | 588 | isaac | Consolidated experiment stages. Use the first CLI argument to select a former script stage. |
+
+## Run directories these touch
+
+- `runs/prospective_slope_validation-2026-09-24`
+- `runs/update_functional_effect_audit-2026-09-24`
+- `runs/update_visitation_interaction_audit-2026-09-24`
+- `runs/v2b_adam_continuous-2026-09-24`

@@ -1,11 +1,11 @@
-"""Write one README.md per experiment folder, from what the files declare.
+"""Generate README.md files for experiment leaf folders.
 
-The description of a script is its module docstring, so the file stays the
-single source of truth and the README cannot drift from it. Everything else —
-whether it needs Isaac Sim, whether it trains, which run directories it touches
-— is read from the source.
+Descriptions come from module docstrings so source files remain the single source
+of truth. The experiment tree may be nested by responsibility; every directory
+that directly contains experiment scripts receives its own README.
 """
 import ast
+import os
 import pathlib
 import re
 import sys
@@ -20,8 +20,6 @@ def facts(p):
         doc = ast.get_docstring(ast.parse(src))
     except SyntaxError:
         doc = None
-    # the first paragraph, not the first line: a one-sentence summary often
-    # wraps, and cutting it at the newline reads as a truncation
     summary = ""
     if doc:
         para = []
@@ -41,15 +39,46 @@ def facts(p):
     return summary, tags, runs, len(src.splitlines())
 
 
+def nav_block(folder):
+    """Build a local breadcrumb for an experiment README."""
+    parts = []
+    root = pathlib.Path("scripts/rl/experiments")
+    parts.append(
+        "[Experiments]("
+        + os.path.relpath(root / "README.md", start=folder)
+        + ")"
+    )
+
+    rel = folder.relative_to(root)
+    current = root
+    for name in rel.parts[:-1]:
+        current = current / name
+        readme = current / "README.md"
+        if readme.exists():
+            label = name.replace("_", " ").replace("-", " ").title()
+            parts.append(
+                f"[{label}]({os.path.relpath(readme, start=folder)})"
+            )
+
+    return ["<!-- nav:start -->", " · ".join(parts), "<!-- nav:end -->"]
+
+
 def folder_readme(folder):
     files = sorted(p for p in folder.glob("*.py") if p.name != "__init__.py")
     if not files:
         return None
-    lines = [f"# `{folder.name}`", "",
-             f"{len(files)} scripts. One line each, taken from the file's own docstring — "
-             "edit the docstring, not this file.", "",
-             "| file | lines | tags | description |",
-             "|---|---:|---|---|"]
+    rel = folder.relative_to(D)
+    lines = [
+        f"# `{rel}`",
+        "",
+        *nav_block(folder),
+        "",
+        f"{len(files)} scripts. One line each, taken from the file's own docstring — "
+        "edit the docstring, not this file.",
+        "",
+        "| file | lines | tags | description |",
+        "|---|---:|---|---|",
+    ]
     undocumented = []
     runs = set()
     for p in files:
@@ -57,24 +86,37 @@ def folder_readme(folder):
         runs |= set(r)
         if not summary:
             undocumented.append(p.name)
-        lines.append(f"| `{p.name}` | {n} | {' '.join(tags) or '—'} | "
-                     f"{summary or '**no docstring**'} |")
+        lines.append(
+            f"| `{p.name}` | {n} | {' '.join(tags) or '—'} | "
+            f"{summary or '**no docstring**'} |"
+        )
     if runs:
         lines += ["", "## Run directories these touch", ""]
         lines += [f"- `runs/{r}`" for r in sorted(runs)]
     if undocumented:
-        lines += ["", f"## Still undescribed ({len(undocumented)})", "",
-                  "These have no module docstring, so there is nothing to put in the table above.",
-                  ""]
+        lines += [
+            "",
+            f"## Still undescribed ({len(undocumented)})",
+            "",
+            "These have no module docstring, so there is nothing to put in the table above.",
+            "",
+        ]
         lines += [f"- `{n}`" for n in undocumented]
     return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":
     apply = "--apply" in sys.argv
-    only = [a for a in sys.argv[1:] if not a.startswith("-")]
-    for folder in sorted(x for x in D.iterdir() if x.is_dir() and x.name != "__pycache__"):
-        if only and folder.name not in only:
+    only = [a.strip("/") for a in sys.argv[1:] if not a.startswith("-")]
+    folders = sorted(
+        p for p in D.rglob("*")
+        if p.is_dir() and p.name != "__pycache__" and any(
+            x.suffix == ".py" and x.name != "__init__.py" for x in p.iterdir()
+        )
+    )
+    for folder in folders:
+        rel = str(folder.relative_to(D))
+        if only and rel not in only and folder.name not in only:
             continue
         text = folder_readme(folder)
         if text is None:
