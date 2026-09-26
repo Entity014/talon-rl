@@ -61,6 +61,16 @@ class AuthorityRetentionAudit(OfflineAudit):
         m.eval()
         return m
 
+    def load_wide(self, checkpoint):
+        """A wide-critic checkpoint, which some arms use in place of an actor-critic."""
+        from talon_rl.authority_isolated_wide_critic import AuthorityIsolatedWideCritic
+
+        m = AuthorityIsolatedWideCritic(OBS_DIM, ACT_DIM).cuda()
+        m.load_state_dict(torch.load(RUNS / checkpoint, map_location="cuda",
+                                     weights_only=False)["model"])
+        m.eval()
+        return m
+
     def load_policy(self, checkpoint):
         from talon_rl.authority_isolated_actor_critic import AuthorityIsolatedActorCritic
 

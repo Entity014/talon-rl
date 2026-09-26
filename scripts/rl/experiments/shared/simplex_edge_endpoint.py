@@ -43,15 +43,6 @@ class SimplexEdgeEndpointAudit(AuthorityRetentionAudit):
         m[self.wide[0]] = self.load_wide(self.wide[1])
         return m
 
-    def load_wide(self, checkpoint):
-        from talon_rl.authority_isolated_wide_critic import AuthorityIsolatedWideCritic
-
-        m = AuthorityIsolatedWideCritic(48, 12).cuda()
-        m.load_state_dict(torch.load(RUNS / checkpoint, map_location="cuda",
-                                     weights_only=False)["model"])
-        m.eval()
-        return m
-
     def analyze(self):
         phase = np.load(RUNS / SUPPORT)["phase"]
         x, sample = self.support()
