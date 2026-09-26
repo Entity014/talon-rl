@@ -90,3 +90,53 @@ rollouts with the bootstrapped target `segret + γ^(32−t) V(s_32)`.
    (a) the critic gate everywhere, whose validity for this training regime is
    in question, and (b) the A objective in 4/6 anchors.
 4. Held-out cardinality generalization is still not established.
+
+## Post-hoc C1-D0 — critic-target diagnostic (2026-09-27, does not change the verdict)
+
+Script `scripts/rl/experiments/architectures/authority/teacher_v4/critic_target_diagnostic.py`
+(commit `654e9af`), output `critic_target_diagnostic.json` in each run
+directory. It re-runs exactly the rollouts the critic gate uses (center and
+heavy endpoints × 4 suites per set, same seeds, deterministic policy); its
+truncated-target EV reproduces the stored `g1_evaluation.json` value on all
+66 sets. The bootstrapped target adds γ^(end−t)·V_q(s_end) for the same
+objective query under the same set, masked if the episode ended inside the
+segment.
+
+Gate-style statistic (EV mean > 0 and negative fraction ≤ 0.25):
+
+| target | sets passing |
+|---|---:|
+| registered, truncated 32-step | 0/66 |
+| bootstrapped segment | **56/66** (EV mean median 0.55, range −0.88…0.88) |
+
+Per objective, medians over 42 set × run entries (pooled EV over all samples):
+
+| objective | EV trunc → boot | bias trunc → boot | corr trunc → boot | min boot EV |
+|---|---|---|---|---:|
+| T | −9.97 → 0.985 | 0.703 → −0.007 | 0.65 → 0.992 | 0.91 |
+| A | −1.94 → 0.738 | −0.120 → −0.006 | 0.35 → 0.880 | 0.03 |
+| O | −0.24 → 0.685 | −0.088 → 0.009 | 0.51 → 0.838 | 0.26 |
+| S | −41.65 → 0.856 | −0.119 → −0.016 | 0.48 → 0.940 | −0.29 |
+
+The ten sets that still fail with the bootstrapped target all contain S or
+are {A,O}: {O,S} ×4, {A,S} ×2, {T,A,S} ×2, {A,O,S}, {A,O}. Four are seen
+sets, six held-out.
+
+Reading (pattern "A, with a conditional tail" in the terms set before the
+diagnostic): the registered truncated target is incompatible with V4's
+long-horizon bootstrapped critic, and that mismatch explains the 0/66. With a
+target of matching horizon the critic is valid on most sets and near-exact
+for T; the residual weakness sits in S-containing sets, so critic validity
+is not a blanket property.
+
+Caveat on the bootstrapped target: it contains the critic's own V(s_end),
+so near the segment end it partly scores the critic against itself and
+flatters EV. Independent confirmation needs a target whose tail weight is
+negligible, e.g. a long Monte Carlo return (γ^256 ≈ 0.08 at γ = 0.99). That
+belongs in the revised, preregistered critic contract, not in this
+diagnostic.
+
+The registered result stands: **V4-C failed the preregistered G1 contract.**
+What changes is the mechanism: the 0/66 critic failure is driven by an
+evaluation target incompatible with the long-horizon bootstrapped critic,
+not by broad critic collapse.
