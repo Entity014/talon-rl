@@ -11,3 +11,4 @@ Authority-focused architecture research.
 
 - [`isolated/`](isolated/README.md): authority-isolated actor/critic experiments.
 - [`objective_set/`](objective_set/README.md): objective-set authority and critic-isolation experiments.
+- [`teacher_v4/`](teacher_v4/README.md): V4 privileged teacher sanity audits.
