@@ -32,6 +32,7 @@ Contracts should describe what must be measured before results are known. They s
 - [objective_set/](objective_set/README.md) — 7 documents
 - [preference_architectures/](preference_architectures/README.md) — 8 documents
 - [preference_control/](preference_control/README.md) — 3 documents
+- [teacher_v4/](teacher_v4/README.md) — 1 document
 - [transfer/](transfer/README.md) — 15 documents
 
 ## Maintenance
