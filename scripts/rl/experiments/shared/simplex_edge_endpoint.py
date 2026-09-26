@@ -32,12 +32,14 @@ class SimplexEdgeEndpointAudit(AuthorityRetentionAudit):
     schema = "simplex_edge_endpoint_audit_v1"
     support_seed = 2609252701
     report = "endpoint_audit.json"
-    narrow: tuple = ()   # (name, checkpoint) — the actor-critic arm
+    narrow: tuple = ()   # (name, checkpoint)
+    narrow_kind: str = "actor"   # a few pairs are wide-critic on both arms
     wide: tuple = ()     # (name, checkpoint) — the wide-critic arm
 
     def models(self):
         m = {"u20": self.load_reference()}
-        m[self.narrow[0]] = self.load_policy(self.narrow[1])
+        load = self.load_policy if self.narrow_kind == "actor" else self.load_wide
+        m[self.narrow[0]] = load(self.narrow[1])
         m[self.wide[0]] = self.load_wide(self.wide[1])
         return m
 
