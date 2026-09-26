@@ -12,7 +12,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.terrains import TerrainImporter
 
-from talon_rl.curriculum_streak import apply_promote_streak
+from talon_rl.curricula.streak import apply_promote_streak
 
 
 _PROMOTE_STREAK_REQUIRED = 3  # consecutive qualifying episodes needed before promotion, see docstring

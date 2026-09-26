@@ -19,52 +19,100 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import RewardVectorCfg
+from ..config import RewardVectorCfg
+
+
+def signed_engagement(v_actual_x: np.ndarray, v_command_x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """R1's directional gate (frozen 2026-09-20, artifacts/r1_freeze/FREEZE.md):
+    "is this lane actually moving toward what was commanded, and how much of
+    it". 1.0 for a zero command (nothing to engage with -- a stationary lane
+    isn't disengaging from anything). Otherwise `clip(sign(c_x)*v_x/|c_x|, 0,
+    1)`: 0 while moving the wrong way or standing still, ramping to 1 once
+    v_x reaches the commanded magnitude in the commanded direction, capped
+    there (overshoot isn't extra credit). Shared by progress_reward (gates
+    hip_activation) and balance_reward (gates alive_bonus) so both use the
+    exact same notion of "engaged", not two independently-drifting ones."""
+    v_actual_x = np.asarray(v_actual_x, dtype=np.float32)
+    v_command_x = np.asarray(v_command_x, dtype=np.float32)
+    zero_cmd = np.abs(v_command_x) < eps
+    denom = np.where(zero_cmd, 1.0, np.abs(v_command_x))
+    engaged = np.clip(np.sign(v_command_x) * v_actual_x / denom, 0.0, 1.0)
+    return np.where(zero_cmd, 1.0, engaged).astype(np.float32)
 
 
 def progress_reward(
     v_actual: np.ndarray, v_command: np.ndarray, std: float,
-    foot_air_time_reward: np.ndarray | None = None,
     terminal_fall: np.ndarray | None = None,
+    hip_qdot_L: np.ndarray | None = None, hip_qdot_R: np.ndarray | None = None, hip_activation_coef: float = 0.0,
+    directed_progress: np.ndarray | None = None, directed_coef: float = 0.0,
+    engagement_eps: float = 1e-6,
 ) -> np.ndarray:
-    """Go-anywhere navigation: exp-kernel velocity tracking. (N, 3), (N, 3) -> (N,).
+    """Go-anywhere navigation: engagement-gated exp-kernel velocity tracking,
+    plus (R1, 2026-09-20) a directed-progress bonus and hip-activation
+    shaping, both gated the same way. (N, 3), (N, 3) -> (N,). See
+    artifacts/r1_freeze/FREEZE.md for the frozen equations/constants this
+    implements -- do not retune any of them from training results, only from
+    a proven implementation bug.
 
-    `terminal_fall` (added 2026-09-19, zeroes this step's reward entirely
-    where True): `v_actual` is `root_lin_vel_b`, BODY-frame velocity
-    (a1_env.py) -- on the exact step a lane topples over, its body-frame
-    forward velocity spikes from the fall/rotation itself, which can
-    happen to align with v_command and score a high tracking reward for a
-    step that was falling, not walking. Found via a live training run
+    `signed_engagement` gate (R1): the pre-R1 kernel rewarded standing still
+    at v_x=0 under command 0 (correctly, e=1 there) but also gave partial
+    credit for moving in the WRONG direction whenever the tracking error
+    happened to be small by coincidence. Gating the whole tracking term by
+    `e` removes that: wrong-direction motion now scores exactly the
+    engagement floor (0), not "whatever the exp-kernel happened to compute".
+
+    `terminal_fall` (2026-09-19, zeroes this step's reward entirely where
+    True): `v_actual` is `root_lin_vel_b`, BODY-frame velocity (a1_env.py)
+    -- on the exact step a lane topples over, its body-frame forward
+    velocity spikes from the fall/rotation itself, which can happen to
+    align with v_command and score a high tracking reward for a step that
+    was falling, not walking. Found via a live training run
     (`phase1_allfixes_2026-09-19`) showing Episode_Reward/progress rising
     while episode length collapsed and termination hit 100% fall -- the
     opposite of real locomotion improving. Same "no credit on the step you
     stopped" principle balance_reward's alive_bonus already applies to
     fall_penalty (see its own docstring); short episodes made this worse
     since a same-size spike dominates a larger fraction of a short
-    episode's averaged reward than a long one's.
+    episode's averaged reward than a long one's. Applied to the WHOLE R1
+    sum (tracking + hip + directed-progress), not just tracking -- all
+    three are locomotion-quality signals that shouldn't pay out on a
+    falling step.
 
-    `foot_air_time_reward` (added 2026-09-18, legged_gym/Rudin et al. 2022,
-    "Learning to Walk in Minutes"): Sigma_feet (air_time_at_touchdown - 0.5),
-    computed statefully in a1_env.py (see
-    IsaacLabTalonEnv._compute_foot_air_time_reward) and passed through here
-    already-summed. Added after a forced-command physics probe found a
-    checkpoint trained with every OTHER grouped sub-penalty active
-    (action_magnitude, joint_speed, v_z, foot_slip, height) still stood
-    nearly still under a real forward command (6.7% velocity-tracking
-    ratio) -- none of those sub-penalties give any POSITIVE incentive to
-    actually take a step; they only tax bad behavior, and standing
-    perfectly still pays every one of them their minimum (often exactly
-    zero). This term is different in kind: a foot that swings for close to
-    0.5s before landing earns a small BONUS, one a "do nothing" policy
-    cannot collect (a foot that never leaves the ground never triggers
-    `first_contact`, so it scores exactly 0 here too -- same as too-short
-    shuffling steps, which score negative). Grouped into `progress` (not
-    smoothness/balance like the other additions) since its purpose is
-    specifically "is the robot actually locomoting", the same question
-    progress's own tracking term asks. 0.04 weight (2*dt, dt=0.02) matches
-    legged_gym's own calibration for this exact term -- their step size is
-    the same 0.02s, so the scale carries over directly, unlike the other
-    grouped terms' weights which were reasoned from scratch."""
+    `hip_qdot_L`/`hip_qdot_R`/`hip_activation_coef` (moved here from
+    balance_reward, R1 freeze): `+hip_activation_coef * e *
+    min(|hip_qdot_L|, |hip_qdot_R|)`, same formula as before (see
+    balance_reward's docstring, kept there, for the original diagnosis --
+    a structurally frozen hip contributing to falls) but now gated by `e`
+    and grouped with progress instead of balance. The R1 offline audit
+    (artifacts/r1_offline_audit/audit-report.md) found this term's
+    magnitude scales with commanded speed (0.12 @ vx=0.25 -> 0.21 @
+    vx=0.5), i.e. it functions as a gait-support signal, not a
+    speed-independent balance regularizer -- moving it here makes the
+    grouping match what the data shows it actually is. Gating by `e`
+    closes the loophole where a frozen-Balance version paid this out even
+    while standing still or moving the wrong way.
+
+    `directed_progress`/`directed_coef` (R1 freeze): `directed_progress` is
+    a precomputed, already-clipped [0, 1] per-lane ratio -- world
+    displacement toward the command, projected onto heading at command
+    onset, over a 0.5s/50-step window, `clip(sign(c_x)*dx_heading /
+    (|c_x|*T_w+eps), 0, 1)` -- see FREEZE.md for the exact formula. This
+    function stays a pure stateless (N,)->(N,) transform per its own
+    module docstring, so it does NOT compute that ratio itself; the
+    STATEFUL displacement-buffer bookkeeping (origin position/heading,
+    reset on command change) lives wherever foot_air_time_reward's
+    equally-stateful bookkeeping lives (a1_env.py, see
+    IsaacLabTalonEnv._compute_foot_air_time_reward for the pattern) and
+    is passed in already-computed, same as that term was. Optional/None
+    default (0 contribution) so callers without real position tracking
+    (DummyTalonEnv, unit tests) don't need a placeholder.
+
+    Removed from R1 (2026-09-20, see FREEZE.md): the pre-R1
+    `foot_air_time_reward` bonus. The R1 offline audit found it
+    contributing to 1-3% of steps and net NEGATIVE on average there (~1000x
+    smaller than tracking) -- dead weight at best, mis-signed at worst.
+    Disabled outright rather than re-derived; re-enabling it is a future
+    decision, not something this freeze made."""
     # Forward-velocity (x) error only (2026-09-19, was sum over all 3 axes:
     # v_x, v_y, yaw-rate). Found via a reward/evaluation-metric mismatch --
     # play.py's PhysicsValidator tracking_ratio only ever measured v_x, but
@@ -84,10 +132,16 @@ def progress_reward(
     # component (mdp/events.py's randomize_velocity_command can do this) --
     # acceptable for now since Phase 1's own scope is forward-velocity
     # tracking (chapter3.tex), not general omnidirectional command-following.
-    err = (v_actual[..., 0] - v_command[..., 0]) ** 2
-    reward = np.exp(-err / (std**2))
-    if foot_air_time_reward is not None:
-        reward = reward + 0.04 * foot_air_time_reward.astype(np.float32)
+    v_actual_x, v_command_x = v_actual[..., 0], v_command[..., 0]
+    e = signed_engagement(v_actual_x, v_command_x, engagement_eps)
+    err = (v_actual_x - v_command_x) ** 2
+    reward = e * np.exp(-err / (std**2))
+    if hip_qdot_L is not None and hip_qdot_R is not None:
+        reward = reward + hip_activation_coef * e * np.minimum(
+            np.abs(hip_qdot_L.astype(np.float32)), np.abs(hip_qdot_R.astype(np.float32))
+        )
+    if directed_progress is not None:
+        reward = reward + directed_coef * directed_progress.astype(np.float32)
     if terminal_fall is not None:
         reward = reward * (1.0 - np.asarray(terminal_fall, dtype=np.float32))
     return reward.astype(np.float32)
@@ -119,7 +173,7 @@ def impact_reward(
     `foot_vel` (added 2026-09-18, `-0.01*sum(contact * ||v_foot||^2)`, (N, 4,
     3) -> (N,)): foot-slip penalty, grouped into `impact` rather than its own
     preference dimension (same "Grouped sub-penalties" reasoning as
-    smoothness's/balance's additions the same day, see docs/mdp.md) since
+    smoothness's/balance's additions the same day, see docs/methods/general/mdp.md) since
     slip and landing-impact force are both, in spirit, about foot-ground
     contact quality. Matches the reference term `-||diag(g^t)·v_f^t||^2`:
     `contact` (`foot_contact_force > contact_threshold`) stands in for the
@@ -147,7 +201,7 @@ def impact_reward(
     0.2->0.5 (2026-09-19, second pass): repeated-trial validate on a
     `mean_reg_coef=0.01` checkpoint still showed calf contact on 91.7% of
     steps under the original 0.2 -- deliberately still a penalty weight,
-    not a per-foot clearance reward (docs/mdp.md documents that omission
+    not a per-foot clearance reward (docs/methods/general/mdp.md documents that omission
     as intentional, to keep the reward vector posture-agnostic for
     MOPPO's preference-negotiation rather than prescribing a specific
     gait/clearance trajectory); this only makes ANY calf contact cost
@@ -170,7 +224,7 @@ def smoothness_reward(
 ) -> np.ndarray:
     """Action-rate, acceleration, raw action-magnitude, and (2026-09-18)
     joint-speed objective, grouped together rather than as their own
-    preference dimensions -- see docs/mdp.md's "Grouped sub-penalties"
+    preference dimensions -- see docs/methods/general/mdp.md's "Grouped sub-penalties"
     note for why. (N, 12) each -> (N,).
 
     It is preference-conditioned in Phase 1, as in AMOR's smoothness
@@ -216,8 +270,8 @@ def balance_reward(
     target_height: float = 0.42, tilt_coef: float = 1.0,
     roll_pitch_rate: np.ndarray | None = None, tilt_rate_coef: float = 0.0,
     height_coef: float = 1.0,
-    hip_qdot_L: np.ndarray | None = None, hip_qdot_R: np.ndarray | None = None, hip_activation_coef: float = 0.0,
     hip_q_L: np.ndarray | None = None, hip_q_R: np.ndarray | None = None, hip_sym_coef: float = 0.0,
+    v_actual: np.ndarray | None = None, v_command: np.ndarray | None = None, alive_gate_threshold: float = 0.20,
 ) -> np.ndarray:
     """Penalizes trunk tilt directly -- a dense, per-step gradient against
     falling. Not in chapter3.tex's original table 3.3; added because none of
@@ -271,13 +325,34 @@ def balance_reward(
     independent of how well any other objective is being tracked. (N, 2) ->
     (N,).
 
+    `v_actual`/`v_command`/`alive_gate_threshold` (R1 freeze, 2026-09-20,
+    artifacts/r1_freeze/FREEZE.md): gates `alive_bonus` by
+    `clip(signed_engagement(v_actual_x, v_command_x) / alive_gate_threshold,
+    0, 1)`. Final Locomotion Evaluation v1 (artifacts/final_locomotion_eval_v1/
+    FROZEN.md) found seed1 surviving nearly every episode while barely
+    locomoting -- the unconditional alive_bonus was paying full survival
+    credit for standing still under a nonzero command, exactly the
+    "falling-forward" alternative's opposite loophole. Threshold 0.20 is a
+    LOW bar (engagement, not quality) deliberately: full credit once a lane
+    reaches 20% of commanded directed velocity, not "walks well". A zero
+    command reaches gate=1.0 automatically (signed_engagement returns 1.0
+    there, and 1.0/0.20 clips back to 1.0) so standing still under a
+    genuine stop command still gets full unconditional survival credit,
+    same as before. Optional (defaults to gate=1.0, i.e. old unconditional
+    behavior) when v_actual/v_command aren't provided -- callers without
+    command context (DummyTalonEnv, existing unit tests) keep the pre-R1
+    behavior rather than silently losing their alive_bonus. Penalties
+    below (tilt/vz/height/fall) are NOT gated -- a lane tilting, bouncing,
+    crouching, or falling is penalized whether or not it's engaging the
+    command; only the POSITIVE survival credit is conditional.
+
     `v_z` (added 2026-09-18, `-v_z**2`, (N,) -> already a scalar per lane,
     root_lin_vel_b's own z-component, no axis to sum over): vertical
     body-frame velocity,
     penalizing bouncing/bobbing -- grouped into balance rather than its own
     preference dimension (same "Grouped sub-penalties" reasoning as
     smoothness's action_magnitude/joint_speed additions the same day, see
-    docs/mdp.md) since vertical bounce and roll/pitch tilt are both, in
+    docs/methods/general/mdp.md) since vertical bounce and roll/pitch tilt are both, in
     spirit, about staying physically stable/upright. Optional (defaults to
     None, no contribution) so callers/tests that don't have it (e.g.
     DummyTalonEnv, which has no real vertical dynamics to report) don't
@@ -308,30 +383,23 @@ def balance_reward(
     applied to height. Exposed as its own scale knob rather than folded
     into a larger constant, same pattern as tilt_coef/tilt_rate_coef.
 
-    `hip_activation_coef`/`hip_qdot_L`/`hip_qdot_R` (added 2026-09-20,
-    Experiment 2A.4-5, `+hip_activation_coef * min(|hip_qdot_L|,
-    |hip_qdot_R|)`): a checkpoint diagnosed via gait_joint_trace.py
-    learned a structurally asymmetric gait where one hip stayed almost
-    frozen (target near-constant from spawn onward, not a fall-induced
-    effect -- hip_asymmetry_analysis.py's early-vs-late split showed hip
-    asymmetry SHRINKING, not growing, toward each fall) while the other
-    did essentially all the work. hip_symmetry_intervention.py found
-    forcing the frozen hip to mirror the active one (eval-only, no
-    reward/retraining) reduced falls/improved v_z/pitch in the seed with
-    the clearest effect, while forcing the active hip to instead mirror
-    the frozen one made things worse -- directional evidence the passive
-    -hip pattern contributes to failure, not proof of the exact
-    mechanism (subsequent activity-ratio and phase-correlation analyses
-    did not find a robust cross-seed explanatory signal, see
-    gait_activity_ratio.py/hip_functional_correlation.py). This
-    rewards the SMALLER side's own real angular speed (robot.data.
-    joint_vel, not a commanded-target proxy) directly -- deliberately
-    NOT a symmetry constraint (does not compare L to R, does not push
-    them toward equal), so a policy can still legitimately move one hip
-    more than the other (e.g. adapting to a tilted/asymmetric terrain)
-    as long as neither hip collapses to near-zero activity. Small
-    coefficient by design (single untuned pilot value, not swept) --
-    see train_prelim.py's own CLI help text for the value used.
+    `hip_activation_coef` (moved to progress_reward, R1 freeze
+    2026-09-20 -- see that function's docstring): originally added here
+    2026-09-20 (Experiment 2A.4-5) after gait_joint_trace.py diagnosed a
+    checkpoint with a structurally frozen hip (near-constant from spawn,
+    not fall-induced -- hip_asymmetry_analysis.py's early-vs-late split
+    showed asymmetry SHRINKING toward each fall) while the other hip did
+    essentially all the work. hip_symmetry_intervention.py found forcing
+    the frozen hip to mirror the active one (eval-only, no retraining)
+    reduced falls/improved v_z/pitch in the clearest-effect seed --
+    directional evidence, not a fully explained mechanism (subsequent
+    activity-ratio/phase-correlation analyses found no robust cross-seed
+    signal, see gait_activity_ratio.py/hip_functional_correlation.py).
+    The R1 offline audit (artifacts/r1_offline_audit/audit-report.md)
+    then found this term's magnitude scales with commanded speed -- a
+    gait-support signal, not a balance regularizer -- which is why R1
+    moved it to progress_reward (gated by signed_engagement there) rather
+    than keeping it here unconditional.
 
     `hip_sym_coef`/`hip_q_L`/`hip_q_R` (added 2026-09-20, `-hip_sym_coef
     * (hip_q_L + hip_q_R)**2`): a bilateral MIRROR-symmetry penalty,
@@ -341,21 +409,22 @@ def balance_reward(
     -0.1) already encodes hip_q_L = -hip_q_R at the symmetric stance,
     so `hip_q_L + hip_q_R` is exactly 0 there and grows with any L/R
     mirror-asymmetry (real joint position, not target). Disabled by
-    default (0.0) -- forcing literal bilateral symmetry would remove
-    exactly the adaptability (e.g. to a tilted ramp) the hip_activation
-    alternative is meant to preserve; kept available for a controlled
-    comparison, not because it's the intended fix."""
-    reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus
+    default (0.0, unchanged by R1) -- forcing literal bilateral symmetry
+    would remove exactly the adaptability (e.g. to a tilted ramp) the
+    hip_activation alternative is meant to preserve; kept available for a
+    controlled comparison, not because it's the intended fix."""
+    e = (
+        signed_engagement(v_actual[..., 0], v_command[..., 0])
+        if v_actual is not None and v_command is not None else 1.0
+    )
+    alive_gate = np.clip(np.asarray(e, dtype=np.float32) / alive_gate_threshold, 0.0, 1.0)
+    reward = -tilt_coef * np.sum(roll_pitch**2, axis=-1) + alive_bonus * alive_gate
     if roll_pitch_rate is not None:
         reward = reward - tilt_rate_coef * np.sum(roll_pitch_rate.astype(np.float32) ** 2, axis=-1)
     if v_z is not None:
         reward = reward - v_z.astype(np.float32) ** 2
     if height is not None:
         reward = reward - height_coef * (height.astype(np.float32) - target_height) ** 2
-    if hip_qdot_L is not None and hip_qdot_R is not None:
-        reward = reward + hip_activation_coef * np.minimum(
-            np.abs(hip_qdot_L.astype(np.float32)), np.abs(hip_qdot_R.astype(np.float32))
-        )
     if hip_q_L is not None and hip_q_R is not None:
         reward = reward - hip_sym_coef * (hip_q_L.astype(np.float32) + hip_q_R.astype(np.float32)) ** 2
     if terminal_fall is not None:
@@ -401,7 +470,10 @@ def efficiency_reward(
 
 _TERM_FUNCS = {
     "progress": lambda t, cfg: progress_reward(
-        t["v_actual"], t["v_command"], cfg.progress_std, t.get("foot_air_time_reward"), t.get("terminal_fall")
+        t["v_actual"], t["v_command"], cfg.progress_std, t.get("terminal_fall"),
+        hip_qdot_L=t.get("hip_qdot_L"), hip_qdot_R=t.get("hip_qdot_R"),
+        hip_activation_coef=cfg.progress_hip_activation_coef,
+        directed_progress=t.get("directed_progress"), directed_coef=cfg.progress_directed_coef,
     ),
     "clearance": lambda t, cfg: clearance_reward(t["obstacle_dist"]),
     "impact": lambda t, cfg: impact_reward(
@@ -416,8 +488,8 @@ _TERM_FUNCS = {
         t.get("v_z"), t.get("height"), target_height=cfg.target_height, tilt_coef=cfg.balance_tilt_coef,
         roll_pitch_rate=t.get("roll_pitch_rate"), tilt_rate_coef=cfg.balance_tilt_rate_coef,
         height_coef=cfg.balance_height_coef,
-        hip_qdot_L=t.get("hip_qdot_L"), hip_qdot_R=t.get("hip_qdot_R"), hip_activation_coef=cfg.balance_hip_activation_coef,
         hip_q_L=t.get("hip_q_L"), hip_q_R=t.get("hip_q_R"), hip_sym_coef=cfg.balance_hip_sym_coef,
+        v_actual=t.get("v_actual"), v_command=t.get("v_command"), alive_gate_threshold=cfg.balance_alive_gate_threshold,
     ),
 }
 

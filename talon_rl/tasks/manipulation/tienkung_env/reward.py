@@ -29,7 +29,7 @@ def progress_reward(box_height: np.ndarray, target_height: np.ndarray, std: floa
 def clearance_reward(obstacle_dist: np.ndarray, safe_dist: float = 0.5) -> np.ndarray:
     """Distance to obstacles while reaching for the box — scripted signal
     until a real exteroception source exists (out of scope here), same
-    formula as talon_rl.reward.clearance_reward. (N,) -> (N,)."""
+    formula as talon_rl.rewards.locomotion.clearance_reward. (N,) -> (N,)."""
     return np.clip(obstacle_dist / safe_dist, 0.0, 1.0).astype(np.float32)
 
 
@@ -52,7 +52,7 @@ def impact_reward(arm_contact_force: np.ndarray, threshold: float = 50.0) -> np.
 
 
 def smoothness_reward(action: np.ndarray, prev_action: np.ndarray, joint_acc: np.ndarray) -> np.ndarray:
-    """Fixed-weight regularizer, same formula as talon_rl.reward's, over 8
+    """Fixed-weight regularizer, same formula as talon_rl.rewards.locomotion's, over 8
     arm DOF instead of 12. (N, 8) each -> (N,)."""
     action_rate = np.sum((action - prev_action) ** 2, axis=-1)
     acc = np.sum(joint_acc**2, axis=-1)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from talon_rl.v2_behavior_actor_critic import V2BehaviorActorCritic
+from talon_rl.models.behavior.latent import V2BehaviorActorCritic
 
 FILM_AUTHORITY_R1 = 0.5
 

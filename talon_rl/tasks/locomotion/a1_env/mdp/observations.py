@@ -33,6 +33,19 @@ def roll_pitch(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCf
     return torch.stack([roll, pitch], dim=-1)
 
 
+def yaw(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Heading about the world z-axis, radians, from the root quaternion
+    (w, x, y, z) -- standard aerospace-convention yaw, same quat layout
+    roll_pitch above already uses. Added for progress_reward's
+    directed-progress term (R1, 2026-09-20, artifacts/r1_freeze/FREEZE.md)
+    -- that term projects displacement onto heading AT COMMAND ONSET, so
+    a1_env.py snapshots this once per window-reset, not every step. (N,)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    quat = asset.data.root_quat_w
+    w, x, y, z = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+    return torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
 def foot_contact_binary(
     env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_sensor"), threshold: float = 1.0
 ) -> torch.Tensor:

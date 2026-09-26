@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from torch.distributions import Normal
 
 from rl.core.modules.actor_critic import ActorCritic
-from talon_rl.v1c_actor_critic import NUM_OBJECTIVES
+from talon_rl.models.foundations.three_objective import NUM_OBJECTIVES
 
 
 LATENT_DIM = 2

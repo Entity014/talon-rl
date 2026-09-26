@@ -20,7 +20,6 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
-from talon_rl.envs.base_env import BaseTalonEnv
 
 from .config import ActionSpaceCfg, ObservationSpaceCfg
 
@@ -98,7 +97,7 @@ class DummyEnv(gym.Env):
         return obs.astype(np.float32)
 
 
-class DummyTalonEnv(BaseTalonEnv):
+class DummyTalonEnv:
     def __init__(
         self,
         obs_cfg: ObservationSpaceCfg,

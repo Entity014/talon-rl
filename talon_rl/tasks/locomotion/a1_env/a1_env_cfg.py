@@ -9,7 +9,7 @@ RewardsCfg is deliberately empty — see a1_env.py's step() override and the
 design doc's Decision 2: this repo needs an unsummed five-objective Phase-1 reward vector,
 which RewardManager's scalar-sum contract can't produce, so reward
 computation happens directly in step() via
-talon_rl.reward.compute_reward_vector() instead of through this manager.
+talon_rl.rewards.locomotion.compute_reward_vector() instead of through this manager.
 
 The flat ground plane is replaced with A1_ROUGH_TERRAINS_CFG
 (terrain_config/rough_config.py) — climbable obstacles and a descendable
@@ -304,6 +304,8 @@ class IsaacLabTalonEnvCfg(ManagerBasedRLEnvCfg):
     extrinsics_cfg: ExtrinsicsCfg = field(default_factory=ExtrinsicsCfg)
     action_scale: float = 0.15
     stand_phase_s: float = 2.0
+    # G1 is opt-in. False preserves the frozen R1 command scheduler exactly.
+    g1_command_exposure: bool = False
 
     def __post_init__(self) -> None:
         if self.action_scale <= 0.0:

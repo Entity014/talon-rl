@@ -205,21 +205,46 @@ class RewardVectorCfg:
     # a feasibility one -- no controller-level detour needed to tell them
     # apart.
     target_height: float = 0.42
-    # Bonus on balance_reward's min(|hip_qdot_L|, |hip_qdot_R|) term.
-    # Default 0.0 = disabled. Added 2026-09-20 (Experiment 2A.4-5) after
+    # Bonus on progress_reward's e * min(|hip_qdot_L|, |hip_qdot_R|) term
+    # (moved here from balance_reward, R1 freeze 2026-09-20 -- see
+    # artifacts/r1_freeze/FREEZE.md and reward.py's progress_reward
+    # docstring). Originally added 2026-09-20 (Experiment 2A.4-5) after
     # hip_symmetry_intervention.py's directional (not fully mechanistically
     # explained -- see reward.py's own docstring) causal evidence that a
-    # checkpoint's persistently-frozen hip contributed to falling.
-    # Rewards the smaller side's own real activity, not L/R equality, so
-    # asymmetric terrain adaptation stays available. Single small pilot
-    # value, not swept -- see train_prelim.py's CLI help.
-    balance_hip_activation_coef: float = 0.0
+    # checkpoint's persistently-frozen hip contributed to falling. Rewards
+    # the smaller side's own real activity, not L/R equality, so asymmetric
+    # terrain adaptation stays available. 0.02 is the value already used by
+    # the checkpoints this freeze audited (runs/phase1_hipact_dt01_*), kept
+    # unchanged -- frozen, not to be retuned from retrain/eval results
+    # (see FREEZE.md's guardrail list).
+    progress_hip_activation_coef: float = 0.02
+    # Coefficient on progress_reward's directed-progress bonus (R1 freeze
+    # 2026-09-20, artifacts/r1_freeze/FREEZE.md): world displacement toward
+    # the command, projected onto heading at command onset, over a
+    # 0.5s/50-step window, clipped to [0, 1] and multiplied by this
+    # coefficient. 1.0 (parity with the tracking term) chosen as a
+    # functional gate with real weight, not shaping-scale -- frozen, not
+    # swept.
+    progress_directed_coef: float = 1.0
     # Coefficient on balance_reward's -(hip_q_L + hip_q_R)^2 mirror-
-    # symmetry penalty. Default 0.0 = disabled. Added alongside
-    # balance_hip_activation_coef as a diagnostic comparison baseline
-    # (forces literal bilateral hip symmetry), not because it's expected
-    # to be the better choice -- see reward.py's own docstring for why.
+    # symmetry penalty. Default 0.0 = disabled, unchanged by R1. Added
+    # alongside the (now-moved) hip_activation term as a diagnostic
+    # comparison baseline (forces literal bilateral hip symmetry), not
+    # because it's expected to be the better choice -- see reward.py's own
+    # docstring for why.
     balance_hip_sym_coef: float = 0.0
+    # Engagement threshold gating balance_reward's alive_bonus under a
+    # nonzero command (R1 freeze 2026-09-20, artifacts/r1_freeze/FREEZE.md):
+    # full survival credit once signed_engagement reaches this fraction of
+    # the commanded directed velocity, partial/no credit below it. A zero
+    # command always gets gate=1.0 regardless of this value (see
+    # balance_reward's docstring). Added after Final Locomotion Evaluation
+    # v1 (artifacts/final_locomotion_eval_v1/FROZEN.md) found a checkpoint
+    # surviving nearly every episode while barely locomoting under an
+    # unconditional alive_bonus. 0.20 is a deliberately low bar
+    # (engagement, not quality) -- frozen, not swept; raising it would
+    # start turning Balance into a second Progress term.
+    balance_alive_gate_threshold: float = 0.20
 
     @property
     def dim(self) -> int:

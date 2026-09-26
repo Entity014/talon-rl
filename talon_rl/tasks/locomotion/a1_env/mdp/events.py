@@ -58,6 +58,10 @@ def randomize_velocity_command(
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
     n = len(env_ids)
+    if getattr(env.cfg, "g1_command_exposure", False):
+        # G1 owns command sampling/reset in the environment reset hook, before
+        # ManagerBasedEnv computes the post-reset observation.
+        return
     if getattr(env.cfg, "stand_phase_s", 0.0) > 0.0 and env.common_step_counter * env.step_dt < env.cfg.stand_phase_s:
         env.v_command_buf[env_ids] = 0.0
         return
