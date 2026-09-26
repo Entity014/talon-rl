@@ -6,12 +6,13 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-7 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+8 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
 | `divisor_calibration.py` | 111 | class | T3-B objective-divisor protocol, re-run on a chosen env: abs-mean of each raw T/A/O/S objective under the M0 root policy. |
 | `forward_sanity.py` | 173 | class | V4-B forward and invariance sanity for the untrained TeacherV4 on live Isaac-Talon-A1-v0 obs and e_t. |
+| `g1_evaluate.py` | 266 | class | V4-C G1 evaluation of one fold/seed at iteration 300: the V3 G1 protocol (objective_set_g1_evaluate.py) ported to TeacherV4 on Isaac-Talon-A1-V4C-v0. |
 | `leg_length_audit.py` | 142 | class | V4-B1 audit of the e_t leg_length channel: USD variants, per-env spawn, legScale lookup and physical leg geometry. |
 | `objective_contract_audit.py` | 116 | class | V4-C0a objective-contract port check: the T/A/O/S reward terms on Isaac-Talon-A1-v0 match the stock A1 flat terms in config and kernel output. |
 | `spawn_benchmark.py` | 124 | class | V4-B1-Fix1 benchmark of one Isaac-Talon-A1-v0 config: startup, VRAM, env throughput and leg-length variant spread under replicate_physics on/off. |
@@ -20,9 +21,11 @@
 
 ## Run directories these touch
 
+- `runs/objective_set_g0_structural_parity-2026-09-25`
 - `runs/teacher_v4_b1_fix1_spawn_benchmark-2026-09-26`
 - `runs/teacher_v4_b1_leg_length_audit-2026-09-26`
 - `runs/teacher_v4_b_forward_sanity-2026-09-26`
 - `runs/teacher_v4_c0a2_v4c_env_parity-2026-09-26`
 - `runs/teacher_v4_c0a3_divisor_calibration-2026-09-27`
 - `runs/teacher_v4_c0a_objective_contract-2026-09-26`
+- `runs/update_functional_effect_audit-2026-09-24`
