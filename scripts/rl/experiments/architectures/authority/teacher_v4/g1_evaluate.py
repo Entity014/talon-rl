@@ -81,12 +81,13 @@ class G1Evaluate(IsaacAudit):
     seed = 0
     report = "g1_evaluation.json"
 
-    def __init__(self, fold: str, train_seed: int, iteration: int):
+    def __init__(self, fold: str, train_seed: int, iteration: int, out=None, checkpoint=None):
         self.run_dir = REPO / f"runs/teacher_v4_c_{fold.lower().replace('-', '_')}_seed{train_seed}-2026-09-27"
-        super().__init__(self.run_dir)
-        self.fold, self.train_seed, self.ck = fold, train_seed, self.run_dir / f"model_{iteration}.pt"
-        if (self.run_dir / self.report).exists():
-            raise SystemExit(f"{self.run_dir / self.report} exists; refusing to overwrite")
+        super().__init__(out or self.run_dir)
+        self.fold, self.train_seed = fold, train_seed
+        self.ck = Path(checkpoint) if checkpoint else self.run_dir / f"model_{iteration}.pt"
+        if (self.out / self.report).exists():
+            raise SystemExit(f"{self.out / self.report} exists; refusing to overwrite")
 
     def build_env(self):
         import gymnasium as gym
@@ -270,7 +271,7 @@ class G1Evaluate(IsaacAudit):
         held_pass = all(x["pass"] for x in held)
         anchor_pass = anchor["criteria"]["required_semantics"] and anchor["criteria"]["critic_valid"] and anchor["criteria"]["endpoint_survival"]
         rep = {"schema": "teacher_v4_c_g1_evaluation_v1", "fold": self.fold, "seed": self.train_seed,
-               "checkpoint": str(self.ck.relative_to(REPO)), "checkpoint_sha256": self.sha(self.ck), "authority_reference": str(G0.relative_to(REPO)),
+               "checkpoint": str(self.ck), "checkpoint_sha256": self.sha(self.ck), "authority_reference": str(G0.relative_to(REPO)),
                "probe_e_t_raw": self.e_ref_raw, "probe_e_t_normalized": self.probe_e[0].tolist(),
                "sets": sets, "summary": {"heldout_set_count": len(held), "heldout_pass_count": sum(x["pass"] for x in held),
                                          "seen_pass_count": sum(x["pass"] for x in seen), "seen_set_count": len(seen),
@@ -284,5 +285,6 @@ class G1Evaluate(IsaacAudit):
 if __name__ == "__main__":
     a = G1Evaluate.parse_args((("--fold",), {"choices": tuple(FOLDS), "required": True}),
                               (("--seed",), {"type": int, "required": True}),
-                              (("--iteration",), {"type": int, "default": 300}))
-    G1Evaluate(a.fold, a.seed, a.iteration).execute()
+                              (("--iteration",), {"type": int, "default": 300}),
+                              (("--checkpoint",), {"help": "evaluate this file instead (smoke tests only)"}))
+    G1Evaluate(a.fold, a.seed, a.iteration, a.out, a.checkpoint).execute()
