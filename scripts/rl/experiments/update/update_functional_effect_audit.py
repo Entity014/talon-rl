@@ -19,6 +19,13 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from rl.core.offline_audit import REPO, RUNS, OfflineAudit
+from rl.experiments.shared.update_discriminator import (
+    EPS,
+    auc,
+    cos_np,
+    matched_controls,
+    per_seed_direction,
+)
 
 RUN = "update_functional_effect_audit-2026-09-24"
 V18 = "prospective_slope_validation-2026-09-24/prospective_slope_validation_report.json"
@@ -30,8 +37,6 @@ PREFS = {"T": np.array([.7, .1, .1, .1], np.float32),
          "S": np.array([.1, .1, .1, .7], np.float32),
          "C": np.array([.25, .25, .25, .25], np.float32)}
 ORDER = ("T", "A", "O", "S")
-SEEDS = (983001, 984001, 985001)
-EPS = 1e-12
 FUNCTIONAL = {"action_disp_mean", "action_disp_max", "action_change_cv",
               "response_change_mean", "response_rotation_mean", "response_rotation_max",
               "J_change_rel", "J_rotation", "specific_fraction", "D_specific"}
@@ -39,20 +44,6 @@ PARAMETER = {"param_norm", "param_rel_norm"}
 GATE = {"count": 8, "effect": .5, "auc": .75}
 
 
-def cos_np(a, b):
-    a = np.asarray(a, float).ravel()
-    b = np.asarray(b, float).ravel()
-    d = np.linalg.norm(a) * np.linalg.norm(b)
-    return float(np.dot(a, b) / d) if d > EPS else 1.0
-
-
-def auc(y, s):
-    y, s = np.asarray(y, int), np.asarray(s, float)
-    pos, neg = np.where(y == 1)[0], np.where(y == 0)[0]
-    if len(pos) == 0 or len(neg) == 0:
-        return float("nan")
-    z = sum(1.0 if s[i] > s[j] else .5 if s[i] == s[j] else 0.0 for i in pos for j in neg)
-    return float(z / (len(pos) * len(neg)))
 
 
 def group(n):
@@ -181,48 +172,13 @@ class UpdateFunctionalEffectAudit(OfflineAudit):
         effect = (float(np.median(pos)) - medn) / max(iqr, 1e-12)
         a = auc(y, [r["metrics"][m] for r in rows])
 
-        seedok, seedrows = True, {}
-        for sd in SEEDS:
-            pp = [r["metrics"][m] for r in rows if r["seed"] == sd and r["Y_robust_collapse"]]
-            nn = [r["metrics"][m] for r in rows if r["seed"] == sd and not r["Y_robust_collapse"]]
-            ok = None if not pp or not nn else float(np.median(pp)) > float(np.median(nn))
-            seedrows[str(sd)] = {"positive_n": len(pp), "negative_n": len(nn),
-                                 "robust_median": float(np.median(pp)) if pp else None,
-                                 "retained_median": float(np.median(nn)) if nn else None,
-                                 "direction_ok": ok}
-            if ok is False:
-                seedok = False
+        seedok, seedrows = per_seed_direction(rows, lambda r: r["metrics"][m])
         passed = (count >= GATE["count"] and effect >= GATE["effect"]
                   and a >= GATE["auc"] and seedok)
         return {"robust_median": float(np.median(pos)), "retained_median": medn,
                 "retained_iqr": iqr, "robust_above_retained_median_n": count,
                 "effect_iqr_units": effect, "auc": a, "seed_consistent": seedok,
                 "per_seed": seedrows, "strong_discriminator": passed}, passed
-
-    def matched_controls(self, rows):
-        """One retained update per robust one: same axis where possible, then
-        nearest source gate margin, without reuse until the pool is exhausted."""
-        posrows = [r for r in rows if r["Y_robust_collapse"]]
-        negrows = [r for r in rows if not r["Y_robust_collapse"]]
-        unused = set(range(len(negrows)))
-        matches = []
-        for r in posrows:
-            same = [i for i in unused if negrows[i]["axis"] == r["axis"]]
-            cand = same if same else list(unused)
-            reused = False
-            if not cand:
-                same = [i for i, n in enumerate(negrows) if n["axis"] == r["axis"]]
-                cand = same if same else list(range(len(negrows)))
-                reused = True
-            i = min(cand, key=lambda i: (abs(negrows[i]["source_G_sem"] - r["source_G_sem"]),
-                                         negrows[i]["seed"], negrows[i]["from"]))
-            unused.discard(i)
-            keys = ("seed", "from", "to", "axis", "source_G_sem")
-            matches.append({"robust": {k: r[k] for k in keys},
-                            "retained": {k: negrows[i][k] for k in keys},
-                            "source_G_abs_diff": abs(negrows[i]["source_G_sem"] - r["source_G_sem"]),
-                            "reused": reused})
-        return matches
 
     def analyze(self):
         rep = json.loads((RUNS / V18).read_text())
@@ -260,7 +216,7 @@ class UpdateFunctionalEffectAudit(OfflineAudit):
                 "strong_discriminators": strong,
                 "functional_strong_discriminators": funcstrong,
                 "parameter_strong_discriminators": paramstrong,
-                "matched_controls": self.matched_controls(rows), "rows": rows,
+                "matched_controls": matched_controls(rows), "rows": rows,
                 "decision": {"training_method_authorized": False}}
 
     def execute(self):
