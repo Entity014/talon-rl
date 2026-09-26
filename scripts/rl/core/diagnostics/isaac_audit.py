@@ -9,6 +9,7 @@ subclass supplies.
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 
@@ -78,12 +79,14 @@ class IsaacAudit(RunReport):
         app = AppLauncher({"headless": True, "enable_cameras": False}).app
         sys.argv = argv
         env = None
+        failed = False
         try:
             env, obs = self.build_env()
             return self.rollout(env, obs)
-        except BaseException:
+        except BaseException as e:
             # app.close() below can take the process down before a traceback
             # reaches stdout, which looks like a silent success
+            failed = not (isinstance(e, SystemExit) and e.code in (0, None))
             traceback.print_exc()
             sys.stdout.flush()
             sys.stderr.flush()
@@ -91,6 +94,10 @@ class IsaacAudit(RunReport):
         finally:
             if env is not None:
                 env.close()
+            if failed:
+                # app.close() ends the process with status 0, so a failed audit
+                # would read as a pass to anything checking the exit code.
+                os._exit(1)
             app.close()
 
     @classmethod

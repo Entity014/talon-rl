@@ -5,11 +5,10 @@ Isaac Lab's manager-based convention (mirrors isaaclab_tasks' own
 cartpole_env_cfg.py and jaykorea's velocity_env_cfg.py, both verified
 2026-09-14 against the real installed isaaclab 0.48.0).
 
-RewardsCfg is deliberately empty — see a1_env.py's step() override and the
-design doc's Decision 2: this repo needs an unsummed five-objective Phase-1 reward vector,
-which RewardManager's scalar-sum contract can't produce, so reward
-computation happens directly in step() via
-talon_rl.rewards.locomotion.compute_reward_vector() instead of through this manager.
+The Phase-1 reward vector is computed directly in step() via
+talon_rl.rewards.locomotion.compute_reward_vector() (design doc Decision 2:
+RewardManager's scalar-sum contract can't produce an unsummed vector).
+RewardsCfg carries only the V3 T/A/O/S objective terms, read per term.
 
 The flat ground plane is replaced with A1_ROUGH_TERRAINS_CFG
 (terrain_config/rough_config.py) — climbable obstacles and a descendable
@@ -21,6 +20,7 @@ docs/superpowers/specs/2026-09-15-a1-terrain-curriculum-design.md.
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import MISSING, field
 
 import isaaclab.sim as sim_utils
@@ -30,6 +30,7 @@ from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
@@ -274,7 +275,19 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Deliberately empty — see module docstring."""
+    """The V3 T/A/O/S objective terms (talon_rl/rewards/objectives.py
+    OBJECTIVE_TERMS), with the stock Isaac-Velocity-Flat-Unitree-A1-v0 names,
+    kernels, weights and std, so V4 optimizes the same objective semantics
+    as the V3 lineage (V4-C0a, 2026-09-26). The trainer reads them per term
+    from reward_manager._step_reward. The Phase-1 reward vector is still
+    computed in step() via compute_reward_vector(); the manager's scalar sum
+    is not used by anything."""
+
+    track_lin_vel_xy_exp = RewTerm(func=mdp.track_lin_vel_xy_exp, weight=1.5, params={"std": math.sqrt(0.25)})
+    track_ang_vel_z_exp = RewTerm(func=mdp.track_ang_vel_z_exp, weight=0.75, params={"std": math.sqrt(0.25)})
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
 
 
 @configclass
