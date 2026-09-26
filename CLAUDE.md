@@ -88,6 +88,32 @@ invariants" shape as this one.)
   leading axis) will silently break `moppo.py`'s vectorized rollout math
   instead of raising. See `talon_rl/envs/base_env.py`'s docstring.
 
+## scripts/rl layout
+
+The one-shot experiment scripts live under `scripts/rl/experiments/<line>/`, one
+directory per experiment line, with `experiments/shared/` holding the modules
+other scripts import. Only `train_prelim.py`, `play.py`, `sim2sim.py`,
+`diagnostics.py` and `launch_isaac_lab_via_pytest.py` sit at the top of
+`scripts/rl/`, beside `core/`.
+
+- **A script two levels down finds the repo root at
+  `Path(__file__).resolve().parents[4]`**, not `parents[2]`. The scripts in
+  `experiments/` that import a sibling do it absolutely, as
+  `rl.experiments.<line>.<module>`, and carry a `sys.path` bootstrap at the top
+  so that resolves when the file is run directly.
+- **Anything that writes into a run directory should subclass
+  `rl.core.run_report.RunReport`** — `Freeze` for the two files that close an
+  experiment out, `IsaacAudit` for a rollout audit, `OfflineAudit` for one that
+  reads a finished run. They all take `--out`, which is what makes a script
+  re-runnable for comparison: `runs/` is gitignored, so re-running one in place
+  destroys the only copy of what it wrote.
+- **`git tag pre-reorg-2026-09-26` holds `scripts/rl` exactly as it stood before
+  that move.** The `PROVENANCE_MANIFEST.json` files in `runs/` pin sha256 values
+  of the scripts that produced each artifact, under their old flat paths, and
+  the move rewrote 593 files. 108 of the 133 recorded Python source hashes
+  resolve against that tag and none against `main`, so check a recorded hash
+  there. 502 of the files in it were never tracked anywhere else.
+
 ## Before claiming something works
 
 Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ --ignore=tests/test_sim2sim.py`
