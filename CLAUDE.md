@@ -96,6 +96,12 @@ other scripts import. Only `train_prelim.py`, `play.py`, `sim2sim.py`,
 `diagnostics.py` and `launch_isaac_lab_via_pytest.py` sit at the top of
 `scripts/rl/`, beside `core/`.
 
+- **Every `experiments/<line>/` directory has a generated `README.md`.** It lists
+  each script with a one-line description taken from that file's own module
+  docstring, so the description lives with the code. Describe a script by
+  writing its docstring, then run
+  `python scripts/rl/experiments/generate_readmes.py --apply`; do not edit a
+  README by hand.
 - **A script two levels down finds the repo root at
   `Path(__file__).resolve().parents[4]`**, not `parents[2]`. The scripts in
   `experiments/` that import a sibling do it absolutely, as
