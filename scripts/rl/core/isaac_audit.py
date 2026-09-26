@@ -33,12 +33,18 @@ class IsaacAudit(RunReport):
     task: str = TASK
     num_envs: int = 8
     seed: int = 0              # the env's construction seed, not a rollout seed
+    reset_seed: int | None = None   # None means reuse `seed` for the first reset
+    set_cfg_seed: bool = True       # a couple of snapshots never set it
 
     # --- what a subclass fills in ---
 
     def rollout(self, env, obs) -> dict:
         """Roll the policy and return the report. `obs` is the first reset's."""
         raise NotImplementedError
+
+    def configure(self, cfg) -> None:
+        """Last chance to change the env config. A nominal snapshot uses this to
+        switch off the randomisation that would otherwise perturb what it reads."""
 
     # --- shared ---
 
@@ -52,10 +58,13 @@ class IsaacAudit(RunReport):
 
         cfg = UnitreeA1FlatEnvCfg()
         cfg.scene.num_envs = self.num_envs
-        cfg.seed = self.seed
+        if self.set_cfg_seed:
+            cfg.seed = self.seed
         cfg.scene.robot.spawn.usd_path = str(A1_USD)
+        self.configure(cfg)
+        self.cfg = cfg
         env = gym.make(self.task, cfg=cfg)
-        obs, _ = env.reset(seed=self.seed)
+        obs, _ = env.reset(seed=self.reset_seed if self.reset_seed is not None else self.seed)
         return env, obs_tensor(obs).cuda()
 
     def execute(self) -> dict:
