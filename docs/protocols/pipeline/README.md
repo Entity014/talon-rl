@@ -1,0 +1,28 @@
+# Pipeline
+
+<!-- nav:start -->
+[Documentation](../../README.md) · [Protocols](../README.md)
+<!-- nav:end -->
+
+
+## Purpose
+
+Execution roadmaps and pipeline protocols.
+
+## Scope
+
+Describes the ordered operational path from characterization through deployment or later research stages.
+
+## Research progression
+
+1. define stage ordering
+2. state entry/exit conditions
+3. link each stage to its contract and artifact
+
+## Documents
+
+- phase1-final-characterization-deployment-roadmap.md
+
+## Maintenance
+
+Keep provenance-bearing experiment IDs in document filenames. Move documents by role/domain and update repository references when paths change.

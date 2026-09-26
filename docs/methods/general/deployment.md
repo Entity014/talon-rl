@@ -1,5 +1,15 @@
 # TALON Deployment Boundary
 
+> **Historical / superseded for the final Phase-1 controller.** The canonical authority-isolated Phase-1 deployment boundary is now defined by `docs/contracts/transfer/phase1-d2-deployment-equivalence-contract.md` and `docs/verdicts/transfer/phase1-d2-deployment-equivalence-verdict.md`. In particular, the validated final controller uses the actor-only eager-state CUDA runtime; the older TorchScript `play.py` export path below is not authorized for that canonical controller because D2 found closed-loop sensitivity to sub-micro compiled-graph numerical differences.
+
+Experiment 3's P99 coefficient-clipping checkpoints are rejected and must
+not be deployed or used for sim-to-real. Baseline candidates still require
+final simulation validation; see the [locked decision and validation
+handoff](experiment-3-closure.md).
+The [final locomotion protocol](final-locomotion-evaluation-protocol.md)
+defines the current simulation milestone; passing it does not establish
+hardware readiness or completion of thesis-scale validation.
+
 The repository currently exports a policy and provides a guarded inference
 boundary. It does not contain a Unitree motor transport, real-time scheduler,
 or emergency-stop implementation.

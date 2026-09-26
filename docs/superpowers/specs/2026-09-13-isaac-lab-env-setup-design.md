@@ -106,12 +106,12 @@ New file: `talon_rl/envs/isaac_lab_env.py`.
   - `obs_dim` **excludes** $w$ — the preference vector is appended in
     `training/moppo.py`, never inside the env
 - PD conversion ($\tau = K_p(a_t - q) + K_d(\dot a_t - \dot q)$, per
-  `docs/mdp.md`) maps onto Isaac Lab's built-in actuator model. Check the
+  `docs/methods/general/mdp.md`) maps onto Isaac Lab's built-in actuator model. Check the
   shipped A1 actuator config's default $K_p$/$K_d$ against chapter3.tex's
   values before assuming they match; override in the env's actuator cfg if
   not.
 - `clearance` reward term's signal (obstacle negotiation) is still scripted
-  in the dummy env per `docs/mdp.md` — this design does not add a real
+  in the dummy env per `docs/methods/general/mdp.md` — this design does not add a real
   Exteroception-derived signal. `IsaacLabTalonEnv` should provide the same
   kind of placeholder signal `DummyTalonEnv` does, not silently drop the
   term.
