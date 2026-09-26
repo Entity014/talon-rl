@@ -8,9 +8,9 @@ record it was being checked against.
 
 from __future__ import annotations
 
-from rl.core.run_report import REPO, RUNS, RunReport
+from rl.core.run_report import ARTIFACTS, REPO, RUNS, RunReport
 
-__all__ = ["OfflineAudit", "REPO", "RUNS"]
+__all__ = ["OfflineAudit", "ARTIFACTS", "REPO", "RUNS"]
 
 
 class OfflineAudit(RunReport):

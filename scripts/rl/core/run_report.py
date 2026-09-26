@@ -35,6 +35,7 @@ class RunReport:
     root: Path | None = None
     run: str = ""        # directory under root/
     report: str = ""     # artifact filename written into it
+    sort_keys: bool = False   # a few audits serialise their JSON sorted
 
     def __init__(self, out: str | Path | None = None):
         self.out = Path(out) if out else self.dir
@@ -59,7 +60,8 @@ class RunReport:
         return sha256(p if p.is_absolute() else REPO / p)
 
     def write(self, data: dict, name: str | None = None) -> None:
-        (self.out / (name or self.report)).write_text(json.dumps(data, indent=2) + "\n")
+        text = json.dumps(data, indent=2, sort_keys=self.sort_keys) + "\n"
+        (self.out / (name or self.report)).write_text(text)
 
     @classmethod
     def parse_args(cls, *extra):
