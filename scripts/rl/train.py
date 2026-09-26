@@ -16,11 +16,18 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from dataclasses import dataclass
 
 from talon_rl.config import ActionSpaceCfg, ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
 
-from rl.core.dummy_env import DummyTalonEnv
-from rl.core.run_dir import dump_config, make_run_dir
+from rl.core.envs.dummy import DummyTalonEnv
+from rl.core.experiment_io.run_dir import dump_config, make_run_dir
+
+@dataclass(frozen=True)
+class G1ConfigDump:
+    command_exposure: bool
+    zero_hold_probability: float = 0.25
+    hold_steps: int = 200
 
 # MOPPOConfig/MOPPOTrainer (rl.core.algorithms.moppo) import torch at module
 # scope, and torch touching CUDA before Isaac Sim's SimulationApp owns its
@@ -154,16 +161,17 @@ def main() -> None:
              "reward-landscape/local-optimum one.",
     )
     parser.add_argument(
-        "--balance_hip_activation_coef", type=float, default=None,
-        help="Override RewardVectorCfg.balance_hip_activation_coef (default 0.0 = disabled). Exposed "
-             "2026-09-20 (Experiment 2A.5) after hip_symmetry_intervention.py's directional causal "
-             "evidence that a persistently-frozen hip (present from spawn, not fall-induced -- see "
-             "hip_asymmetry_analysis.py) contributed to falling. Rewards min(|hip_qdot_L|, "
+        "--progress_hip_activation_coef", type=float, default=None,
+        help="Override RewardVectorCfg.progress_hip_activation_coef (default 0.02, frozen by the R1 "
+             "reward revision -- see artifacts/r1_freeze/FREEZE.md; do not override for R1 retraining "
+             "runs). Moved from balance_reward to progress_reward 2026-09-20 (gated by "
+             "signed_engagement there) after the R1 offline audit found its magnitude scales with "
+             "commanded speed, i.e. it's a gait-support signal, not a balance regularizer. Originally "
+             "added 2026-09-20 (Experiment 2A.5) after hip_symmetry_intervention.py's directional "
+             "causal evidence that a persistently-frozen hip (present from spawn, not fall-induced -- "
+             "see hip_asymmetry_analysis.py) contributed to falling. Rewards min(|hip_qdot_L|, "
              "|hip_qdot_R|), the SMALLER side's own real activity -- not L/R equality, so asymmetric "
-             "terrain adaptation stays available. Single pilot value tested: 0.02 (chosen to sit in "
-             "the same rough scale as balance_reward's other small sub-terms -- tilt_penalty/"
-             "height_penalty were typically 0.01-0.06 in the checkpoints this was diagnosed on -- not "
-             "swept against this task).",
+             "terrain adaptation stays available.",
     )
     parser.add_argument(
         "--balance_hip_sym_coef", type=float, default=None,
@@ -185,6 +193,7 @@ def main() -> None:
              "learns to track at all. See PreferenceCfg's own docstring.",
     )
     parser.add_argument("--stand_phase_s", type=float, default=2.0, help="Seconds of zero velocity command before locomotion commands are enabled.")
+    parser.add_argument("--g1_command_exposure", action="store_true", help="Enable frozen G1 command-exposure scheduler.")
     parser.add_argument("--num_policy_stacks", type=int, default=1, help="History frames the actor sees (Flamingo-style stacking, see obs_stack.py).")
     parser.add_argument("--num_critic_stacks", type=int, default=1, help="History frames the critic sees — can differ from --num_policy_stacks.")
     parser.add_argument("--save_path", type=str, default=None, help="Save a checkpoint here when training finishes (ignored if --logs_root is set).")
@@ -193,6 +202,20 @@ def main() -> None:
     parser.add_argument("--log_dir", type=str, default=None, help="Log per-update scalars to this dir via TensorBoard (ignored if --logs_root is set).")
     parser.add_argument("--logs_root", type=str, default=None, help="Enable run-directory management: creates <logs_root>/<run_name or timestamp>/, dumps config.yaml, logs to its tensorboard/ subdir, and saves checkpoint.pt there — supersedes --log_dir/--save_path when set.")
     parser.add_argument("--run_name", type=str, default=None, help="Run directory name under --logs_root (default: a timestamp).")
+    parser.add_argument(
+        "--contrib_clip_percentile", type=float, default=None,
+        help="MOPPOConfig.contrib_clip_percentile (default None = disabled, exact baseline path). "
+             "Experiment 3B (2026-09-20): opt-in advantage-side coefficient clipping, "
+             "s_ij=w_j*A_ij*mask_i clipped at this percentile (locked value: 99), threshold frozen "
+             "from update 1 only (see --contrib_clip_calibration_update). See moppo.py's own "
+             "docstring on this field and talon-rl project memory's EXPERIMENT 3 section for the "
+             "full diagnostic chain and offline validation (3A/3A.1) this responds to.",
+    )
+    parser.add_argument(
+        "--contrib_clip_calibration_update", type=int, default=1,
+        help="MOPPOConfig.contrib_clip_calibration_update -- which update's pooled |s_ij| sets the "
+             "frozen per-objective threshold (locked value: 1). Ignored if --contrib_clip_percentile is unset.",
+    )
     parser.add_argument(
         "--sim_dt", type=float, default=0.02,
         help="Override IsaacLabTalonEnvCfg's physics timestep (--env isaac_lab only; ignored for "
@@ -259,8 +282,8 @@ def main() -> None:
         reward_cfg_overrides["balance_height_coef"] = args.balance_height_coef
     if args.target_height is not None:
         reward_cfg_overrides["target_height"] = args.target_height
-    if args.balance_hip_activation_coef is not None:
-        reward_cfg_overrides["balance_hip_activation_coef"] = args.balance_hip_activation_coef
+    if args.progress_hip_activation_coef is not None:
+        reward_cfg_overrides["progress_hip_activation_coef"] = args.progress_hip_activation_coef
     if args.balance_hip_sym_coef is not None:
         reward_cfg_overrides["balance_hip_sym_coef"] = args.balance_hip_sym_coef
     reward_cfg = RewardVectorCfg(**reward_cfg_overrides)
@@ -284,6 +307,8 @@ def main() -> None:
         torch_compile=args.torch_compile,
         mean_reg_coef=args.mean_reg_coef,
         progress_leak_window=args.progress_leak_window,
+        contrib_clip_percentile=args.contrib_clip_percentile,
+        contrib_clip_calibration_update=args.contrib_clip_calibration_update,
     )
     extrinsics_cfg = ExtrinsicsCfg() if args.env == "isaac_lab" and not args.no_encoder else None
 
@@ -292,7 +317,8 @@ def main() -> None:
     save_path = args.save_path
     if args.logs_root:
         run_dir = make_run_dir(args.logs_root, run_name=args.run_name)
-        dump_config(run_dir, obs=obs_cfg, action=action_cfg, reward=reward_cfg, preference=pref_cfg, stack=stack_cfg, moppo=moppo_cfg)
+        dump_config(run_dir, obs=obs_cfg, action=action_cfg, reward=reward_cfg, preference=pref_cfg, stack=stack_cfg, moppo=moppo_cfg,
+                    g1=G1ConfigDump(bool(args.g1_command_exposure)))
         log_dir = os.path.join(run_dir, "tensorboard")
         # checkpoints/ subdir, not flat in run_dir -- a long run dumps dozens
         # of checkpoint_t*.pt files (see the save_every block below) that
@@ -338,6 +364,7 @@ def main() -> None:
         cfg.sim.dt = args.sim_dt
         cfg.action_scale = args.action_scale
         cfg.stand_phase_s = args.stand_phase_s
+        cfg.g1_command_exposure = args.g1_command_exposure
         cfg.actions.joint_pos.scale = args.action_scale
         env = gym.make("Isaac-Talon-A1-v0", cfg=cfg).unwrapped
 

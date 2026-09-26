@@ -54,7 +54,7 @@ import torch
 from talon_rl.config import (
     ActionSpaceCfg, ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg,
 )
-from talon_rl.reward import compute_reward_vector
+from talon_rl.rewards.locomotion import compute_reward_vector
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
 

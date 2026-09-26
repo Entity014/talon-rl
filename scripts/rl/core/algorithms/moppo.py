@@ -46,16 +46,16 @@ import torch
 import torch.nn as nn
 
 from talon_rl.config import ExtrinsicsCfg, ObservationSpaceCfg, ObservationStackCfg, PreferenceCfg, RewardVectorCfg
-from talon_rl.envs.base_env import BaseTalonEnv
-from talon_rl.reward import compute_reward_vector
+from ..envs.base import TalonEnv
+from talon_rl.rewards.locomotion import compute_reward_vector
 
-from ..losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
+from ..objectives.losses import d3po_actor_loss, diversity_regularizer_loss, normalize_per_objective
 from ..modules.actor_critic import ActorCritic
 from ..modules.env_factor_encoder import EnvFactorEncoder
-from ..obs_stack import ObservationStack
-from ..preference import floor_clip_terms, sample_preference_vector
-from ..running_norm import RunningMeanStd
-from ..storage.rollout_storage import gae_per_objective
+from ..rollout.observation import ObservationStack
+from ..preferences.functional import floor_clip_terms, sample_preference_vector
+from ..normalization.stats import RunningMeanStd
+from ..rollout.gae_functional import gae_per_objective
 
 
 @dataclass
@@ -238,12 +238,29 @@ class MOPPOConfig:
     # mean_episode_len for regression before trusting this over 0.
     diversity_lambda: float = 0.05
     diversity_alpha: float = 1.0
+    # Experiment 3B (2026-09-20) -- OPT-IN advantage-side coefficient
+    # clipping, locked design (see talon-rl project memory's "EXPERIMENT 3"
+    # section for the full diagnostic chain this responds to: seed-
+    # dependent E/I/B gradient-direction instability traced to a mixed-
+    # sign/transient vs coherent/persistent per-sample contribution tail,
+    # Test 13A/13B). None (default) = feature fully inert, update() takes
+    # the exact byte-identical path it always has -- this field's presence
+    # alone must never change baseline behavior. A float here sets the
+    # calibration percentile (validated value: 99) for
+    # s_{i,j} = w_j*A_{i,j}*m_i (m_i = PPO-clip's own zero-gradient mask,
+    # NOT dropped -- see Test 13A's r=0.90-0.94 proxy validation, which
+    # only covers THIS exact quantity). c_j is computed ONCE, from
+    # contrib_clip_calibration_update's pooled |s_i,j| across every
+    # minibatch of that update, then frozen for the rest of training --
+    # never recomputed, matching the offline 3A/3A.1 protocol exactly.
+    contrib_clip_percentile: float | None = None
+    contrib_clip_calibration_update: int = 1
 
 
 class MOPPOTrainer:
     def __init__(
         self,
-        env: BaseTalonEnv,
+        env: TalonEnv,
         obs_cfg: ObservationSpaceCfg,
         reward_cfg: RewardVectorCfg,
         pref_cfg: PreferenceCfg,
@@ -299,7 +316,7 @@ class MOPPOTrainer:
         self.optim = torch.optim.Adam(params, lr=self.cfg.lr, weight_decay=self.cfg.weight_decay)
         # Running per-objective reward normalization (chapter3.tex §3.2.3) —
         # without it, smoothness dominates progress by ~1000x in raw scale
-        # (see CLAUDE.md / docs/mdp.md's "known gap" note this closes).
+        # (see CLAUDE.md / docs/methods/general/mdp.md's "known gap" note this closes).
         self.reward_norm = RunningMeanStd(reward_cfg.dim)
         # Extrinsics channels span a ~1000x range (CoM offset ~±0.05 vs.
         # actuator stiffness ~44-66) — fed raw into EnvFactorEncoder's first
@@ -350,8 +367,22 @@ class MOPPOTrainer:
         # ceiling) and decays toward log_std_max_anneal_final once per
         # update() call.
         self._log_std_max = self.model.LOG_STD_MAX
+        # Experiment 3B coefficient-clipping state (all inert when
+        # cfg.contrib_clip_percentile is None -- see that field's docstring).
+        # self._update_count is THIS trainer's own update() call counter
+        # (self._t is an env-step counter, NOT an update counter -- see
+        # project memory's 2026-09-20 correction on this exact confusion).
+        self._update_count = 0
+        self._contrib_clip_calibration: dict[str, list[np.ndarray]] | None = None
+        self._contrib_clip_thresholds: dict[str, float] | None = None
 
-    def push_obs(self, obs: np.ndarray, done_mask: np.ndarray | None = None) -> None:
+    def push_obs(
+        self,
+        obs: np.ndarray,
+        done_mask: np.ndarray | None = None,
+        *,
+        update_normalizer: bool = True,
+    ) -> None:
         """Normalizes a raw env observation (RunningMeanStd, center=True —
         see self.obs_norm's comment above) and pushes it onto self.stack —
         the single choke point for observation normalization. External
@@ -364,7 +395,8 @@ class MOPPOTrainer:
         replaces at this class's own __init__)."""
         if done_mask is None:
             done_mask = np.ones(self.n, dtype=bool)
-        self.obs_norm.update(obs)
+        if update_normalizer:
+            self.obs_norm.update(obs)
         obs_normed = self.obs_norm.normalize(obs, center=True)
         self.stack.push(obs_normed, done_mask=done_mask)
 
@@ -579,6 +611,7 @@ class MOPPOTrainer:
     def update(self) -> dict:
         """Collects the next `num_steps` timesteps (continuing the persistent
         rollout), then runs PPO for `epochs_per_update` epochs."""
+        self._update_count += 1
         r = self._collect_rollout()
 
         # Mean episode length, from the persistent per-lane step counter
@@ -682,6 +715,63 @@ class MOPPOTrainer:
                 ratio = torch.exp(logp_new - logp_old_mb)
                 clip_loss = d3po_actor_loss(ratio, adv_mb, w_mb, self.cfg.clip_eps)
 
+                # Experiment 3B (2026-09-20) -- OPT-IN advantage-side
+                # coefficient clipping. Fully inert when
+                # cfg.contrib_clip_percentile is None: no branch below runs,
+                # clip_loss stays exactly what d3po_actor_loss just returned
+                # -- baseline path is untouched by this feature's presence.
+                if self.cfg.contrib_clip_percentile is not None:
+                    with torch.no_grad():
+                        clipped_ratio_c = torch.clamp(ratio, 1 - self.cfg.clip_eps, 1 + self.cfg.clip_eps)
+                    per_objective_c = torch.min(ratio[:, None] * adv_mb, clipped_ratio_c[:, None] * adv_mb)
+                    with torch.no_grad():
+                        s_by_obj: dict[str, torch.Tensor] = {}
+                        for oi, oname in enumerate(self.reward_cfg.term_names):
+                            a_i = adv_mb[:, oi]
+                            upper_clip_active = (ratio > (1 + self.cfg.clip_eps)) & (a_i > 0)
+                            lower_clip_active = (ratio < (1 - self.cfg.clip_eps)) & (a_i < 0)
+                            mask_i = ~(upper_clip_active | lower_clip_active)
+                            s_by_obj[oname] = w_mb[:, oi] * a_i * mask_i.float()
+
+                    if self._update_count == self.cfg.contrib_clip_calibration_update:
+                        # Accumulate |s_i,j| from every minibatch of the
+                        # calibration update -- thresholds are computed from
+                        # this pool once the WHOLE update finishes (below,
+                        # after the epoch/minibatch loop), never mid-update.
+                        if self._contrib_clip_calibration is None:
+                            self._contrib_clip_calibration = {o: [] for o in self.reward_cfg.term_names}
+                        for oname, s_t in s_by_obj.items():
+                            self._contrib_clip_calibration[oname].append(s_t.detach().abs().cpu().numpy())
+
+                    if self._contrib_clip_thresholds is not None:
+                        # Thresholds are frozen (calibration update already
+                        # finished) -- apply the locked coefficient clip.
+                        # r_{i,j} = min(1, c_j/|s_{i,j}|), r=1 when s=0.
+                        # Scales the per-sample LOSS TERM by r.detach()
+                        # before the mean -- see Experiment 3A's methodology
+                        # note (talon-rl project memory) for why this
+                        # produces exactly r_{i,j}*s_{i,j} as the resulting
+                        # gradient coefficient, not a literal per-sample
+                        # gradient-norm clip.
+                        clipped_terms = []
+                        for oi, oname in enumerate(self.reward_cfg.term_names):
+                            s_t = s_by_obj[oname]
+                            c_j = self._contrib_clip_thresholds[oname]
+                            with torch.no_grad():
+                                abs_s = s_t.abs()
+                                # NOTE: local name deliberately NOT `r` -- `r` is
+                                # this update()'s own rollout dict from
+                                # _collect_rollout(), still read after the
+                                # minibatch loop (mean_reward_vec etc.) -- reusing
+                                # it here previously shadowed it and corrupted
+                                # everything downstream (caught by the sanity check).
+                                clip_scale = torch.where(abs_s > 1e-12, torch.clamp(c_j / abs_s, max=1.0), torch.ones_like(s_t))
+                            clipped_terms.append(clip_scale * (w_mb[:, oi] * per_objective_c[:, oi]))
+                        clip_loss = -sum(clipped_terms).mean()
+                    # else: calibration update not finished yet (or hasn't
+                    # happened yet) -- clip_loss stays the unclipped value
+                    # from d3po_actor_loss above, exactly like baseline.
+
                 # Diversity regularizer — resampled each minibatch (cheap,
                 # avoids overfitting to one w' draw). w' goes through the
                 # same floor_clip pipeline as the real w (_sample_diversity_w).
@@ -732,6 +822,23 @@ class MOPPOTrainer:
                 last_policy_loss, last_value_loss = float(policy_loss.item()), float(value_loss.item())
                 last_entropy = float(entropy_bonus.item())
                 last_mean_reg = float(mean_reg.item())
+
+        # Experiment 3B -- freeze c_j right after the calibration update
+        # finishes (never recomputed after this point, matching the
+        # offline 3A/3A.1 protocol: threshold_source_update=cfg.contrib_clip_calibration_update,
+        # threshold_frozen=True, threshold_scope=per_objective,
+        # threshold_pool=all minibatches of that one update).
+        if (
+            self.cfg.contrib_clip_percentile is not None
+            and self._update_count == self.cfg.contrib_clip_calibration_update
+            and self._contrib_clip_thresholds is None
+            and self._contrib_clip_calibration is not None
+        ):
+            self._contrib_clip_thresholds = {
+                oname: float(np.percentile(np.concatenate(pooled), self.cfg.contrib_clip_percentile))
+                for oname, pooled in self._contrib_clip_calibration.items()
+            }
+            self._contrib_clip_calibration = None  # calibration data no longer needed once frozen
 
         mean_reward_vec = r["rewards"].reshape(T * N, -1).mean(axis=0)
 
@@ -826,6 +933,13 @@ class MOPPOTrainer:
                 "obs_norm": self.obs_norm.state_dict(),
                 "encoder": self.encoder.state_dict() if self.encoder else None,
                 "extrinsics_norm": self.extrinsics_norm.state_dict() if self.extrinsics_norm else None,
+                # Experiment 3B -- records whether/how coefficient clipping
+                # was active for this run, and its frozen thresholds (for
+                # resume continuity and for a checkpoint to self-document
+                # which condition produced it, per the locked protocol).
+                "update_count": self._update_count,
+                "contrib_clip_percentile": self.cfg.contrib_clip_percentile,
+                "contrib_clip_thresholds": self._contrib_clip_thresholds,
             },
             path,
         )
@@ -852,3 +966,5 @@ class MOPPOTrainer:
             self.encoder.load_state_dict(checkpoint["encoder"])
         if self.extrinsics_norm and checkpoint.get("extrinsics_norm"):
             self.extrinsics_norm.load_state_dict(checkpoint["extrinsics_norm"])
+        self._update_count = checkpoint.get("update_count", self._update_count)
+        self._contrib_clip_thresholds = checkpoint.get("contrib_clip_thresholds", self._contrib_clip_thresholds)

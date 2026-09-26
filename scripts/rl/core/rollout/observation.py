@@ -6,7 +6,7 @@ the two don't need the same context length: RMA's Adaptation Module needs
 ~0.5s of proprioceptive history \\cite{kumar2021} to regress $\\hat z_t$, but
 a vector critic evaluating $V(s,c,w)$ doesn't have that requirement and can
 run on fewer (or just the current) frame. Splitting this out as its own
-wrapper — rather than baking stacking into the env — means `BaseTalonEnv`
+wrapper — rather than baking stacking into the env — means `TalonEnv`
 implementations stay single-timestep and simple; only `training/moppo.py`
 needs to know stacking exists.
 

@@ -8,7 +8,7 @@ record it was being checked against.
 
 from __future__ import annotations
 
-from rl.core.run_report import ARTIFACTS, REPO, RUNS, RunReport
+from rl.core.experiment_io.run_report import ARTIFACTS, REPO, RUNS, RunReport
 
 __all__ = ["OfflineAudit", "ARTIFACTS", "REPO", "RUNS"]
 

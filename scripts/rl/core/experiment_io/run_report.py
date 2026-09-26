@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[4]
 # talon_rl is imported from source, not from site-packages, in the Isaac
 # environment — the scripts used to do this for themselves
 if str(REPO) not in sys.path:

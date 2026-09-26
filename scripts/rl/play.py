@@ -41,14 +41,14 @@ from talon_rl.config import (
     PreferenceCfg,
     RewardVectorCfg,
 )
-from talon_rl.reward import compute_reward_vector
+from talon_rl.rewards.locomotion import compute_reward_vector
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
-from rl.core.analyzer import Analyzer
-from rl.core.dummy_env import DummyTalonEnv
-from rl.core.physics_validator import PhysicsValidator
-from rl.core.run_dir import checkpoint_run_dir, resolve_checkpoint
-from rl.core.wrapper import export_policy_as_jit
+from rl.core.diagnostics.analyzer import Analyzer
+from rl.core.envs.dummy import DummyTalonEnv
+from rl.core.diagnostics.physics_validator import PhysicsValidator
+from rl.core.experiment_io.run_dir import checkpoint_run_dir, resolve_checkpoint
+from rl.core.runtime.exporter import export_policy_as_jit
 
 
 def main() -> None:

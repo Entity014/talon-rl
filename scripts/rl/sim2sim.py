@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from talon_rl.config import RewardVectorCfg
-from rl.core.sim2sim import rollout
+from rl.core.runtime.sim2sim import rollout
 
 _DEFAULT_A1_MUJOCO_XML = "talon_rl/assets/data/Robots/unitree_a1/mujoco/scene.xml"
 

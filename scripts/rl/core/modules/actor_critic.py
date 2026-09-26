@@ -24,12 +24,19 @@ def _mlp_body(in_dim: int, hidden_dims: list[int]) -> nn.Sequential:
 
 class ActorCritic(nn.Module):
     def __init__(
-        self, actor_obs_dim: int, critic_obs_dim: int, action_dim: int, reward_dim: int, hidden_dims: list[int]
+        self, actor_obs_dim: int, critic_obs_dim: int, action_dim: int, reward_dim: int, hidden_dims: list[int],
+        reconstruction_dim: int = 0
     ):
         super().__init__()
         self.actor_body = _mlp_body(actor_obs_dim, hidden_dims)
         self.actor_mean = nn.Linear(hidden_dims[-1], action_dim)
+        self.reconstruction_head = nn.Linear(hidden_dims[-1], reconstruction_dim) if reconstruction_dim > 0 else None
         self.log_std = nn.Parameter(torch.zeros(action_dim))
+        # Kept as model-level policy-distribution state so every caller of
+        # _pre_tanh_dist() sees one source of truth. Default learned mode
+        # deliberately preserves the historical self.log_std.exp() path.
+        self.exploration_mode = "learned"
+        self.register_buffer("scheduled_log_std", torch.zeros(action_dim), persistent=True)
 
         self.critic_body = _mlp_body(critic_obs_dim, hidden_dims)
         self.critic_head = nn.Linear(hidden_dims[-1], reward_dim)
@@ -110,8 +117,23 @@ class ActorCritic(nn.Module):
 
     def _pre_tanh_dist(self, actor_obs_w: torch.Tensor) -> Normal:
         mean = self.actor_mean(self.actor_body(actor_obs_w))
-        std = self.log_std.exp()
+        std = (self.log_std if self.exploration_mode == "learned" else self.scheduled_log_std).exp()
         return Normal(mean, std)
+
+    def set_scheduled_fixed_std(self, std: float | torch.Tensor) -> None:
+        """Enable a fixed pre-tanh Gaussian std for the current PPO update."""
+        value = torch.as_tensor(std, device=self.log_std.device, dtype=self.log_std.dtype)
+        if value.ndim == 0:
+            value = value.expand_as(self.log_std)
+        if value.shape != self.log_std.shape or not torch.isfinite(value).all() or not torch.all(value > 0):
+            raise ValueError("scheduled std must be finite, positive, and action-dimension shaped")
+        with torch.no_grad():
+            self.scheduled_log_std.copy_(value.log())
+        self.exploration_mode = "scheduled_fixed_std"
+
+    def set_learned_std(self) -> None:
+        """Restore the default learnable-log-std policy distribution."""
+        self.exploration_mode = "learned"
 
     def _log_det_jacobian(self, u: torch.Tensor) -> torch.Tensor:
         """log|d(action)/d(u)| = log(ACTION_CLIP) + log(1 - tanh(u)^2).
@@ -178,6 +200,12 @@ class ActorCritic(nn.Module):
         SAC-style direct penalty on mean.pow(2) was added instead (see
         moppo.py's update())."""
         return self.actor_mean(self.actor_body(actor_obs_w))
+
+    def reconstruct(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
+        """Predict privileged training-only cues from the shared actor trunk."""
+        if self.reconstruction_head is None:
+            raise RuntimeError("reconstruction head is disabled")
+        return self.reconstruction_head(self.actor_body(actor_obs_w))
 
     def entropy(self, actor_obs_w: torch.Tensor) -> torch.Tensor:
         """Entropy of the pre-tanh Gaussian (not the squashed distribution's

@@ -14,7 +14,7 @@ import traceback
 
 import torch
 
-from rl.core.run_report import ARTIFACTS, REPO, RUNS, RunReport
+from rl.core.experiment_io.run_report import ARTIFACTS, REPO, RUNS, RunReport
 
 __all__ = ["IsaacAudit", "obs_tensor", "ARTIFACTS", "REPO", "RUNS", "A1_USD", "TASK"]
 

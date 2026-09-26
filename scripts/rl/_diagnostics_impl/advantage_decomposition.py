@@ -43,8 +43,8 @@ from talon_rl.config import (
 
 from rl.core.algorithms import MOPPOConfig, MOPPOTrainer
 import rl.core.algorithms.moppo as moppo_mod
-from rl.core.losses import normalize_per_objective
-from rl.core.storage.rollout_storage import gae_per_objective
+from rl.core.objectives.losses import normalize_per_objective
+from rl.core.rollout.gae_functional import gae_per_objective
 
 
 def main() -> None:

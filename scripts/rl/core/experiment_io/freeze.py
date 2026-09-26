@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rl.core.run_report import REPO, RUNS, RunReport, sha256
+from rl.core.experiment_io.run_report import REPO, RUNS, RunReport, sha256
 
 __all__ = ["Freeze", "REPO", "RUNS", "sha256"]
 

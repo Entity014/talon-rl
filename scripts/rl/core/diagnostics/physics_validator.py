@@ -22,7 +22,7 @@ import os
 
 import numpy as np
 
-from talon_rl.reward import energy_reward, smoothness_reward
+from talon_rl.rewards.locomotion import energy_reward, smoothness_reward
 
 A1_TORQUE_LIMIT_NM = 33.5  # Unitree A1 datasheet peak joint torque
 
