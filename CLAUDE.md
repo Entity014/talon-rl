@@ -125,8 +125,8 @@ other scripts import. Only `train_prelim.py`, `play.py`, `sim2sim.py`,
 Run `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/ --ignore=tests/core/runtime/test_sim2sim.py`
 with `~/isaac-lab-env/bin/python`, and separately
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/core/runtime/test_sim2sim.py` with
-`.venv/bin/python` (only that venv has `mujoco` installed) — 144 + 12
-passed + 1 pre-existing unrelated failure as of this writing (reward
+`.venv/bin/python` (only that venv has `mujoco` installed) — 314 + 13
+passed, no known failures, as of 2026-09-26 (reward
 terms, preference math, end-to-end smoke tests on both the dummy env and
 the sim2sim MuJoCo path). `test_a1_env.py` is GPU/Isaac-Sim-gated and, on
 this machine, silently kills the whole pytest process on collection
