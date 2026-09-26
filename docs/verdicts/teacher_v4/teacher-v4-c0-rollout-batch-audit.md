@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C0 Rollout/Batch Contract Audit
 
-Status: **AUDIT COMPLETE — recommendation: keep H=24, halve minibatch count, count budget in samples; trainer choice still open**
+Status: **FROZEN — H=24, 2 minibatches, 29,491,200-sample budget; trainer and objective contract open (see findings below)**
 Date: 2026-09-26
 Branch: `v4-a-teacher`
 
@@ -121,13 +121,82 @@ Option B would also match the batch and minibatch sizes, but it changes the
 credit geometry that the agreed rule protects. Option A with 4 minibatches
 changes the gradient noise and the steps per sample.
 
-## Open before freezing
+## Frozen V4-C sampling and optimization contract (2026-09-26)
 
-1. **Trainer choice.** The stock `rsl_rl` runner cannot host TeacherV4,
-   which needs objective sets, per-objective query values, and an `e_t`
-   input. The repo's MOPPO trainer has a different recipe (LR 3e-4, γ 0.998,
-   4 × 4, B0 lineage). The numbers above assume the M0/`rsl_rl` recipe. If
-   V4-C runs on MOPPO, its γ and LR also differ from M0 and must be pinned
-   explicitly. The γ = 0.998 rows in the table above show that the
-   H-sensitivity conclusion holds either way.
-2. The action contract, which is still pending.
+Config name: `teacher_v4_m0_matched`. It is a V4-only recipe. The repo's
+MOPPO defaults stay unchanged for the B0 lineage.
+
+| field | value | source |
+|---|---|---|
+| num_envs | 2048 | canonical V4 env |
+| num_steps_per_env (H) | 24 | M0 |
+| samples / iteration | 49,152 | derived |
+| epochs | 5 | M0 |
+| num_minibatches | 2 | minibatch size 24,576 = M0 |
+| gamma / lambda | 0.99 / 0.95 | M0 |
+| clip | 0.2 | M0 |
+| value coef / entropy coef | 1.0 / 0.01 | M0 |
+| max grad norm | 1.0 | M0 |
+| optimizer | Adam, LR 1e-3, adaptive KL (desired 0.01, ×/÷1.5, bounds [1e-5, 1e-2]) | M0 |
+| initial action std | 1.0, learned | M0 |
+| total env samples | 29,491,200 (600 iterations) | M0 |
+
+Wording for the thesis: *V4 uses a MORL trainer whose PPO sampling and
+optimization contract is matched to the M0 from-scratch reference wherever
+structurally applicable.* The intended differences are the objective-set
+actor, the objective-query critic, per-objective GAE, and scalarization.
+These are the treatment being tested, not confounds.
+
+## Trainer-fit findings (checked after the freeze decision)
+
+The plan was to reuse the MOPPO infrastructure with an M0-matched config.
+A read of `scripts/rl/core/algorithms/moppo.py` shows it has none of the
+V4-specific plumbing:
+
+| V4 needs | MOPPO today |
+|---|---|
+| TeacherV4 (objective ids + weights, `e_t`, query critic) | hard-wired `ActorCritic`; the dense preference `w` is appended to the obs |
+| T/A/O/S objectives, per-objective query values | fixed `RewardVectorCfg` terms (progress, efficiency, impact, balance) |
+| adaptive-KL LR | constant LR, no KL schedule |
+| a clean PPO loss | B0 extras on by default: weight decay 1e-4, mean regularization, penalty curriculum, log-std anneal, diversity loss |
+| objective-set sampling (cardinality, center/heavy/interior modes) | `sample_preference_vector` over a dense simplex |
+
+The objective-set machinery that V4 needs already exists, in the V3
+training scripts rather than in MOPPO: set sampling, per-objective GAE,
+query-critic loss, and the authority-isolated actor/critic optimizers, for
+example `scripts/rl/experiments/common/utilities/objective_set_g1_train.py`.
+That code lacks only the M0 update loop: epochs, minibatches, adaptive KL,
+persistent rollouts, and the entropy and value coefficients.
+
+Both routes are roughly the same size of change. Neither is config-only:
+
+- **MOPPO route:** swap in the model, preference interface, reward vector,
+  and KL schedule, and switch off the B0 extras.
+- **V3-loop route:** wrap the existing objective-set rollout and loss in an
+  M0 epoch/minibatch/adaptive-KL loop.
+
+## Objective contract mismatch (new blocker)
+
+V3's four objectives are built from the **stock** Isaac Lab reward-manager
+terms (`track_lin_vel_xy_exp`, `track_ang_vel_z_exp`, `ang_vel_xy_l2`,
+`flat_orientation_l2`, `action_rate_l2`). They use frozen normalization
+divisors taken from the T3-B audit (`talon_rl/rewards/objectives.py`).
+`Isaac-Talon-A1-v0` has an **empty** `RewardsCfg` and no CommandManager.
+Its rewards come from `RewardVectorCfg` (progress, efficiency, impact,
+balance). So on the canonical V4 env, the V3 objectives are not computed at
+all, and the frozen divisors were measured on a different env and command
+distribution.
+
+Before V4-C, one of these must be frozen:
+
+1. Add the five stock reward terms, with M0 weights, to the Talon env, and
+   re-measure the T/A/O/S normalization divisors on it. This is the only
+   option that keeps the V3 objective semantics.
+2. Define V4 on the Talon `RewardVectorCfg` objectives. This is a different
+   objective set, and V3 comparisons become semantic, not numeric.
+
+## Open before training
+
+1. Objective contract (above).
+2. Trainer route (above).
+3. Action contract.
