@@ -19,6 +19,7 @@ from .observations import (  # noqa: F401
     leg_length_extrinsic,
     local_terrain_height,
     motor_power_extrinsic,
+    nominal_leg_length,
     payload_extrinsics,
     roll_pitch,
     v_command,

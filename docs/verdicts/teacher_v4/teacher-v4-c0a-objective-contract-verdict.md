@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C0a Objective-Contract Port Verdict
 
-Status: **PORT PASS — kernels and weights match V3; divisors NOT frozen (wait on action contract); command/terrain distribution differences open**
+Status: **PORT PASS; V4-C env = stock + e_t (C0a2 PASS); divisors not yet measured; V4-C num_envs pending**
 Date: 2026-09-26
 Branch: `v4-a-teacher`
 
@@ -85,3 +85,47 @@ compared numerically with V3.
 "exits 1 on failure" gates in the V4-B1 audits could not signal failure
 through the exit code; their recorded results were read from the report
 JSON and are unaffected.
+
+## V4-C0a2 — V4-C environment: stock + e_t (decided 2026-09-26)
+
+The Talon env turned out to differ from stock A1 flat in more than command
+and terrain: physics substep (`sim.dt` 0.02, decimation 1 vs 0.005, 4),
+episode length (4 s vs 20 s), terminations, events (push, wide DR), and the
+action contract. Rather than editing the Talon env toward stock, V4-C gets
+its own env built on the stock cfg:
+
+- `Isaac-Talon-A1-V4C-v0`, cfg `TalonV4CEnvCfg(UnitreeA1FlatEnvCfg)` in
+  `talon_rl/tasks/locomotion/a1_env/v4c_env_cfg.py`, plain `ManagerBasedRLEnv`.
+- Additions only: the 12-D privileged `e_t` group (same order as the frozen
+  contract) and the robot USD set to the repo's `a1.usd`, as every M0/V3
+  script did.
+- Stock DR only. Plant factors stock does not randomize read constant. The
+  leg-length channel uses a separate `nominal_leg_length` term (1.0 by
+  construction), so a variant env that loses `legScale` still raises.
+- Action contract is stock (scale 0.25, Kp 25 / Kd 0.5), so C0c reduces to
+  this verification.
+- Talon placeholder DR ranges, push, rough terrain, Talon commands and leg
+  variants are V4-D's treatment on `Isaac-Talon-A1-v0`, which keeps its
+  T/A/O/S port.
+
+Gate `scripts/rl/experiments/architectures/authority/teacher_v4/v4c_env_parity.py`,
+report `runs/teacher_v4_c0a2_v4c_env_parity-2026-09-26/report.json`: **PASS.**
+
+| check | result |
+|---|---|
+| full `to_dict()` diff vs fresh stock `UnitreeA1FlatEnvCfg` | only `observations.privileged`, `scene.robot.spawn.usd_path` |
+| timing | `sim.dt` 0.005, decimation 4, step 0.02 s, 1000-step episodes |
+| action contract (live) | scale 0.25, Kp 25, Kd 0.5 |
+| policy obs / e_t | 48-D / 12-D, finite |
+| varying e_t channels | payload mass only (stock `add_base_mass` −1…3 kg on trunk) |
+| reward terms | the full stock set; V4 reads the T/A/O/S subset |
+
+Constant e_t values: friction 0.8, Kp 25, Kd 0.5, leg length 1.0, joint
+range 1.0, terrain height 0, dynamic friction 0.6, passive joint damping 0.
+
+Consequence for the V4-C0 sampling contract: this env spawns one USD, so
+`replicate_physics` can stay at the stock `True`. The reason for 2048 envs
+(throughput under `replicate_physics=False`) does not apply to V4-C, and the
+exact M0 contract (4096 × 24, 4 minibatches, 300 iterations) is feasible
+again. The 2048 × 24 / 2-minibatch contract then belongs to V4-D. Pending
+user decision.

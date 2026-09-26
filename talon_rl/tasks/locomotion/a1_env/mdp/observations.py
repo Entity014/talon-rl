@@ -131,6 +131,14 @@ def leg_length_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Sce
     return env._leg_scale_cache
 
 
+def nominal_leg_length(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """leg_length channel for envs that spawn the plain a1.usd (V4-C, no
+    morphology variants): the scale is 1.0 by construction. A separate term,
+    not a fallback inside leg_length_extrinsic, so a variant env that loses
+    legScale still raises instead of reading 1.0."""
+    return torch.ones(env.num_envs, 1, device=env.device)
+
+
 def joint_range_extrinsic(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     asset: Articulation = env.scene[asset_cfg.name]
     limits = asset.data.joint_pos_limits
