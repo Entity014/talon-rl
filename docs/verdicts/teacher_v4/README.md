@@ -24,6 +24,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-a-b-input-contract-verdict.md
 - teacher-v4-c0-rollout-batch-audit.md
 - teacher-v4-c0a-objective-contract-verdict.md
+- teacher-v4-c1-screen-verdict.md
 
 ## Maintenance
 
