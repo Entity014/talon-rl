@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from talon_rl.config import RewardVectorCfg
 from talon_rl.rewards.locomotion import (
@@ -325,8 +326,8 @@ def test_alive_bonus_adds_flat_reward_only_while_not_fallen():
 
     reward = balance_reward(roll_pitch, terminal_fall=terminal_fall, fall_penalty=5.0, alive_bonus=0.3)
 
-    assert reward[1] == 0.3  # still alive this step: +alive_bonus, no penalty
-    assert reward[0] == 0.3 - 5.0  # fell this step: alive_bonus still added, then fall_penalty subtracted
+    assert reward[1] == pytest.approx(0.3)  # still alive this step: +alive_bonus, no penalty
+    assert reward[0] == pytest.approx(0.3 - 5.0)  # fell this step: alive_bonus still added, then fall_penalty subtracted
 
 
 def test_alive_bonus_gated_by_engagement_under_nonzero_command():
