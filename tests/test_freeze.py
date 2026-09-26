@@ -27,7 +27,7 @@ class _Demo(Freeze):
 
 @pytest.fixture
 def run_dir(tmp_path, monkeypatch):
-    import rl.core.freeze as mod
+    import rl.core.run_report as mod
     runs = tmp_path / "runs"
     (runs / "demo-run").mkdir(parents=True)
     (runs / "demo-run" / "input.json").write_text('{"n": 1}')
