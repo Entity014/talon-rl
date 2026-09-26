@@ -3,7 +3,7 @@ from pathlib import Path
 import sys,json,numpy as np,torch
 ROOT=Path(__file__).resolve().parents[4];sys.path[:0]=[str(ROOT),str(ROOT/"scripts")]
 RUN=ROOT/"runs/post_v2_t5_c25_actor_updating25-2026-09-23";OUT=ROOT/"runs/post_v2_t5_c26_angular_credit-2026-09-23"
-exec(open(ROOT/"scripts/rl/post_v2_t5_c25_eval.py").read().split("def main():")[0])
+exec(open(ROOT/"scripts/rl/experiments/post_v2/post_v2_t5_c25_eval.py").read().split("def main():")[0])
 SCALES=(0.0,1.0,2.0,4.0)
 def rollout_full(env,m,w,mgr,seed):
  from talon_rl.t3b_objectives import normalized_objective_vector

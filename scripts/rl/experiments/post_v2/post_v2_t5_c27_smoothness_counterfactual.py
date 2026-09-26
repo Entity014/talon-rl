@@ -3,7 +3,7 @@ from pathlib import Path
 import sys,json,numpy as np,torch
 ROOT=Path(__file__).resolve().parents[4];sys.path[:0]=[str(ROOT),str(ROOT/"scripts")]
 RUN=ROOT/"runs/post_v2_t5_c25_actor_updating25-2026-09-23";OUT=ROOT/"runs/post_v2_t5_c27_smoothness_safety-2026-09-23"
-exec(open(ROOT/"scripts/rl/post_v2_t5_c25_eval.py").read().split("def main():")[0])
+exec(open(ROOT/"scripts/rl/experiments/post_v2/post_v2_t5_c25_eval.py").read().split("def main():")[0])
 SEEDS=[2840503]
 def rollout(env,m,w,seed):
  cur,_=env.reset(seed=seed);cur=obs_tensor(cur).cuda();robot=env.unwrapped.scene["robot"];done=np.zeros(NENV,bool);prev=torch.zeros((NENV,env.unwrapped.action_manager.total_action_dim),device="cuda")
