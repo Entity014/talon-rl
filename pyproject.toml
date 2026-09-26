@@ -1,7 +1,7 @@
 [project]
 name = "talon-rl"
 version = "0.0.1"
-description = "Training code for TALON (Terrain-Adaptive Locomotion via Objective Negotiation) — prelim scope only."
+description = "Research and training code for TALON (Terrain-Adaptive Locomotion via Objective Negotiation)."
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
@@ -23,7 +23,7 @@ include = ["talon_rl*"]
 # scripts/rl/ isn't part of the installed talon_rl package (matches
 # jaykorea/Isaac-RL-Two-wheel-Legged-Bot's own scripts/co_rl/ convention —
 # the RL algorithm is driver code, not part of the portable task package)
-# — this lets tests/ import it the same way scripts/rl/train_prelim.py does.
+# — this lets tests/ import the RL driver package the same way scripts/rl/train.py does.
 pythonpath = ["scripts"]
 
 [build-system]

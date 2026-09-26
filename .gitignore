@@ -3,7 +3,13 @@ __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
+.d1_overlay/
+.d3_py311_site/
+.d3-mujoco-site/
+.d3-mujoco-site-py311/
 .venv/
+.venv-d3/
+.venv-d3-policy/
 venv/
 
 # --- Experiment artifacts ---
@@ -11,8 +17,10 @@ wandb/
 runs/
 logs/
 checkpoints/
+artifacts/
 *.pt
 *.pth
+*.npz
 
 # --- graphify (generated, rebuild with `graphify extract .`) ---
 graphify-out/

@@ -1,172 +1,240 @@
-# talon-rl
+# TALON RL
 
-Training code for **TALON** (*Terrain-Adaptive Locomotion via Objective
-Negotiation*) — the Multi-Objective Module prelim, split out of the
-[TALON-thesis](https://github.com/Entity014/TALON-thesis) proposal repo.
+Preference-conditioned multi-objective locomotion for the **Unitree A1**.
 
-## Status: prelim only, not a trained/converged result
+[Teacher architecture](docs/methods/architecture/teacher-architecture.md) · [Train and run](scripts/rl/README.md) · [Experiments](scripts/rl/experiments/README.md) · [Research docs](docs/README.md) · [RL core](scripts/rl/core/README.md)
 
-This repo does **not** produce a trained policy or a locomotion result. It
-now has two envs implementing the same [`BaseTalonEnv`](talon_rl/envs/base_env.py)
-contract: a physics-free `DummyTalonEnv` for fast CPU iteration, and a real,
-vectorized Isaac Lab environment (`IsaacLabTalonEnv`, registered as
-`Isaac-Talon-A1-v0`) that runs thousands of parallel Unitree A1 clones on a
-GPU machine via `ManagerBasedRLEnv`. Both are smoke tests proving the RL loop
-is wired correctly (`obs → policy(w) → action → reward vector → vector critic
-→ PPO update`), not a locomotion result. Nothing about "the policy improved"
-on either env is meaningful; only "the pipeline runs without breaking" is.
+---
 
-**Isaac Sim is the target simulator, and it's now wired up.** `IsaacLabTalonEnv`
-implements the same `reset()`/`step()` contract as `DummyTalonEnv` —
-`scripts/rl/core/algorithms/moppo.py` doesn't need to change at all to switch between them;
-see `--env dummy` vs `--env isaac_lab` below.
+This repo is the research stack for **TALON — Terrain-Adaptive Locomotion via Objective Negotiation**. It contains the Unitree A1 task, reusable RL infrastructure, preference-conditioned model families, simulator-transfer tooling, and the experiment record that explains how the current method was selected.
 
-See [docs/mdp.md](docs/mdp.md) for the field-by-field rationale behind every
-observation/action/reward-vector entry, and [CLAUDE.md](CLAUDE.md) for the
-invariants this code depends on before you change anything.
+The active target is a **privileged teacher** that sees robot state, plant/environment factors, and a variable-cardinality objective set. Instead of appending a fixed preference vector to the observation, TALON encodes the requested objectives as a set and uses that representation to realize a preference-specific policy from a learned policy family.
 
-## Scope of this prelim (see chapter3.tex for the full pipeline)
+## What TALON is building
 
-**In scope:**
+The teacher has three inputs:
 
-- Multi-Objective Module: MOPPO, Dirichlet-sampled preference vector $w$,
-  rate-limiter + floor-clip, vector critic $V(s,c,w)$ (table in §3.2.3)
-- Five Phase-1 preference-conditioned objectives: Progress, Energy, Impact,
-  Smoothness, and Balance. Clearance returns only when the Exteroception
-  Module supplies a meaningful obstacle signal.
+| input | role |
+|---|---|
+| robot state + previous action | current control context |
+| privileged plant/environment factors | true dynamics/environment context during teacher training |
+| objective-weight set | requested multi-objective behavior |
 
-**Out of scope (separate milestones, after the proposal defense):**
+The current architecture is:
 
-- Adaptation Module ($\hat z_t, \sigma_t$ — payload/morphology awareness)
-- Exteroception Module (depth-camera terrain/obstacle perception)
-- Full terrain curriculum (§3.3.1) — the qualitative gap/chasm test scenario
-  from §3.7.2 is the eventual target, not yet built here
-- Real Unitree A1 hardware (the Isaac Lab/Isaac Sim *simulated* A1 environment
-  exists — see Status above — but nothing here has run on the physical robot)
+```text
+robot state + previous action
+            |
+            v
+        State Trunk -----------+
+                               |
+privileged env factors         |
+            |                  |
+            v                  |
+   Env Factor Encoder ---------+----> Conditional Policy
+                               |       params = theta(z_w)
+objective-weight set           |               |
+            |                  |               v
+            v                  |            action
+   Set Encoder -> z_w          |               |
+            |                  |               v
+            v                  +-------> robot dynamics
+   Family Hypernetwork
+            |
+            v
+ theta(z_w) = theta_0 + sum_k c_k B_k
+```
 
-## Known gaps vs. chapter3.tex (don't mistake this for the real thing)
+The critic uses the same state, privileged context, and objective-set semantics and predicts values through a shared objective-query mechanism.
 
-- No OOD monitor gating $w$ (depends on $\sigma_t$ from the Adaptation Module,
-  which is out of scope).
+The full architecture, dimensions, and design rationale live in **[docs/methods/architecture/teacher-architecture.md](docs/methods/architecture/teacher-architecture.md)**.
 
-## A separate module: TienKung bimanual box-carry (not part of this thesis)
+## Where to find things
 
-`talon_rl/tasks/manipulation/tienkung_env/` and `talon_rl/assets/tienkung2_lite/`
-are a **separate research application** — applying this thesis's
-Multi-Objective RMA methodology to a different robot (TienKung2 Lite, a
-bipedal humanoid) and a different task (bimanual box-carrying, not
-locomotion). This is explicitly **out of TALON's own defended scope**:
-`00_Proposal §3.6` disclaims cross-embodiment transfer across different
-joint topologies, and TienKung's joint topology is nothing like the A1's.
+The links below go to the **README / landing page for each subsystem** first. Those pages explain the local structure and point to the concrete implementation files.
 
-It lives in this repo as a sibling module (not a separate repo) because it
-reuses this repo's generic infrastructure directly — `BaseTalonEnv`, the
-dim-agnostic preference-sampling functions in `scripts/rl/core/preference.py`
-— rather than because it's part of the thesis's claimed contribution. See
-`docs/superpowers/specs/2026-09-15-tienkung-manipulation-design.md` for the
-full design rationale. Round 1 only: asset vendoring + MDP config/reward +
-a physics-free dummy env, no real Isaac Lab env yet.
+### You want to train or run a policy
 
-## Layout
+| start here | what you will find |
+|---|---|
+| [RL runner](scripts/rl/README.md) | Training, playback, and sim-to-sim entry points. Start here for `train.py`, `play.py`, and `sim2sim.py`. |
+| [RL core](scripts/rl/core/README.md) | Reusable algorithms, rollout/GAE, objectives, preferences, normalization, checkpoints, runtime, and integration boundaries. |
+| [Unitree A1 task](talon_rl/tasks/locomotion/a1_env/README.md) | The Isaac Lab locomotion task: scene/MDP configuration, observations, actions, terrain, events, and terminations. |
+| [Teacher architecture](docs/methods/architecture/teacher-architecture.md) | The active Phase 1 teacher design: state trunk, privileged factor encoder, objective-set encoder, policy-family hypernetwork, and objective-query critic. |
 
-Split the same way as [jaykorea/Isaac-RL-Two-wheel-Legged-Bot](https://github.com/jaykorea/Isaac-RL-Two-wheel-Legged-Bot):
-`talon_rl/` is the portable, pip-installable task package (env/asset/MDP
-definitions only — swappable to any training algorithm); the RL algorithm
-itself is driver code under `scripts/`, not part of the installed package.
+### You are changing the learning architecture
+
+| start here | what you will find |
+|---|---|
+| [Models](talon_rl/models/README.md) | Actor/critic architecture families, grouped by mechanism rather than historical experiment ID. |
+| [Rewards](talon_rl/rewards/README.md) | Locomotion reward terms, objective grouping, and reward-vector semantics. |
+| [Curricula](talon_rl/curricula/README.md) | Command exposure and curriculum state-machine logic. |
+| [Optimization](talon_rl/optimization/README.md) | Reusable scalarization, scalar-critic, and optimization helpers. |
+| [Wrappers](talon_rl/wrappers/README.md) | Environment/model adapters such as scalar-reward and plant-ensemble wrappers. |
+| [TALON package](talon_rl/README.md) | Package-level map showing how models, rewards, tasks, deployment, optimization, and wrappers fit together. |
+
+### You are following the research
+
+| start here | what you will find |
+|---|---|
+| [Experiments](scripts/rl/experiments/README.md) | Executable research workflows grouped by architecture, baseline, diagnostic, evaluation, and transfer responsibility. |
+| [Research docs](docs/README.md) | Master index for the complete research record and the contract → evidence → verdict → closure → thesis chain. |
+| [Contracts](docs/contracts/README.md) | Questions, treatment/control definitions, invariants, and pass/fail gates fixed before evaluation. |
+| [Verdicts](docs/verdicts/README.md) | Retained conclusions from completed experiments, including failed/blocked branches and causal interpretations. |
+| [Closures](docs/closures/README.md) | Branch-level decisions that lock method selection or close a phase so resolved alternatives are not reopened. |
+| [Thesis](docs/thesis/README.md) | Method/results/discussion/conclusion synthesis plus traceability and figure/table production notes. |
+
+## Under the hood
+
+The repository is split into three layers.
+
+### `talon_rl/` — reusable task and model package
+
+This is the installed Python package.
 
 ```text
 talon_rl/
-  config.py          # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg / PreferenceCfg
-                      # — mirrors chapter3.tex tables 3.1-3.3
-  reward.py          # the 5 reward-vector terms + compute_reward_vector()
-  envs/
-    base_env.py        # interface any env (real or dummy) must implement
-  assets/
-    unitree_a1/
-      a1.py               # TALON_A1_CFG — UNITREE_A1_CFG + RMA Kp/Kd, local usd_path
-    data/Robots/unitree_a1/ # vendored A1 USD/mesh/texture + UrdfConverter config.yaml (~42MB, no live Nucleus dependency)
-    config/
-      extension.toml      # Isaac Sim Kit extension descriptor for talon_rl.assets
-  tasks/locomotion/a1_env/
-    a1_env.py            # IsaacLabTalonEnv(ManagerBasedRLEnv, BaseTalonEnv), registered Isaac-Talon-A1-v0
-    a1_env_cfg.py         # scene/observations/actions/terminations/events manager configs
-    mdp/                   # scripted MDP term functions (observations.py, terminations.py)
-tests/                # pytest — reward terms, preference math, end-to-end smoke tests
-scripts/
-  rl/                   # driver code, matches jaykorea's own scripts/co_rl/ split exactly:
-                        # entry point at this level, library nested one level deeper in core/
-                        # (core/algorithms/ — one file per algorithm, e.g. multiple SAC/TQC-
-                        # style variants — vs. this repo's current single MOPPO algorithm)
-    train_prelim.py      # entry point — mirrors co_rl/train.py sitting beside core/
-    play.py                # loads a checkpoint, runs deterministic inference,
-                           # optionally exports (--export) and/or analyzes (--analyze/--plot)
-    sim2sim.py               # mechanism-only Isaac Sim -> MuJoCo policy rollout (00_Proposal §3.4)
-    core/
-      algorithms/
-        moppo.py            # MOPPOConfig + MOPPOTrainer — preference-conditioned PPO
-                            # (vector critic, D3PO's Late-Stage Weighting — see losses.py);
-                            # rollout collection stays here rather than a shared runner
-                            # since the per-episode preference-vector sampling is
-                            # MOPPO-specific, not generic
-      losses.py               # D3PO's per-objective clip + diversity regularizer (arXiv:2602.07764)
-      modules/
-        actor_critic.py      # ActorCritic network shape — reusable across algorithms
-      storage/
-        rollout_storage.py    # gae_per_objective — GAE math, reusable across algorithms
-      wrapper/
-        exporter.py            # TorchScript policy export for deployment/sim2sim
-      run_dir.py                 # logs/talon_rl/<run>/ management — config.yaml dump,
-                                 # checkpoint.pt, --load_run "last" resolution
-      analyzer.py                 # play.py's --analyze/--plot: per-step signal
-                                  # collection + matplotlib PNGs, own impl (not a port —
-                                  # see the module's own docstring for why)
-      sim2sim.py                   # A1 MuJoCo observation-building + rollout mechanism
-      preference.py                  # Dirichlet sampling, rate-limiter, floor-clip
-      obs_stack.py                     # batched (N, stacks, obs_dim) actor/critic observation history
-      dummy_env.py                       # physics-free smoke-test env (BaseTalonEnv-implementing, training-only)
+├── assets/          robot assets and configuration
+├── curricula/       curriculum and command scheduling
+├── deployment/      deployment/runtime and simulator adapters
+├── isaaclab/        local Isaac Lab extensions
+├── models/          actor/critic architecture families
+├── optimization/    reusable optimization helpers
+├── rewards/         reward/objective definitions
+├── tasks/           robot task definitions
+└── wrappers/        environment/model wrappers
 ```
+
+### `scripts/rl/core/` — reusable RL infrastructure
+
+Training machinery lives here rather than inside the task package.
 
 ```text
-talon_rl/tasks/manipulation/tienkung_env/  # separate module, see the section above — not part of this thesis
-  config.py             # ObservationSpaceCfg / ActionSpaceCfg / RewardVectorCfg for this task
-  reward.py             # its own 5-term reward vector, retargeted for box carry
-  dummy_env.py           # physics-free smoke-test env, mirrors scripts/rl/core/dummy_env.py's structure
-talon_rl/assets/tienkung2_lite/  # vendored TienKung2 Lite asset, mirrors assets/unitree_a1/'s pattern
+core/
+├── algorithms/
+├── checkpoint/
+├── diagnostics/
+├── envs/
+├── experiment_io/
+├── integration/
+├── modules/
+├── normalization/
+├── objectives/
+├── policies/
+├── preferences/
+├── rollout/
+└── runtime/
 ```
 
-## Running it
+Environment implementations satisfy the structural `TalonEnv` contract; task packages do not need to inherit from a training-framework base class.
+
+### `scripts/rl/experiments/` — research workflows
+
+Experiments are organized by **what they investigate**, not only by historical phase number.
+
+```text
+experiments/
+├── architectures/
+├── baselines/
+├── common/
+├── diagnostics/
+├── evaluation/
+└── transfer/
+```
+
+Historical IDs such as `B0`, `V2B`, `C25`, `AI-C2`, and `Phase5-E2` are retained inside stage names, run directories, contracts, and verdicts so the thesis lineage is still auditable.
+
+## Quickstart
+
+Python 3.10+ is required.
 
 ```bash
+git clone https://github.com/Entity014/talon-rl.git
+cd talon-rl
+
+python -m venv .venv
+source .venv/bin/activate
+
 pip install -e ".[dev]"
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest tests/
-python scripts/rl/train_prelim.py --updates 50
 ```
 
-(`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` works around an unrelated ROS
-`launch_testing` pytest plugin conflict on some machines — harmless to
-include everywhere.)
-
-### Isaac Lab smoke test (requires the separate `~/isaac-lab-env` venv, GPU machine only)
+Main entry points:
 
 ```bash
-source ~/isaac-lab-env/bin/activate
-PYTHONPATH=.:scripts python scripts/rl/train_prelim.py --env isaac_lab --updates 5 --num_envs 4096
+python scripts/rl/train.py
+python scripts/rl/play.py
+python scripts/rl/sim2sim.py
 ```
 
-Proves the pipeline runs against a real, vectorized Isaac Lab environment
-(`ManagerBasedRLEnv`, 4096 parallel A1 clones) — same "doesn't crash" bar as
-the single-env 2026-09-13 version, not a locomotion result. See
-`docs/superpowers/specs/2026-09-14-vectorized-isaac-lab-env-design.md` for
-the vectorization design and
-`docs/superpowers/specs/2026-09-13-isaac-lab-env-setup-design.md` for the
-original single-env setup and known limitations.
+Isaac Lab training requires the project's Isaac Lab / Isaac Sim environment and a compatible GPU setup.
 
-## Next milestones (after proposal defense)
+## How the research record works
 
-1. ~~Write `IsaacLabTalonEnv(BaseTalonEnv)` against the real Unitree A1 asset.~~ Done — see `talon_rl/tasks/locomotion/a1_env/`.
-2. ~~Add running per-objective reward normalization.~~ Done — see `RunningMeanStd` in `scripts/rl/core/running_norm.py`, wired into `MOPPOTrainer._collect_rollout`.
-3. Reproduce the RMA (Kumar et al. 2021) two-phase teacher-student baseline —
-   this is the Adaptation Module, currently entirely absent here.
-4. Build the Exteroception Module (depth → terrain/obstacle embedding).
-5. Run the §3.7.2 qualitative gap/chasm test for real, with a real reward
-   trade-off, not the dummy env's toy one.
+TALON keeps the experimental history in the repo instead of collapsing it into one final implementation.
+
+```text
+contract
+   |
+   v
+experiment implementation
+   |
+   v
+run / artifact evidence
+   |
+   v
+verdict
+   |
+   v
+closure
+   |
+   v
+thesis synthesis
+```
+
+That distinction matters:
+
+- **contracts** say what must be tested;
+- **experiments** produce the evidence;
+- **verdicts** record what the evidence supports;
+- **closures** decide what branch remains active;
+- **thesis docs** synthesize the retained chain.
+
+Start at **[docs/README.md](docs/README.md)** if you are trying to reconstruct why a design decision exists.
+
+## Current status
+
+Completed research in this repository includes:
+
+- deterministic scalar locomotion and reference-policy reproduction,
+- reward-preserving vectorization,
+- preference-conditioned PPO / MORL baselines,
+- preference-authority and policy-family architecture studies,
+- critic representation and semantic-credit diagnostics,
+- simulator-transfer and plant-alignment studies,
+- controller-transfer and ensemble-robustness studies.
+
+The active next implementation is the **Phase 1 privileged teacher architecture** described above.
+
+Its goal is to establish a controllable, environment-aware policy family before a later student/adaptation stage removes direct access to privileged environment factors.
+
+## TienKung sibling task
+
+[`talon_rl/tasks/manipulation/tienkung_env/`](talon_rl/tasks/manipulation/tienkung_env/) and [`talon_rl/assets/tienkung2_lite/`](talon_rl/assets/tienkung2_lite/) are a sibling research application that reuses TALON's generic infrastructure.
+
+They are **not** part of the defended Unitree A1 locomotion contribution.
+
+## Repository rule of thumb
+
+```text
+source folder     = responsibility / mechanism
+source file       = concrete responsibility
+experiment stage  = historical provenance
+
+docs folder       = document role + research domain
+docs filename     = provenance-bearing research identity
+```
+
+If you are adding reusable code, it should usually go into `talon_rl/` or `scripts/rl/core/`.
+
+If you are testing a scientific question, it belongs under `scripts/rl/experiments/` with its contract/verdict trail under `docs/`.
