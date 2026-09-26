@@ -35,6 +35,7 @@ class IsaacAudit(RunReport):
     seed: int = 0              # the env's construction seed, not a rollout seed
     reset_seed: int | None = None   # None means reuse `seed` for the first reset
     set_cfg_seed: bool = True       # a couple of snapshots never set it
+    set_usd_path: bool = True       # a few audits ran against Isaac's own asset
 
     # --- what a subclass fills in ---
 
@@ -60,7 +61,8 @@ class IsaacAudit(RunReport):
         cfg.scene.num_envs = self.num_envs
         if self.set_cfg_seed:
             cfg.seed = self.seed
-        cfg.scene.robot.spawn.usd_path = str(A1_USD)
+        if self.set_usd_path:
+            cfg.scene.robot.spawn.usd_path = str(A1_USD)
         self.configure(cfg)
         self.cfg = cfg
         env = gym.make(self.task, cfg=cfg)
