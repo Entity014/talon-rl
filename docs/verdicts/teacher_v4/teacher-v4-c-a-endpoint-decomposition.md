@@ -224,3 +224,51 @@ gradient near it, rather than a sign error in A.
 Not yet tested: whether about 0.3 rad/s is a physical floor for this gait
 at the commanded speeds, or an A-specific learning limit (O-heavy reaching
 0.288 suggests it is not a hard floor).
+
+## Follow-up: A-credit audit (read-only, 2026-09-27)
+
+Script `a_credit_audit.py` (commit `86b1f0a`), output `a_credit_audit.json`
+per run. At checkpoints 50, 100 and 150: 1024 envs, 50 warm-up steps, then a
+24-step batch collected as in `train_v4c.py` (fold cardinalities, the
+checkpoint's own critic, training advantage normalization). At ratio 1 the
+actor loss splits exactly into per-objective parts L_i; g_i = ∇ L_i on the
+actor parameters.
+
+| run | it | gradient share T / A / O / S | cos(g_i, g_mixed) T / A / O / S | cos(g_A, g_O) | cos(g_A, g_S) |
+|---|---:|---|---|---:|---:|
+| G1-3 s73103 (reversal) | 50 | .12 / **.22** / .23 / .43 | −.37 / **+.45** / −.17 / +.79 | −.56 | +.18 |
+| | 100 | .19 / **.28** / .26 / .26 | +.40 / **+.55** / +.29 / +.24 | −.23 | +.01 |
+| | 150 | .20 / **.21** / .28 / .31 | +.48 / **+.52** / +.23 / +.62 | −.34 | +.31 |
+| G1-2 s73102 (clean A) | 50 | .09 / **.33** / .40 / .18 | +.27 / **+.11** / +.22 / +.47 | −.87 | +.45 |
+| | 100 | .29 / **.20** / .26 / .24 | +.58 / **+.34** / +.25 / +.35 | −.41 | +.20 |
+| | 150 | .32 / **.17** / .24 / .27 | +.53 / **+.36** / +.42 / +.54 | −.12 | +.41 |
+| G1-3 s73101 (control) | 50 | .05 / **.23** / .63 / .08 | +.04 / **+.79** / +.95 / −.05 | +.58 | +.21 |
+| | 100 | .02 / **.16** / .78 / .03 | −.06 / **+.71** / +.99 / −.02 | +.60 | −.08 |
+| | 150 | .03 / **.34** / .58 / .04 | +.22 / **+.90** / +.97 / −.07 | +.78 | −.09 |
+
+Weighted surrogate shares follow the same pattern (A: .21–.27 in s73103,
+.19–.34 in s73102, .13–.25 in s73101).
+
+Reading, against the cases set beforehand:
+
+- **"A under-powered" is not supported.** A's gradient share is 0.16–0.34
+  everywhere, around its fair share of 0.25, and it is not smaller in the
+  reversal seed.
+- **The A signal is as large and as aligned in s73103 as in s73102,** yet the
+  outcomes are opposite. In the reversal seed, g_A is at least as aligned
+  with the mixed update (+0.45 to +0.55) as in the clean seed (+0.11 to
+  +0.36). This matches both "strong, aligned A gradient without closed-loop
+  improvement" and "similar signal, different outcome → seed basin /
+  trajectory geometry".
+- **A–O gradient conflict exists, but it does not discriminate the seeds.**
+  cos(g_A, g_O) is negative in both s73102 and s73103, and positive in the
+  control. The control is dominated by O instead (gradient share
+  0.58–0.78).
+
+The open question this leaves: in s73103, A's gradient is strong and
+aligned, but its direction does not improve true A. That gradient is built
+from advantages of an A critic whose MC256 EV at these checkpoints is
+between −14 and −8 (ladder above). If those A advantages do not correlate
+with real A returns, the policy is pushed hard in a direction the critic
+invented. A direct check is the correlation between GAE A-advantages and
+MC256-based A-advantages on the same batch, per seed.
