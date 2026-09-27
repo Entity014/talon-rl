@@ -6,7 +6,7 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-20 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+22 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
@@ -24,7 +24,9 @@
 | `null_branch_feasibility.py` | 127 | class | V4-C2 null-only branch feasibility: how different are two branches restored from the same snapshot under the SAME preference, per horizon? |
 | `objective_contract_audit.py` | 116 | class | V4-C0a objective-contract port check: the T/A/O/S reward terms on Isaac-Talon-A1-v0 match the stock A1 flat terms in config and kernel output. |
 | `preference_effect.py` | 159 | class | V4-C2 null-calibrated preference-effect test (docs/contracts/teacher_v4/teacher-v4-c2-semantic-relation-contract.md, frozen at c1380f3). |
+| `s_candidates_audit.py` | 100 | — | V4-C2S data collection for one checkpoint (docs/contracts/teacher_v4/teacher-v4-c2s-smoothness-reformulation-contract.md). |
 | `spawn_benchmark.py` | 124 | class | V4-B1-Fix1 benchmark of one Isaac-Talon-A1-v0 config: startup, VRAM, env throughput and leg-length variant spread under replicate_physics on/off. |
+| `specificity_aggregate.py` | 120 | — | V4-C2F aggregation: layers 1-3 of the objective specificity audit over the per-checkpoint specificity_audit.npz files, and the reading fixed in the contract. |
 | `specificity_audit.py` | 101 | class | V4-C2F data collection for one checkpoint (docs/contracts/teacher_v4/teacher-v4-c2f-specificity-audit-contract.md). |
 | `switch_semantics.py` | 163 | class | V4-C2R switch-controlled semantic test (docs/contracts/teacher_v4/teacher-v4-c2r-switch-controlled-contract.md). |
 | `train_v4c.py` | 187 | trains class | V4-C trainer: TeacherV4 from scratch on Isaac-Talon-A1-V4C-v0 with objective-set PPO in the M0 shell. |
@@ -40,4 +42,5 @@
 - `runs/teacher_v4_c0a2_v4c_env_parity-2026-09-26`
 - `runs/teacher_v4_c0a3_divisor_calibration-2026-09-27`
 - `runs/teacher_v4_c0a_objective_contract-2026-09-26`
+- `runs/teacher_v4_c2f_specificity_audit-2026-09-27`
 - `runs/update_functional_effect_audit-2026-09-24`
