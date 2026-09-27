@@ -57,8 +57,9 @@ authority is not the same as generalized semantic correctness.
 
 ## What comes next (separate branches, never mixed into V4-C)
 
-- V4-C2 / A-Repair: objective-formulation repair for A, starting with a
-  same-state counterfactual audit. Changes only the objective / learning
-  formulation.
+- V4-C2 / Semantic Preservation (branch `v4-c2-semantic-preservation`):
+  make "raising w_i improves objective i" a first-class, objective-general
+  property, starting from a same-state semantic-relation baseline. Changes
+  only the objective / learning formulation.
 - V4-D: plant generalization (broader e_t, Talon env, 2048 × 24 contract),
   only after the Teacher's semantic core passes.
