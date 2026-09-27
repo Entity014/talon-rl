@@ -272,3 +272,50 @@ between −14 and −8 (ladder above). If those A advantages do not correlate
 with real A returns, the policy is pushed hard in a direction the critic
 invented. A direct check is the correlation between GAE A-advantages and
 MC256-based A-advantages on the same batch, per seed.
+
+## Final A diagnostic: credit quality (read-only, 2026-09-27)
+
+Script `a_credit_quality.py`, output `a_credit_quality.json` per run. Same
+batch as the credit audit (1024 envs, 50 warm-up, 24 scored steps collected
+as in training), with the same trajectory continued 255 more steps. On the
+same states and with the same checkpoint baseline:
+A_GAE (training GAE, 24-step window) vs A_MC256 = G_A^MC256 − V_A(s_t),
+active-A samples only (≈18.5k per checkpoint).
+
+| run | it | Pearson | Spearman | sign agree (centered) | GAE− / MC+ | GAE+ / MC− | std ratio GAE/MC |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| G1-3 s73103 (reversal) | 50 | 0.37 | 0.40 | 0.63 | 0.19 | 0.00 | 0.42 |
+| | 100 | 0.53 | 0.44 | 0.66 | 0.25 | 0.04 | 0.31 |
+| | 150 | 0.51 | 0.44 | 0.65 | 0.28 | 0.06 | 0.37 |
+| G1-2 s73102 (clean A) | 50 | 0.42 | 0.38 | 0.63 | 0.15 | 0.00 | 0.33 |
+| | 100 | 0.39 | 0.43 | 0.65 | 0.27 | 0.01 | 0.23 |
+| | 150 | 0.51 | 0.45 | 0.66 | 0.27 | 0.02 | 0.26 |
+| G1-3 s73101 (control) | 50 | 0.47 | 0.39 | 0.62 | 0.17 | 0.00 | 0.37 |
+| | 100 | 0.84 | 0.47 | 0.66 | 0.25 | 0.01 | 0.53 |
+| | 150 | 0.76 | 0.47 | 0.72 | 0.27 | 0.06 | 0.55 |
+
+Reading, against the cases fixed beforehand:
+**s73103 and s73102 are nearly identical** (Pearson 0.37–0.53 vs 0.39–0.51,
+centered sign agreement 0.63–0.66 in both). Credit mismatch is **not** what
+separates the seeds. Credit quality for A is middling in every run, with
+one shared bias: GAE calls the A outcome negative when the 256-step outcome
+is positive in 15–28% of samples, and the reverse in ≤ 6%. Mean A_MC256 is
+positive (+0.03…+0.71), so V_A underestimates long-horizon A returns. That is
+a common V4 property, not a seed separator.
+
+## A-line conclusion (closed)
+
+- The A failures are not a sign or proxy error (A3 never occurs, A2 is
+  minor), not A under-powering (gradient share at fair share), not A–O
+  redundancy alone (actions separate; outcome overlap is partial and shared
+  with A–S), and not critic credit quality (same in good and bad seeds).
+- The reversal seed is wrong on A from iteration 50 and never corrects. The
+  seeds diverge between iterations 50 and 100, with equal A signal size,
+  alignment and credit quality.
+- A-heavy's absolute ‖ω_xy‖ settles near 0.33 rad/s in every run; whether A
+  passes depends on where the center policy drifts.
+
+Classification: **optimization / closed-loop basin sensitivity**, on top of
+a shared, moderate A-credit bias (V_A underestimates A returns) and a weak
+marginal A effect near about 0.33 rad/s. The A mechanism line is closed; no
+further local diagnostics.
