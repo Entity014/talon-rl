@@ -64,3 +64,14 @@ def restore(env, snap: dict, settle: int = SETTLE) -> dict:
         getattr(cmd, k)[:] = snap["cmd"][k]
     u.episode_length_buf[:] = snap["episode_length"]
     return {k: v.clone() for k, v in snap["obs"].items()}
+
+
+def semantic_scores(u, a, prev):
+    """Per-env S_T, S_A, S_O, S_S (higher is better): the G1 physical metrics with the sign flipped."""
+    from g1_evaluate import tilt_deg
+    d = u.scene["robot"].data
+    cmd = u.command_manager.get_command("base_velocity")
+    return torch.stack([-((d.root_lin_vel_b[:, 0] - cmd[:, 0]).abs() + (d.root_ang_vel_b[:, 2] - cmd[:, 2]).abs()),
+                        -torch.linalg.vector_norm(d.root_ang_vel_b[:, :2], dim=-1),
+                        -tilt_deg(d.root_quat_w),
+                        -torch.linalg.vector_norm(a - prev, dim=-1)], -1)

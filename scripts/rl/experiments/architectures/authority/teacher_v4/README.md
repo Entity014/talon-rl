@@ -6,7 +6,7 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-15 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+17 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
@@ -21,9 +21,11 @@
 | `g1_evaluate.py` | 290 | class | V4-C G1 evaluation of one fold/seed at iteration 300: the V3 G1 protocol (objective_set_g1_evaluate.py) ported to TeacherV4 on Isaac-Talon-A1-V4C-v0. |
 | `g1r_critic_evaluate.py` | 130 | class | V4-C G1-R: critic validity of the frozen V4-C checkpoints against a fixed 256-step Monte Carlo target, per docs/contracts/teacher_v4/teacher-v4-c-g1r-critic-contract.md. |
 | `leg_length_audit.py` | 142 | class | V4-B1 audit of the e_t leg_length channel: USD variants, per-env spawn, legScale lookup and physical leg geometry. |
+| `null_branch_feasibility.py` | 127 | class | V4-C2 null-only branch feasibility: how different are two branches restored from the same snapshot under the SAME preference, per horizon? |
 | `objective_contract_audit.py` | 116 | class | V4-C0a objective-contract port check: the T/A/O/S reward terms on Isaac-Talon-A1-v0 match the stock A1 flat terms in config and kernel output. |
 | `spawn_benchmark.py` | 124 | class | V4-B1-Fix1 benchmark of one Isaac-Talon-A1-v0 config: startup, VRAM, env throughput and leg-length variant spread under replicate_physics on/off. |
 | `train_v4c.py` | 187 | trains class | V4-C trainer: TeacherV4 from scratch on Isaac-Talon-A1-V4C-v0 with objective-set PPO in the M0 shell. |
+| `twins.py` | 77 | — | Same-state branching on Isaac-Talon-A1-V4C-v0: snapshot every env, then restore the snapshot into the same envs before each branch. |
 | `v4c_env_parity.py` | 116 | class | V4-C env gate: Isaac-Talon-A1-V4C-v0 equals stock Isaac-Velocity-Flat-Unitree-A1-v0 except the declared additions, and its e_t is 12-D. |
 
 ## Run directories these touch

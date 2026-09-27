@@ -114,3 +114,53 @@ Two separate problems:
 Exact same-state counterfactuals are therefore available only for a few
 steps right after reset, not at walking states. This section must be
 resolved before the contract is frozen.
+
+## Null-only branch feasibility (2026-09-27, no preference effect measured)
+
+Decision (user): replace the exact twin gate with a **branch-noise-calibrated
+preference-effect test**. That test answers whether the preference effect
+exceeds the simulator's own branch, restore and chaos noise. It is not an
+exact counterfactual.
+
+Script `null_branch_feasibility.py`, results
+`runs/teacher_v4_c2_null_branch-2026-09-27/`. Two checkpoints (G1-2 s73104,
+A endpoint passes; G1-3 s73104, A fails), 2 env seeds × 256 snapshots = 512
+snapshots each. Obs corruption off. Three branches restored in place from
+each snapshot, all with the center preference. The snapshot is the unit.
+
+Per-snapshot null std of S_i averaged over 1..H steps (branch 2 − branch 1):
+
+| H | G1-2 s73104 T / A / O / S | G1-3 s73104 T / A / O / S |
+|---:|---|---|
+| 1 | .0091 / .0299 / .0198 / 0 | .0009 / .0045 / .0026 / 0 |
+| 4 | .0118 / .0151 / .0375 / .0059 | .0007 / .0028 / .0014 / .0004 |
+| 8 | .0077 / .0109 / .0368 / .0036 | .0004 / .0023 / .0013 / .0003 |
+| 16 | .0083 / .0094 / .0233 / .0017 | .0003 / .0014 / .0011 / .0002 |
+| 32 | .0084 / .0047 / .0149 / .0018 | .0002 / .0009 / .0008 / .0001 |
+
+(A in rad/s, O in degrees.) No snapshot terminated within 32 steps.
+
+Findings:
+
+1. **Noise does not grow with H.** Averaged over the horizon, it shrinks.
+   Chaos makes individual trajectories diverge, but the per-snapshot score
+   difference stays bounded. At the population level every H from 1 to 32 is
+   usable.
+2. **Resolution at the population level is about 0.001–0.003** (95% CI
+   half-width of the mean over 512 snapshots). The A effects the endpoints
+   showed (Δ‖ω_xy‖ 0.01–0.16 rad/s) are 5–100× larger.
+3. **A small branch-position bias exists.** In G1-3 s73104 the mean of
+   branch 2 − branch 1 excludes 0 for A (e.g. +0.00036 at H = 4) and for O,
+   while branch 3 − branch 2 is ≈ 0. The first restored branch differs from
+   later ones: it continues with the warm-up's solver cache, while later
+   branches inherit the previous branch's. Its size is ≤ 0.0017 in both
+   checkpoints. The preference test must counterbalance branch position,
+   or discard the first branch as a burn-in.
+4. **Noise depends on the checkpoint.** G1-2 s73104 is 5–10× noisier than
+   G1-3 s73104. There is no dependence on command speed. At short H in the
+   noisy checkpoint, per-snapshot sign agreement is unreliable (null std ≈
+   the effect), so the test should use population means, not per-pair
+   signs.
+
+Conclusion: a usable horizon exists (all of 1–32) at the population level.
+The same-state method is kept as a null-calibrated population test.
