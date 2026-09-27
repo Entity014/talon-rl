@@ -15,3 +15,4 @@ Predeclared protocols for the V4 privileged teacher stages.
 
 - teacher-v4-c-g1-contract.md
 - teacher-v4-c-g1r-critic-contract.md
+- teacher-v4-c-seed-sensitivity-contract.md
