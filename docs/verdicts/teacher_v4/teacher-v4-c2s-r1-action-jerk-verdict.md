@@ -58,3 +58,31 @@ objective) is subsumed by the gait's stability dynamics. Per the contract,
 Side observation: under S1 training, the A–O coupling rose (ρ 0.09→0.24 per
 step, 0.15→0.35 per window), as did O–S (0.00→0.14). The objectives' mutual
 structure depends on what S is.
+
+## Integrity diagnostic: the collapsed critic (read-only, 2026-09-28)
+
+Offline, on the saved checkpoints; the fixed probe states and nominal e_t;
+compared with the healthy G1-2 s73101 S1 run.
+
+- G1-2 s73102 S1: the critic body's **last layer (256 → 128, ELU) is dead**.
+  0% of its units are unsaturated on the probes, so c_t is constant (std 0)
+  and V varies only with the objective query. The earlier layers are alive
+  (91% and 49% unsaturated). The critic-body weights stop changing after
+  iteration 50 (norms 20.11 and 14.50 identical at 50, 100 and 300),
+  because the saturated ELU passes almost no gradient. Only the query
+  head's output bias keeps tracking mean returns. There are no NaN/inf
+  values, and Adam state is finite.
+- The healthy run has c_t std 0.45–0.65 and 16–30% of units active.
+- A survey of every saved checkpoint in all 22 V4-C / V4-C2S-R1 runs finds a
+  dead critic only in this run (from ≤ iteration 50).
+
+Classification: **stochastic optimizer collapse (dead-unit saturation of the
+last critic layer)**. It is not a numerical fault and not a logging artifact.
+A plausible contributor is that the critic's LR follows the actor-KL
+adaptive schedule, which reaches 3–5e-3 early. That is not tested and not
+changed here.
+
+Integrity gate added to `train_v4c.py` for later rounds: the logged
+`critic_feature_std_max` on 1024 rollout states each iteration, and a stop
+(the run counts as failed, not replaced) after 5 consecutive iterations with
+c_t std < 1e-5.

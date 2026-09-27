@@ -27,6 +27,7 @@ from rl.core.algorithms.objective_set_ppo import PPOConfig, gae, normalize_advan
 from rl.core.normalization.running import RunningNormalizer
 
 LOG_STD_GATE = (-5.0, 2.0)
+DEAD_CRITIC_STREAK = 5  # consecutive iterations with a constant critic feature c_t
 
 
 class TrainV4C(IsaacAudit):
@@ -100,6 +101,7 @@ class TrainV4C(IsaacAudit):
         def norm_e(o):
             return torch.as_tensor(norm.transform(o["privileged"].cpu().numpy()), dtype=torch.float32, device=dev)
 
+        dead_streak = 0
         for it in range(1, a.iterations + 1):
             buf = {k: [] for k in ("obs", "env", "w", "mask", "u", "old_logp", "old_mu", "old_sigma", "old_values", "r", "d")}
             raw_e, done_ret, done_len = [], [], []
@@ -151,11 +153,15 @@ class TrainV4C(IsaacAudit):
                 w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev)
                 pref_auth = float((model.act_inference(xo, eo, io, w2) - a0).norm(dim=-1).median())
                 plant_auth = float((model.act_inference(xo, eo.roll(1, 0), io, wo) - a0).norm(dim=-1).median())
+                # Integrity: a dead critic body (every last-layer ELU unit saturated, so c_t is
+                # constant and its gradients vanish) happened in 1/22 V4-C runs. Gate, not fix.
+                c_std = float(model.critic_features(xo, eo, io, wo).std(0).max())
+            dead_streak = dead_streak + 1 if c_std < 1e-5 else 0
             ls = model.log_std.detach()
             rec = {"iteration": it, "env_samples": it * N * H, "lr": lr, **st,
                    "log_std": {"min": float(ls.min()), "mean": float(ls.mean()), "max": float(ls.max())},
                    "reward_per_step": T["r"].mean((0, 1)).tolist(), "explained_variance": ev,
-                   "preference_authority": pref_auth, "plant_authority": plant_auth,
+                   "preference_authority": pref_auth, "plant_authority": plant_auth, "critic_feature_std_max": c_std,
                    "termination_fraction": float(T["d"].float().mean()),
                    "episodes_finished": int(sum(len(x) for x in done_len)),
                    "wall_s": round(time.time() - start, 1)}
@@ -167,6 +173,9 @@ class TrainV4C(IsaacAudit):
             print("ITER", json.dumps({k: rec[k] for k in ("iteration", "lr", "kl", "clip_frac", "value", "explained_variance", "preference_authority", "log_std", "episode_length_mean") if k in rec}), flush=True)
 
             finite = all(np.isfinite(v) for v in st.values()) and bool(torch.isfinite(ls).all())
+            if dead_streak >= DEAD_CRITIC_STREAK:
+                self._save(model, aopt, copt, lr, norm, it, "stopped")
+                raise RuntimeError(f"stop gate at iteration {it}: critic body dead (c_t std < 1e-5) for {dead_streak} iterations")
             if not finite or ls.min() < LOG_STD_GATE[0] or ls.max() > LOG_STD_GATE[1]:
                 self._save(model, aopt, copt, lr, norm, it, "stopped")
                 raise RuntimeError(f"stop gate at iteration {it}: finite={finite} log_std=[{float(ls.min())}, {float(ls.max())}]")
