@@ -96,5 +96,6 @@ class SCandidates(SpecificityAudit):
 
 if __name__ == "__main__":
     a = SCandidates.parse_args((("--fold",), {"choices": ("G1-2", "G1-3"), "required": True}),
-                               (("--seed",), {"type": int, "required": True}))
-    SCandidates(a.fold, a.seed, 300, a.out).execute()
+                               (("--seed",), {"type": int, "required": True}),
+                               (("--checkpoint",), {"help": "checkpoint outside the V4-C run dirs (e.g. V4-C2S-R1); use with --out"}))
+    SCandidates(a.fold, a.seed, 300, a.out, a.checkpoint).execute()
