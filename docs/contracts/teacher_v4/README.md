@@ -21,3 +21,4 @@ Predeclared protocols for the V4 privileged teacher stages.
 - teacher-v4-c2f-specificity-audit-contract.md
 - teacher-v4-c2s-smoothness-reformulation-contract.md
 - teacher-v4-c2s-r1-action-jerk-contract.md
+- teacher-v4-c3-training-contract.md

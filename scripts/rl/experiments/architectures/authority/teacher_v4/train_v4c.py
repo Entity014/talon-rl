@@ -43,6 +43,9 @@ class TrainV4C(IsaacAudit):
         self.num_envs = a.num_envs
         self.seed = a.seed
         self.cardinalities = tuple(int(x) for x in a.cardinalities.split(","))
+        self.objectives = a.objectives
+        if not self.objectives or any(x not in "TAOS" for x in self.objectives) or len(set(self.objectives)) != len(self.objectives):
+            raise SystemExit("--objectives must be distinct letters from TAOS, e.g. TAO")
 
     def build_env(self):
         import gymnasium as gym
@@ -74,26 +77,30 @@ class TrainV4C(IsaacAudit):
         mgr = u_env.reward_manager
         names = list(mgr.active_terms)
         # [K, n_terms] summing matrix for the T/A/O/S grouping, divided by the frozen divisors
-        S = torch.zeros(4, len(names), device=dev)
         groups = [list(t) for t in OBJECTIVE_TERMS.values()]
         divisors = np.asarray(NORMALIZATION_DIVISORS, dtype=np.float64).copy()
         if a.s_objective == "action_jerk":  # V4-C2S-R1: S1 replaces action_rate_l2 as the S objective
             from talon_rl.rewards.objectives import S1_DIVISOR, S1_TERM
             groups[3] = [S1_TERM]; divisors[3] = S1_DIVISOR
+        # objective subset, in T/A/O/S order (V4-C3 drops S: "T,A,O")
+        keep = ["TAOS".index(x) for x in self.objectives]
+        groups = [groups[k] for k in keep]; divisors = divisors[keep]
+        K = len(keep)
+        S = torch.zeros(K, len(names), device=dev)
         for k, terms in enumerate(groups):
             for t in terms:
                 S[k, names.index(t)] = 1.0
         S /= torch.as_tensor(divisors, dtype=torch.float32, device=dev).unsqueeze(-1)
 
-        model = TeacherV4().to(dev)
+        model = TeacherV4(num_objectives=K).to(dev)
         aopt = torch.optim.Adam(model.actor_parameters(), lr=cfg.lr)
         copt = torch.optim.Adam(model.critic_parameters(), lr=cfg.lr)
         lr = cfg.lr
         norm = RunningNormalizer(12, center=True)
         norm.update(obs["privileged"].cpu().numpy())
-        ids = torch.arange(4, device=dev).expand(N, -1).contiguous()
-        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev)
-        ep_ret = torch.zeros(N, 4, device=dev)
+        ids = torch.arange(K, device=dev).expand(N, -1).contiguous()
+        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=K)
+        ep_ret = torch.zeros(N, K, device=dev)
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
         start = time.time()
@@ -127,7 +134,7 @@ class TrainV4C(IsaacAudit):
                         di = d.nonzero().squeeze(-1)
                         done_ret.append(ep_ret[di].clone()); done_len.append(ep_len[di].clone())
                         ep_ret[di] = 0; ep_len[di] = 0
-                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev)
+                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=K)
                         w = w.clone(); mask = mask.clone()
                         w[di], mask[di] = nw, nm
                 last_v = model.query_values(obs["policy"], norm_e(obs), ids, w, ids)
@@ -150,7 +157,7 @@ class TrainV4C(IsaacAudit):
                 pick = torch.randperm(flat["obs"].shape[0], generator=gen)[:1024].to(dev)
                 xo, eo, io, wo = flat["obs"][pick], flat["env"][pick], flat["ids"][pick], flat["w"][pick]
                 a0 = model.act_inference(xo, eo, io, wo)
-                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev)
+                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev, num_objectives=K)
                 pref_auth = float((model.act_inference(xo, eo, io, w2) - a0).norm(dim=-1).median())
                 plant_auth = float((model.act_inference(xo, eo.roll(1, 0), io, wo) - a0).norm(dim=-1).median())
                 # Integrity: a dead critic body (every last-layer ELU unit saturated, so c_t is
@@ -182,7 +189,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "s_objective": a.s_objective, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -191,7 +198,7 @@ class TrainV4C(IsaacAudit):
     def _save(self, model, aopt, copt, lr, norm, it, name):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
-                    "cardinalities": list(self.cardinalities), "seed": self.seed}, self.out / f"{name}.pt")
+                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -202,5 +209,6 @@ if __name__ == "__main__":
         (("--cardinalities",), {"required": True, "help": "comma list of training set sizes, e.g. 1,2,3,4"}),
         (("--save-every",), {"type": int, "default": 50}),
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
+        (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
     )
     TrainV4C(args.out, args).execute()

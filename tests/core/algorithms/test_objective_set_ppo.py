@@ -173,3 +173,25 @@ def test_update_runs_the_m0_schedule_and_moves_both_heads():
     assert any(not torch.equal(p, q) for p, q in zip(m.critic_parameters(), c0))
     assert 1e-5 <= lr <= 1e-2
     assert all(pg["lr"] == lr for o in (aopt, copt) for pg in o.param_groups)
+
+
+def test_three_objective_set_runs_end_to_end():
+    """V4-C3 drops S: the sampler, TeacherV4 and the update must work with
+    K = 3, never producing an objective id or weight column beyond K."""
+    g = torch.Generator().manual_seed(7)
+    w, mask = sample_objective_sets(300, (1, 3), g, num_objectives=3)
+    assert w.shape == (300, 3) and set(mask.sum(-1).tolist()) == {1, 3}
+    assert torch.allclose(w.sum(-1), torch.ones(300), atol=1e-6)
+    torch.manual_seed(0); m = TeacherV4(num_objectives=3)
+    B = 128
+    obs, env = torch.randn(B, 48), torch.randn(B, 12)
+    w, mask = sample_objective_sets(B, (1, 2, 3), g, num_objectives=3)
+    ids = torch.arange(3).expand(B, -1).contiguous()
+    with torch.no_grad():
+        dist = m._dist(obs, env, ids, w); u = dist.sample()
+        lp = (dist.log_prob(u) - m._log_det_jacobian(u)).sum(-1); ov = m.query_values(obs, env, ids, w, ids)
+    b = dict(obs=obs, env=env, ids=ids, w=w, mask=mask, u=u, old_logp=lp, old_mu=dist.loc, old_sigma=dist.scale,
+             old_values=ov, returns=ov + 0.1, adv=normalize_advantages(torch.randn(B, 3, generator=g), w, mask))
+    cfg = PPOConfig()
+    lr, st = update(m, torch.optim.Adam(m.actor_parameters()), torch.optim.Adam(m.critic_parameters()), b, cfg, cfg.lr, torch.Generator().manual_seed(0))
+    assert ov.shape == (B, 3) and all(np.isfinite(v) for v in st.values())
