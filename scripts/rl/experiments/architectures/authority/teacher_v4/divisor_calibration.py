@@ -45,10 +45,14 @@ class DivisorCalibration(IsaacAudit):
             from isaaclab_tasks.manager_based.locomotion.velocity.config.a1.flat_env_cfg import UnitreeA1FlatEnvCfg
             # T3-B did not override the USD path, so neither does the control.
             cfg, task = UnitreeA1FlatEnvCfg(), "Isaac-Velocity-Flat-Unitree-A1-v0"
-        else:
+        elif self.env_name == "v4c":
             import talon_rl.tasks.locomotion.a1_env  # noqa: F401
             from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg
             cfg, task = TalonV4CEnvCfg(), "Isaac-Talon-A1-V4C-v0"
+        else:  # v4c_s1: adds the action-jerk term; its abs-mean is the S1 divisor
+            import talon_rl.tasks.locomotion.a1_env  # noqa: F401
+            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CS1EnvCfg
+            cfg, task = TalonV4CS1EnvCfg(), "Isaac-Talon-A1-V4C-S1-v0"
         cfg.scene.num_envs = self.num_envs
         cfg.seed = self.seed
         self.cfg = cfg
@@ -67,11 +71,11 @@ class DivisorCalibration(IsaacAudit):
         model.eval()
         w = torch.tensor([1., 0., 0.], device="cuda").repeat(self.num_envs, 1)
         mgr = env.unwrapped.reward_manager
-        rows, seed_rows = [], []
+        rows, seed_rows, jerk_rows = [], [], []
         for seed in RESET_SEEDS:
             cur, _ = env.reset(seed=seed)
             cur = obs_tensor(cur).cuda()
-            R = []
+            R = []; J = []
             for _ in range(STEPS):
                 with torch.no_grad():
                     a, _ = model.act_with_preference(cur, w)
@@ -79,10 +83,14 @@ class DivisorCalibration(IsaacAudit):
                 raw = mgr._step_reward.detach().cpu().numpy().astype(np.float64)
                 terms = {n: raw[:, i] for i, n in enumerate(mgr.active_terms)}
                 R.append(raw_objective_vector(terms, shape=(self.num_envs,)))
+                if "action_jerk_l2" in terms:
+                    J.append(terms["action_jerk_l2"])
                 cur = obs_tensor(nxt).cuda()
             R = np.asarray(R).reshape(-1, 4)
             rows.append(R)
             seed_rows.append({"seed": seed, "abs_mean": np.abs(R).mean(0).tolist()})
+            if J:
+                jerk_rows.append(np.asarray(J).reshape(-1))
         A = np.concatenate(rows)
         abs_mean = np.abs(A).mean(0)
         frozen = np.asarray(NORMALIZATION_DIVISORS, np.float64)
@@ -96,6 +104,8 @@ class DivisorCalibration(IsaacAudit):
             "seed_rows": seed_rows,
             "frozen_t3b_divisors": frozen.tolist(), "relative_diff_vs_frozen": rel.tolist(),
         }
+        if jerk_rows:
+            out["s1_action_jerk_abs_mean"] = float(np.abs(np.concatenate(jerk_rows)).mean())
         if self.env_name == "stock":
             out["checks"] = {"reproduces_frozen_divisors": bool(np.all(np.abs(rel) < REPRO_RTOL))}
             out["pass"] = all(out["checks"].values())
@@ -107,5 +117,5 @@ class DivisorCalibration(IsaacAudit):
 
 
 if __name__ == "__main__":
-    a = DivisorCalibration.parse_args((("--env",), {"choices": ("stock", "v4c"), "required": True}))
+    a = DivisorCalibration.parse_args((("--env",), {"choices": ("stock", "v4c", "v4c_s1"), "required": True}))
     DivisorCalibration(a.out, a.env).execute()

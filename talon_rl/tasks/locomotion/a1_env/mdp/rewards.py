@@ -14,7 +14,7 @@ import torch
 from typing import TYPE_CHECKING
 
 from isaaclab.assets import RigidObject
-from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import ManagerTermBase, RewardTermCfg, SceneEntityCfg
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -30,3 +30,26 @@ def track_ang_vel_z_exp(env: ManagerBasedRLEnv, std: float, asset_cfg: SceneEnti
     asset: RigidObject = env.scene[asset_cfg.name]
     ang_vel_error = torch.square(env.v_command_buf[:, 2] - asset.data.root_ang_vel_b[:, 2])
     return torch.exp(-ang_vel_error / std**2)
+
+
+class action_jerk_l2(ManagerTermBase):
+    """Squared second difference of the policy action, ||a_t - 2a_{t-1} + a_{t-2}||^2.
+
+    V4-C2S-R1 smoothness candidate S1: a ramp in the action costs nothing,
+    a jerk does. The action manager keeps only a_t and a_{t-1}, so this term
+    keeps a_{t-2} itself and zeroes it on reset, when the action manager
+    zeroes its own action history.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._a2 = torch.zeros(env.num_envs, env.action_manager.total_action_dim, device=env.device)
+
+    def reset(self, env_ids=None) -> None:
+        self._a2[slice(None) if env_ids is None else env_ids] = 0.0
+
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        a, a1 = env.action_manager.action, env.action_manager.prev_action
+        out = torch.sum(torch.square(a - 2.0 * a1 + self._a2), dim=1)
+        self._a2 = a1.clone()
+        return out

@@ -73,3 +73,10 @@ def scalarize(normalized:np.ndarray,w:np.ndarray)->np.ndarray:
     if not np.allclose(ww.sum(axis=-1),1.0,atol=1e-6):
         raise ValueError("preference must lie on the four-objective simplex")
     return np.sum(x*ww,axis=-1)
+
+# V4-C2S-R1 smoothness candidate S1 (action second difference). Measured with
+# the T3-B protocol on Isaac-Talon-A1-V4C-S1-v0 (M0 model_299, 16 envs x 192
+# steps x 3 seeds, abs-mean of the weighted term); the same run reproduced the
+# four divisors above bit for bit. Used only when a trainer selects S1.
+S1_TERM = "action_jerk_l2"
+S1_DIVISOR = 0.21491182006774562

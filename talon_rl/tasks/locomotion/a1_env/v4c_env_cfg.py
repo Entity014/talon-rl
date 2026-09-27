@@ -54,3 +54,17 @@ class TalonV4CEnvCfg(UnitreeA1FlatEnvCfg):
     def __post_init__(self) -> None:
         super().__post_init__()
         self.scene.robot.spawn.usd_path = f"{TALON_ASSETS_DATA_DIR}/Robots/unitree_a1/a1.usd"
+
+
+@configclass
+class TalonV4CS1EnvCfg(TalonV4CEnvCfg):
+    """V4-C2S-R1: identical to V4-C plus the action-jerk term, which replaces
+    action_rate_l2 as the S objective (the stock action_rate_l2 term stays in
+    the manager; the objective vector selects which one S uses). Weight
+    −0.01 as for action_rate_l2; the S1 normalization divisor is measured
+    separately with the T3-B protocol."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from isaaclab.managers import RewardTermCfg as RewTerm
+        self.rewards.action_jerk_l2 = RewTerm(func=mdp.action_jerk_l2, weight=-0.01)

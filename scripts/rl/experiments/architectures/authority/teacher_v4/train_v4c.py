@@ -48,7 +48,11 @@ class TrainV4C(IsaacAudit):
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401
         from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg
 
-        cfg = TalonV4CEnvCfg()
+        if self.a.s_objective == "action_jerk":
+            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CS1EnvCfg
+            cfg, self.task = TalonV4CS1EnvCfg(), "Isaac-Talon-A1-V4C-S1-v0"
+        else:
+            cfg = TalonV4CEnvCfg()
         cfg.scene.num_envs = self.num_envs
         cfg.seed = self.seed  # before gym.make, or identical launches diverge
         self.cfg = cfg
@@ -70,10 +74,15 @@ class TrainV4C(IsaacAudit):
         names = list(mgr.active_terms)
         # [K, n_terms] summing matrix for the T/A/O/S grouping, divided by the frozen divisors
         S = torch.zeros(4, len(names), device=dev)
-        for k, terms in enumerate(OBJECTIVE_TERMS.values()):
+        groups = [list(t) for t in OBJECTIVE_TERMS.values()]
+        divisors = np.asarray(NORMALIZATION_DIVISORS, dtype=np.float64).copy()
+        if a.s_objective == "action_jerk":  # V4-C2S-R1: S1 replaces action_rate_l2 as the S objective
+            from talon_rl.rewards.objectives import S1_DIVISOR, S1_TERM
+            groups[3] = [S1_TERM]; divisors[3] = S1_DIVISOR
+        for k, terms in enumerate(groups):
             for t in terms:
                 S[k, names.index(t)] = 1.0
-        S /= torch.as_tensor(np.asarray(NORMALIZATION_DIVISORS), device=dev).unsqueeze(-1)
+        S /= torch.as_tensor(divisors, dtype=torch.float32, device=dev).unsqueeze(-1)
 
         model = TeacherV4().to(dev)
         aopt = torch.optim.Adam(model.actor_parameters(), lr=cfg.lr)
@@ -164,7 +173,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "s_objective": a.s_objective, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -183,5 +192,6 @@ if __name__ == "__main__":
         (("--seed",), {"type": int, "default": 0}),
         (("--cardinalities",), {"required": True, "help": "comma list of training set sizes, e.g. 1,2,3,4"}),
         (("--save-every",), {"type": int, "default": 50}),
+        (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
     )
     TrainV4C(args.out, args).execute()

@@ -34,7 +34,7 @@ gym.register(
     kwargs={"cfg": IsaacLabTalonEnvCfg()},
 )
 
-from .v4c_env_cfg import TalonV4CEnvCfg
+from .v4c_env_cfg import TalonV4CEnvCfg, TalonV4CS1EnvCfg
 
 # V4-C: stock A1 flat task plus privileged e_t. Plain ManagerBasedRLEnv, so
 # step()/reset() return gym's standard tuple, like the stock task.
@@ -43,4 +43,11 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={"env_cfg_entry_point": f"{__name__}.v4c_env_cfg:TalonV4CEnvCfg"},
+)
+
+gym.register(
+    id="Isaac-Talon-A1-V4C-S1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={"env_cfg_entry_point": f"{__name__}.v4c_env_cfg:TalonV4CS1EnvCfg"},
 )
