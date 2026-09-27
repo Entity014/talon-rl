@@ -31,6 +31,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-c-seed-sensitivity-verdict.md
 - teacher-v4-c-closure.md
 - teacher-v4-c2-preference-effect-verdict.md
+- teacher-v4-c2r-switch-controlled-verdict.md
 
 ## Maintenance
 
