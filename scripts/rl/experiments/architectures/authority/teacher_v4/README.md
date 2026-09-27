@@ -6,13 +6,14 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-14 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+15 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
 | `a_checkpoint_ladder.py` | 106 | class | Read-only A timeline on one V4-C run: at each saved checkpoint, the m=4 A endpoint (A-heavy vs center), A authority on the probes, survival, and the A critic's MC256 validity. |
 | `a_credit_audit.py` | 137 | class | Read-only A-credit audit on V4-C checkpoints: per-objective advantage size, weighted surrogate share, and actor-gradient contribution in a training-like PPO batch. |
 | `a_credit_quality.py` | 123 | class | Read-only A credit-quality check: does the GAE advantage that drives the actor agree with the realized long-horizon A advantage on the same states? |
+| `anchor_evaluate.py` | 119 | class | V4-C seed-sensitivity m=4 anchor evaluation at iteration 300 (docs/contracts/teacher_v4/teacher-v4-c-seed-sensitivity-contract.md). |
 | `ao_entanglement.py` | 131 | class | Read-only A-O entanglement diagnostic on a frozen V4-C checkpoint (m=4 set): reward overlap, behavioral separation, outcome separation, each ranked against the other objective pairs. |
 | `critic_target_diagnostic.py` | 125 | class | Post-hoc V4-C C1-D0 diagnostic: critic EV against the registered truncated 32-step target versus the bootstrapped segment target, on the same G1 evaluation rollouts. |
 | `divisor_calibration.py` | 111 | class | T3-B objective-divisor protocol, re-run on a chosen env: abs-mean of each raw T/A/O/S objective under the M0 root policy. |
