@@ -56,8 +56,8 @@ is 1.00 everywhere except G1-3 s73103 (0.75, S endpoint).
 A passes in **2/10** new seeds, which falls in the band fixed in advance as
 **"effectively a systematic A failure"** under the current formulation. The
 earlier 2/6 was not an unlucky draw. In 7 of the 10 new seeds, A-heavy has a
-*higher* ‖ω_xy‖ than center (ΔJ_A < 0), and O-heavy beats A-heavy on ‖ω_xy‖
-in 15 of the 16 runs.
+*higher* ‖ω_xy‖ than center (ΔJ_A < 0), and O-heavy reaches a lower ‖ω_xy‖
+than A-heavy in 13 of the 16 runs.
 
 T (10/10), O (9/10) and S (9/10) endpoint semantics are reproducible. The
 critic is valid for T in every run, for O in 3/10, and for A and S in none.
