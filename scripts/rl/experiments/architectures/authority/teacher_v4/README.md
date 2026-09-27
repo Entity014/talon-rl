@@ -6,10 +6,11 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-10 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+11 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
+| `ao_entanglement.py` | 131 | class | Read-only A-O entanglement diagnostic on a frozen V4-C checkpoint (m=4 set): reward overlap, behavioral separation, outcome separation, each ranked against the other objective pairs. |
 | `critic_target_diagnostic.py` | 125 | class | Post-hoc V4-C C1-D0 diagnostic: critic EV against the registered truncated 32-step target versus the bootstrapped segment target, on the same G1 evaluation rollouts. |
 | `divisor_calibration.py` | 111 | class | T3-B objective-divisor protocol, re-run on a chosen env: abs-mean of each raw T/A/O/S objective under the M0 root policy. |
 | `forward_sanity.py` | 173 | class | V4-B forward and invariance sanity for the untrained TeacherV4 on live Isaac-Talon-A1-v0 obs and e_t. |
