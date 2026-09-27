@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C2 Semantic Relation Contract (definition + baseline measurement)
 
-Status: **DRAFT — freeze before running**
+Status: **PREDECLARED — FROZEN 2026-09-27 (preference-effect test below), before any preference effect was measured**
 Branch: `v4-c2-semantic-preservation` (V4-C is frozen at tag `v4-c-frozen`; nothing here re-scores it)
 Date: 2026-09-27
 
@@ -164,3 +164,74 @@ Findings:
 
 Conclusion: a usable horizon exists (all of 1–32) at the population level.
 The same-state method is kept as a null-calibrated population test.
+
+## Frozen preference-effect test (supersedes the "Measurement" and "Interpretation" sections above)
+
+What is measured is a **branch-noise-calibrated preference effect**: whether
+raising w_i moves S_i by more than the simulator's own branch, restore and
+chaos noise. It is not an exact counterfactual.
+
+**Units and sign.** Every S_i is higher-is-better (defined above), so a
+positive difference always means semantic improvement.
+
+**Snapshots.** Per checkpoint: `Isaac-Talon-A1-V4C-v0`, obs corruption off,
+256 envs × env seeds {0, 1} = 512 snapshots, W = 100 warm-up steps on the
+center preference w⁰ (deterministic `act_inference`). The snapshot is the
+statistical unit.
+
+**Branches per snapshot and objective i.** Each branch is restored in place
+and runs 32 steps.
+
+    branch 1          w⁰, burn-in, discarded
+    branches 2–4      one w_i⁺ and two w⁰; treatment position balanced:
+                      order A = (w_i⁺, w⁰, w⁰), B = (w⁰, w_i⁺, w⁰), C = (w⁰, w⁰, w_i⁺),
+                      assigned per snapshot by (env index + seed) mod 3
+
+w_i⁺ is m = 4 heavy (0.70 on i, 0.10 on the others). All envs step together,
+so each position runs w_i⁺ where the snapshot's order puts it there.
+
+**Per snapshot, for H ∈ {1, 2, 4, 8, 16, 32}** (S averaged over steps 1..H;
+snapshots with an episode end inside H in any of branches 2–4 are excluded
+at that H and counted):
+
+    ΔS_pref = S(w_i⁺) − ½ [S(w⁰_early) + S(w⁰_late)]
+    ΔS_null = S(w⁰_late) − S(w⁰_early)      (by branch position)
+    D_{i,H} = ΔS_pref − ΔS_null
+
+**Gate.** δ = 0.002 (set from the null-only run before any preference effect
+was seen). For each checkpoint × objective, the six horizons are one family.
+A paired bootstrap over snapshots (B = 2000) gives a one-sided 95%
+**simultaneous** lower bound across the six H (max-t over H). Then, per H:
+
+    correct  :  simultaneous LCB_95(D̄_{i,H}) > δ
+    wrong    :  simultaneous UCB_95(D̄_{i,H}) < −δ
+    flat     :  otherwise
+
+**Fidelity-invalid rule.** Per checkpoint, the measured branch-position bias
+is mean(ΔS_null) for each objective and H. If any |mean(ΔS_null)| > δ, that
+checkpoint is `fidelity invalid` and none of its results are interpreted. δ
+is never widened afterwards.
+
+**Checkpoints.** The 16 V4-C `model_300.pt`. Primary: the 10
+seed-sensitivity runs. The 6 G1 runs are secondary.
+
+**Interpretation of each checkpoint × objective ladder (fixed now):**
+
+- correct at H = 1–4 and still correct at H = 16–32 → local semantic direction
+  correct;
+- correct at H = 1–4, flat or wrong at H = 16 or 32 → locally correct,
+  destroyed by closed-loop / basin dynamics;
+- not correct at H = 1–4, correct at H = 16 or 32 → the semantics emerge from
+  multi-step dynamics;
+- correct at no H → the preference path has authority but no semantic
+  effect detectable above the null.
+
+**Across objectives (primary 10):**
+
+- T/O/S correct and A not → an A-specific semantic-learning limitation;
+- every objective fails → a problem with the formulation or the measurement;
+- T/O/S are positive controls. If the method detects none of them, the
+  measurement is suspect and A is not interpreted.
+
+Each ladder class is cross-tabulated with the checkpoint's m = 4 endpoint
+result from the seed-sensitivity evaluation.
