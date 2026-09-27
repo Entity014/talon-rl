@@ -1,6 +1,6 @@
 # Teacher V4 — V4-C2R Switch-Controlled Semantic Effect Contract
 
-Status: **DRAFT — the δ-derivation rule below is fixed before the null run; the rest is frozen after the null run and before the heavy-vs-heavy test**
+Status: **PREDECLARED — FROZEN 2026-09-27 after the switch-matched null and before the heavy-vs-heavy test; δ = 0.00209**
 Branch: `v4-c2-semantic-preservation`
 Date: 2026-09-27
 Supersedes, for A and S interpretation, the center-comparator test in
@@ -82,3 +82,23 @@ Checkpoints: the 16 V4-C runs; primary the 10 seed-sensitivity runs.
   from the center-relative comparison and the switch transient, not from
   A's own steady-state direction.
 - Transient-window D is reported as the switching cost per objective.
+
+## Step 1 result and frozen δ
+
+Switch-matched null, `switch_semantics.py --mode null`, results
+`runs/teacher_v4_c2r_switch_null-2026-09-27/`. 512 snapshots per checkpoint,
+none excluded.
+
+Steady-window mean null (pos2 − pos1, pos3 − pos2), per objective:
+
+| checkpoint | T | A | O | S |
+|---|---|---|---|---|
+| G1-2 s73104 | −.00044, +.00002 | −.00042, +.00001 | −.00082, −.00174 | −.00027, +.00002 |
+| G1-3 s73104 | +.00002, −.00000 | −.00013, −.00001 | −.00049, +.00013 | −.00001, +.00000 |
+
+Per-snapshot null std in the steady window: T .003–.013, A .003–.006,
+O .022–.060 (degrees), S .001–.007.
+
+The largest |mean| is 0.00174 (O, G1-2 s73104, pos3 − pos2). By the rule,
+δ = max(0.002, 1.2 × 0.00174) = 0.002088, **frozen as δ = 0.00209** (rounded
+up).

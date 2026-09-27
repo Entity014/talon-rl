@@ -6,7 +6,7 @@
 [TALON RL](../../../../../../README.md) · [RL runner](../../../../README.md) · [Experiments](../../../README.md) · [Architectures](../../README.md) · [Authority](../README.md) · [Teacher V4](README.md)
 <!-- nav:end -->
 
-18 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
+19 scripts. One line each, taken from the file's own docstring — edit the docstring, not this file.
 
 | file | lines | tags | description |
 |---|---:|---|---|
@@ -25,6 +25,7 @@
 | `objective_contract_audit.py` | 116 | class | V4-C0a objective-contract port check: the T/A/O/S reward terms on Isaac-Talon-A1-v0 match the stock A1 flat terms in config and kernel output. |
 | `preference_effect.py` | 159 | class | V4-C2 null-calibrated preference-effect test (docs/contracts/teacher_v4/teacher-v4-c2-semantic-relation-contract.md, frozen at c1380f3). |
 | `spawn_benchmark.py` | 124 | class | V4-B1-Fix1 benchmark of one Isaac-Talon-A1-v0 config: startup, VRAM, env throughput and leg-length variant spread under replicate_physics on/off. |
+| `switch_semantics.py` | 163 | class | V4-C2R switch-controlled semantic test (docs/contracts/teacher_v4/teacher-v4-c2r-switch-controlled-contract.md). |
 | `train_v4c.py` | 187 | trains class | V4-C trainer: TeacherV4 from scratch on Isaac-Talon-A1-V4C-v0 with objective-set PPO in the M0 shell. |
 | `twins.py` | 77 | — | Same-state branching on Isaac-Talon-A1-V4C-v0: snapshot every env, then restore the snapshot into the same envs before each branch. |
 | `v4c_env_parity.py` | 116 | class | V4-C env gate: Isaac-Talon-A1-V4C-v0 equals stock Isaac-Velocity-Flat-Unitree-A1-v0 except the declared additions, and its e_t is 12-D. |
