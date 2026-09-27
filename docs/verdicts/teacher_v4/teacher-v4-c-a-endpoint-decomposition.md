@@ -92,3 +92,54 @@ together. Neither link is tested yet.
   (diagnostics only), to see whether A was ever correct and then reversed.
 - A advantage share: magnitude of the A advantage vs the others in the
   scalarized update.
+
+## Follow-up: A–O entanglement audit (read-only, 2026-09-27)
+
+Script `ao_entanglement.py` (commit `7dfa165`), output `ao_entanglement.json`
+per run. m = 4 set, G1 m = 4 suite seeds, center + four heavy endpoints;
+probe states with the physical-nominal e_t. Each A–O number is ranked among
+the six objective pairs; no thresholds.
+
+Medians over the six runs:
+
+| pair | reward corr | action dist (probe) | action dist (rollout states) | V3 G0 action dist (probe) | outcome dist |
+|---|---:|---:|---:|---:|---:|
+| TA | 0.02 | 1.25 | 1.12 | 0.50 | 0.0042 |
+| TO | 0.05 | 1.05 | 0.89 | 1.25 | 0.0036 |
+| TS | −0.03 | 1.29 | 1.14 | 0.54 | 0.0050 |
+| **AO** | **0.25** | 0.98 | 0.73 | 1.14 | 0.0025 |
+| AS | 0.15 | **0.76** | **0.58** | **0.34** | **0.0022** |
+| OS | −0.03 | 1.04 | 0.62 | 0.87 | 0.0040 |
+
+A–O rank per run (reward corr by |value|, 6 = most correlated; distances,
+1 = least separated):
+
+| run | reward corr | action (probe / rollout) | outcome |
+|---|---|---|---|
+| G1-2 s73101 | 0.20, 5/6 | 3 / 3 | 1 |
+| G1-2 s73102 | 0.18, 6/6 | 5 / 3 | 4 |
+| G1-2 s73103 | 0.13, 5/6 | 3 / 3 | 1 |
+| G1-3 s73101 | 0.32, 6/6 | 2 / 3 | 3 |
+| G1-3 s73102 | 0.29, 6/6 | 2 / 2 | 2 |
+| G1-3 s73103 | 0.56, 6/6 | 5 / 3 | 1 |
+
+Reading, against the interpretation fixed beforehand:
+
+- Reward overlap: A–O is the most correlated pair in 4/6 runs and 5th in the
+  other two, but moderate in size (median 0.25; 0.56 only in G1-3 s73103).
+- Behavioral separation: the policy does separate A-heavy from O-heavy
+  actions. A–O is mid-ranked (2–5 of 6) and never the least separated pair.
+  The least separated pair is A–S, in V4 and in the Phase-1 G0 model.
+- Outcome separation: low. A–O is the least separated outcome pair in 3/6
+  runs, and A–S has the lowest median.
+
+So the case is "reward overlap exists, the policy disentangles the actions,
+but the outcomes barely separate". The strong-support pattern (all three
+low or high together) does not hold. **A–O entanglement is at most a partial
+explanation.** A–S shows the same or lower separation on every axis.
+
+In the reversal seed, G1-3 s73103, O-heavy reduces ‖ω_xy‖ below center
+(0.288 vs 0.311 rad/s) while A-heavy raises it (0.336). There, the O
+preference achieves A's physical goal better than the A preference does.
+That points to a learning or credit failure specific to A in that seed,
+which the temporal check (checkpoints 50…250) can locate.
