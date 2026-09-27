@@ -87,3 +87,30 @@ seed-sensitivity evaluation. T/O/S serve as positive controls: their
 endpoints pass 9–10/10, so the relation should hold for them. If it does
 not, the measurement is suspect before A is interpreted. If no class
 dominates for A, that is reported, not resolved by picking one.
+
+## Feasibility finding before freezing (2026-09-27)
+
+The twin-fidelity gate (≤ 1e-4 over 32 steps) cannot be met on this
+simulator. It was tested on G1-2 s73104 `model_300.pt` with obs corruption
+off, both twins on the center preference. No semantic result was read.
+
+| branching method | divergence (max joint-velocity difference) |
+|---|---|
+| copy env j → j+N after 100 steps | 0.84 rad/s after 1 step. State, obs, action and every PhysX property (masses, inertias, CoMs, materials, DOF gains/limits, external wrenches) equal before the step |
+| same, snapshot also rewritten to src, kinematics refreshed | unchanged (0.84) |
+| snapshot / restore into the *same* envs, both branches restored | 0.82–1.04 after 1 step, identical actions at step 1 |
+| same, with 4 physics settle substeps re-writing the snapshot | ≈ 1.0 after 1 step |
+| twins made identical right after reset (before contacts), same preference throughout | 4e-5 at step 1–3, then 0.22 at step 15, 1.2 at 63, 4.5 at 99 |
+
+Two separate problems:
+
+1. Mid-episode state writes leave hidden PhysX solver or contact state that
+   Isaac Lab cannot write, so a restored branch does not continue as the
+   original would. The difference is about 1 rad/s joint velocity after
+   one step.
+2. Even from identical states the closed-loop dynamics are chaotic.
+   Float32-level differences (≈ 4e-5) grow to O(1) within about 15 steps.
+
+Exact same-state counterfactuals are therefore available only for a few
+steps right after reset, not at walking states. This section must be
+resolved before the contract is frozen.
