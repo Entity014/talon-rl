@@ -11,8 +11,15 @@ FAIL.
 
 ## Runs
 
-- Same folds, architecture, trainer (`train_v4c.py` at `822cbcb`), env,
-  contracts and 300-iteration budget as V4-C G1.
+- Same folds, architecture, trainer (`train_v4c.py`, unchanged since `822cbcb`),
+  env, contracts and 300-iteration budget as V4-C G1.
+- Declared code difference: the only training-path change since the six G1
+  runs is the `RunningMeanStd` float64 fix (`61a483d`). In the new runs the
+  constant e_t channels normalize to 0 instead of a constant offset
+  (friction 0.536, dynamic friction −0.983), which the encoder's first-layer
+  bias can absorb. The 10 new runs are homogeneous with each other; the
+  16-run pooled aggregate mixes the two normalizer versions and is labeled
+  as such.
 - New seeds: 73104, 73105, 73106, 73107, 73108 for each of G1-2 and G1-3 = 10
   new runs.
 - Checkpoint: iteration 300 only. No checkpoint selection, no tuning, no
