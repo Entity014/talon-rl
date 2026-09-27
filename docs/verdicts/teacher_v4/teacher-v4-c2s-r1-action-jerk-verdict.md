@@ -1,0 +1,60 @@
+# Teacher V4 — V4-C2S-R1 Train-on-S1 Verdict
+
+Status: **FROZEN — STILL REDUNDANT. Trained on action jerk, A–S1 remains the most redundant pair on every measure (ρ 0.80 / 0.90, PC1 0.94), and S1-heavy is worse at S1 than A-heavy in 5/6 runs. Merging A and S is justified.**
+Date: 2026-09-28
+Branch: `v4-c2-semantic-preservation`
+Contract: [teacher-v4-c2s-r1-action-jerk-contract.md](../../contracts/teacher_v4/teacher-v4-c2s-r1-action-jerk-contract.md) (frozen at `42a09ec`, before training)
+Runs: `runs/teacher_v4_c2s1_g1_{2,3}_seed{73101,73102,73103}-2026-09-27/` (treatment) and the six V4-C G1 runs (control). Aggregate: `runs/teacher_v4_c2s_r1-2026-09-27/aggregate.json` (`r1_aggregate.py`).
+
+## Training
+
+All six S1 runs completed 300 iterations with no stop gate. Episode length
+at iteration 300: 727–989 steps. **One integrity problem:** in G1-2 s73102
+the critic collapsed from iteration ≈ 39. EV ≈ 0 on all four objectives to
+the end, while the policy kept improving (preference authority 0.66). The
+outcome below is the same with and without that run.
+
+## Layers 1–2 (S := S1; medians over 6 runs)
+
+| pair | treatment ρ step / win / off-diag / PC1 | control (S0-trained) ρ step / win / off-diag / PC1 |
+|---|---|---|
+| TA | −0.11 / −0.12 / 0.54 / 0.62 | −0.01 / 0.04 / 0.51 / 0.63 |
+| TO | −0.02 / −0.03 / 0.49 / 0.50 | 0.03 / 0.02 / 0.49 / 0.50 |
+| TS | −0.13 / −0.13 / 0.53 / 0.63 | 0.00 / 0.04 / 0.50 / 0.67 |
+| AO | 0.24 / 0.35 / 0.41 / 0.60 | 0.09 / 0.15 / 0.49 / 0.61 |
+| **AS** | **0.80 / 0.90 / 0.17 / 0.94** | **0.79 / 0.91 / 0.18 / 0.95** |
+| OS | 0.14 / 0.24 / 0.45 / 0.53 | 0.00 / 0.02 / 0.54 / 0.53 |
+
+Training on S1 leaves the A–S1 coupling essentially unchanged. Paired per
+seed, ρ(A, S1) goes from control to treatment: 0.83→0.82, 0.78→0.74,
+0.77→0.83, 0.87→0.79, 0.62→0.80, 0.79→0.64. There is no systematic
+reduction.
+
+## Layer 3 (treatment, S1-heavy)
+
+    SS − SA :  neg, neg, neg, zero, neg, neg   (0/6 positive)
+    AA − AS :  pos × 6
+
+Asking for S1 does not make actuation smoother than asking for A. Asking for
+A makes it at least as smooth, and also improves A.
+
+## Outcome rule (frozen)
+
+A–S1 is the most redundant pair on |ρ| per step, off-diagonal mass and
+PC1 (rank 1 on all three), and SS − SA is positive in 0/6 ≤ 3/6 →
+**still redundant**. Without the collapsed-critic run: A–S1 ρ 0.80,
+off-diagonal 0.17, PC1 0.95; SS − SA 0/5 positive. Same outcome.
+
+## Conclusion
+
+The objection to V4-C2S ("these policies were trained on S0") is answered.
+When trained on action jerk, the policy still realizes smoothness and
+angular stability as one behavioral dimension, and the S preference has no
+specific effect of its own. On this robot, gait and substrate, the
+smoothness family tested (action rate, and action jerk as a trained
+objective) is subsumed by the gait's stability dynamics. Per the contract,
+**merging A and S is justified**.
+
+Side observation: under S1 training, the A–O coupling rose (ρ 0.09→0.24 per
+step, 0.15→0.35 per window), as did O–S (0.00→0.14). The objectives' mutual
+structure depends on what S is.

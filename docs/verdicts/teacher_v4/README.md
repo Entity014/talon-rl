@@ -34,6 +34,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-c2r-switch-controlled-verdict.md
 - teacher-v4-c2f-specificity-audit-verdict.md
 - teacher-v4-c2s-smoothness-verdict.md
+- teacher-v4-c2s-r1-action-jerk-verdict.md
 
 ## Maintenance
 
