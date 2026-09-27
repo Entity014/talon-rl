@@ -140,3 +140,8 @@ The registered result stands: **V4-C failed the preregistered G1 contract.**
 What changes is the mechanism: the 0/66 critic failure is driven by an
 evaluation target incompatible with the long-horizon bootstrapped critic,
 not by broad critic collapse.
+
+**Superseded reading (2026-09-27):** the G1-R follow-up with a critic-independent
+256-step Monte Carlo target found the critic valid on only 4/66 sets (T valid,
+A and S invalid). The 56/66 above was inflated by the bootstrapped target's
+self-reference. See [teacher-v4-c-g1r-critic-verdict.md](teacher-v4-c-g1r-critic-verdict.md).
