@@ -143,3 +143,84 @@ In the reversal seed, G1-3 s73103, O-heavy reduces ‖ω_xy‖ below center
 preference achieves A's physical goal better than the A preference does.
 That points to a learning or credit failure specific to A in that seed,
 which the temporal check (checkpoints 50…250) can locate.
+
+## Follow-up: A checkpoint ladder (read-only, 2026-09-27)
+
+Script `a_checkpoint_ladder.py` (commit `8c24942`), output
+`a_checkpoint_ladder.json` in each run directory. m = 4 set, G1 m = 4 suite
+seeds, checkpoints 50…300 (diagnostic only; the G1 contract fixes 300).
+At iteration 300 the ladder reproduces the stored ΔJ_A of all three runs.
+Runs: G1-3 s73103 (reversal), G1-2 s73102 (clean A), and G1-3 s73101
+(same fold as s73103, A anchor passes), added to remove the fold confound.
+
+"+" means A-heavy is better than center. ‖ω‖ is mean ‖ω_xy‖ (rad/s) for
+center / A-heavy / O-heavy. Critic A is the MC256 EV (registered / pooled)
+and the prediction-to-target variance ratio.
+
+G1-3 s73103:
+
+| it | ΔJ_A (suites ✓) | Δ‖ω‖ improvement (✓) | ‖ω‖ C / A / O | auth A–C | critic A EV | var× |
+|---:|---|---|---|---:|---|---:|
+| 50 | −0.00045 (0/4) | −0.034 (0/4) | 0.325 / 0.360 / 0.470 | 0.61 | −17.8 / −14.2 | 12.2 |
+| 100 | −0.00068 (0/4) | −0.087 (0/4) | 0.323 / 0.411 / 0.414 | 1.06 | −63.9 / −12.9 | 9.5 |
+| 150 | −0.00047 (0/4) | −0.063 (0/4) | 0.340 / 0.403 / 0.354 | 1.02 | −57.7 / −8.4 | 5.7 |
+| 200 | −0.00029 (0/4) | −0.024 (0/4) | 0.330 / 0.354 / 0.329 | 1.06 | −26.5 / −2.9 | 2.6 |
+| 250 | −0.00059 (0/4) | −0.048 (0/4) | 0.333 / 0.382 / 0.307 | 1.09 | −31.0 / −1.7 | 2.0 |
+| 300 | −0.00039 (0/4) | −0.025 (0/4) | 0.311 / 0.336 / 0.288 | 1.12 | −12.5 / −2.7 | 3.7 |
+
+G1-2 s73102:
+
+| it | ΔJ_A (✓) | Δ‖ω‖ (✓) | ‖ω‖ C / A / O | auth | critic A EV | var× |
+|---:|---|---|---|---:|---|---:|
+| 50 | −0.00023 (0/4) | −0.010 (0/4) | 0.315 / 0.326 / 0.506 | 0.52 | −31.8 / −3.9 | 7.7 |
+| 100 | +0.00002 (2/4) | +0.020 (4/4) | 0.330 / 0.311 / 0.356 | 0.88 | −28.7 / −14.2 | 13.6 |
+| 150 | +0.00073 (4/4) | +0.117 (4/4) | 0.422 / 0.305 / 0.363 | 0.91 | −4.2 / −3.6 | 4.0 |
+| 200 | +0.00066 (4/4) | +0.103 (4/4) | 0.427 / 0.324 / 0.396 | 0.87 | −5.9 / −1.5 | 2.7 |
+| 250 | +0.00126 (4/4) | +0.175 (4/4) | 0.480 / 0.305 / 0.424 | 0.92 | −1.9 / +0.07 | 1.3 |
+| 300 | +0.00113 (4/4) | +0.163 (4/4) | 0.495 / 0.332 / 0.419 | 0.86 | −1.8 / +0.29 | 1.3 |
+
+G1-3 s73101:
+
+| it | ΔJ_A (✓) | Δ‖ω‖ (✓) | ‖ω‖ C / A / O | auth | critic A EV | var× |
+|---:|---|---|---|---:|---|---:|
+| 50 | −0.00005 (1/4) | +0.001 (2/4) | 0.333 / 0.332 / 0.494 | 0.46 | −11.7 / −0.3 | 0.4 |
+| 100 | −0.00052 (0/4) | −0.046 (0/4) | 0.391 / 0.437 / 0.370 | 0.57 | −114.9 / −1.7 | 1.4 |
+| 150 | −0.00013 (1/4) | −0.017 (2/4) | 0.385 / 0.402 / 0.375 | 0.54 | −75.8 / −1.3 | 1.5 |
+| 200 | +0.00011 (4/4) | +0.017 (3/4) | 0.371 / 0.354 / 0.365 | 0.53 | −50.7 / −1.2 | 3.2 |
+| 250 | +0.00007 (3/4) | −0.000 (3/4) | 0.354 / 0.354 / 0.347 | 0.53 | −66.2 / −0.2 | 1.8 |
+| 300 | +0.00015 (4/4) | +0.008 (3/4) | 0.336 / 0.329 / 0.317 | 0.54 | −9.2 / +0.2 | 1.9 |
+
+Survival is 1.00 for A-heavy and center at every checkpoint in all three runs.
+
+### Reading against the cases set beforehand
+
+- **s73103 is case 2 (early basin):** A is wrong at every checkpoint from 50
+  on, in 0/4 suites each time. It is never correct and then reversed. A
+  authority stays high (0.6–1.1), so the policy responds to A, but in the
+  wrong direction.
+- **The seeds diverge between iterations 50 and 100.** At iteration 50 all
+  three runs look alike: A is weak or wrong, and the A critic is invalid. By
+  100, s73102 has flipped to correct (Δ‖ω‖ 4/4) and s73103 has moved
+  further wrong (−0.087).
+- **Behavior leads the critic (case 4 ordering).** In s73102, A behavior is
+  correct from iteration 100–150, while the A critic is at its worst at
+  iteration 100 (pooled EV −14.2, variance 13.6×). The critic becomes
+  marginally valid only at 250–300. In s73103 the critic improves steadily
+  (pooled −14 → −2.7) while the behavior never does. Critic validity neither
+  precedes nor tracks A semantics, which argues against the critic being
+  the cause.
+
+### An unexpected pattern: the center moves, A-heavy does not
+
+A-heavy's absolute ‖ω_xy‖ at iteration 300 is nearly the same in all three
+runs (0.332 / 0.336 / 0.329 rad/s). What differs is the center policy: it
+drifts to 0.495 in s73102 and stays at 0.311 in s73103. The A endpoint
+"passes" when the rest of the policy family trades angular stability away
+(presumably for tracking), and "fails" when it does not. There is no seed in
+which A-heavy reaches a distinctly lower ‖ω_xy‖ than about 0.33 rad/s. In
+s73103, O-heavy goes lower (0.288). This looks like a floor, or a weak A
+gradient near it, rather than a sign error in A.
+
+Not yet tested: whether about 0.3 rad/s is a physical floor for this gait
+at the commanded speeds, or an A-specific learning limit (O-heavy reaching
+0.288 suggests it is not a hard floor).
