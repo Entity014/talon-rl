@@ -1,6 +1,6 @@
 # Teacher V4 — F2-A Matched-Seed Bifurcation Contract (rare gentle gait)
 
-Status: **DRAFT 2026-09-28. Not frozen. No F2 metric has been computed.** The script was smoke-tested only on an excluded-lineage run (V4-C3 G1-1 s73101).
+Status: **DRAFT r2 2026-09-28. Not frozen. No F2 metric has been computed.** Smoke tests used only excluded-lineage runs (V4-C3 G1-1 s73101, s73103), including a synthetic end-to-end analyze.
 Branch: `v4-c2-semantic-preservation`
 Provenance: [F2-0 inventory](teacher-v4-f2-0-provenance-inventory.md)
 
@@ -45,16 +45,29 @@ mean; entropy; kl; clip_frac; surrogate; value loss; termination_fraction.
 h_t0 = mean of iterations 1–10, reported per run.
 
 **Divergence onset:** the first iteration from which the target stays
-outside [min, max] of the two primary controls for 10 consecutive
-iterations. The same is reported against all five controls. The series are
-raw, with no smoothing.
+outside [min, max] of the controls **on one side** (all below, or all above)
+for 10 consecutive iterations. The series are raw, with no smoothing.
+
+- `h_onset_matched`: envelope of the two primary controls (primary).
+- `h_onset_samecode`: envelope of all five same-code controls. An onset
+  under both is *cross-fold robust*. One under matched only is *matched-fold
+  only*.
+
+**Specificity null.** A two-run envelope is narrow, so any run can leave it.
+Each of the five same-code controls is tested against every pair of the
+other four (5 × 6 = 30 null pairs). A target onset is **specific** only if
+fewer than 50 % of the null pairs give an onset at or before it. Only
+specific signals enter the F2-A5 label. Non-specific ones are listed.
 
 ## F2-A2 — fixed-probe checkpoint replay (p_*)
 
 The same protocol for every checkpoint and run, with no policy-conditioned
 warm-up. Initial states come from env resets with seeds 910001 and 910002 ×
 256 envs, so they are identical across checkpoints and runs. Each rollout
-is 319 steps, deterministic (`act_inference`, K from the checkpoint).
+is 319 steps, deterministic (`act_inference`, K from the checkpoint). This
+measures the mean-policy capability. Training stochasticity is covered by
+h_log_std and h_entropy. A fixed-noise stochastic probe is a possible
+extension only if F2-A ends unresolved.
 
 Conditions: **C primary** (center), **T⁺ secondary** (`heavy_w(K, 0)`).
 
@@ -64,9 +77,15 @@ Per checkpoint and condition:
   step 128: touchdown-step fraction td, weighted linear tracking tl, the F1
   class (same rules), R = [T, D, O] (F1 formula), ‖ω_xy‖, tilt, ‖q̈‖, ‖q̇‖,
   action rate;
-- credit, on t < 64 with the MC256 target (G1-R `mc_targets`, no
-  bootstrap): critic EV per objective T, A, O; advantage A = G − V per
-  objective, its std, and its correlations corr(A_T, A_A) and corr(A_T, A_O).
+- credit, with the MC256 target (G1-R `mc_targets`, no bootstrap): critic EV
+  per objective T, A, O; advantage A = G − V per objective, its std, and its
+  correlations corr(A_T, A_A) and corr(A_T, A_O). **Primary window t = 32–63**,
+  after the reset transient. t = 0–31 is reported descriptively (`*_t0_32`).
+- reset-state fingerprint: sha256 of policy obs, privileged obs, root state,
+  joint pos and joint vel right after each reset, before the first action.
+  `analyze` checks that each seed gives one fingerprint across all 6 runs,
+  all checkpoints and both conditions. If it does, the claim is "same initial
+  states". If not, the claim is downgraded to "same reset seed".
 
 ## F2-A3 — objective-space geometry
 
@@ -79,12 +98,17 @@ to ΔT and |ΔD|.
 
 Properties per checkpoint:
 
-- motion: class ≠ standing;
+- activity (three separate properties): ‖q̇‖, action rate and ‖q̈‖ each
+  above the max of the two primary controls at that checkpoint;
 - contact: td ≥ 0.02;
 - locomotion: class ∈ {partial, established};
-- credit divergence: at least one credit metric (EV T / A / O, advantage std
-  T / A / O, corr TA / TO) outside [min, max] of the two primary controls
-  at that checkpoint.
+- credit divergence: at least one primary-window credit metric (EV T / A /
+  O, advantage std T / A / O, corr TA / TO) outside [min, max] of the two
+  primary controls at that checkpoint. The same specificity null applies,
+  per checkpoint.
+
+The intended reading of the ordering: joint/action activity rises, then a
+touchdown pattern appears, then translation.
 
 For each property: t_probe_first (first checkpoint showing it) and
 t_probe_persistent (first checkpoint from which every later checkpoint
@@ -96,21 +120,36 @@ shows it). Also C vs T⁺ locomotion order:
 
 ## F2-A5 — characterization (pre-declared, primary = C)
 
-Let u = t_probe_first(locomotion, C). A precursor must appear at or before
-u − 50, because the capability arose somewhere in (u − 50, u].
+Let u = t_probe_first(locomotion, C). The capability arose somewhere in
+(u − 50, u]. Timing of a specific signal at time t:
+
+- t ≤ u − 50: **precursor**;
+- u − 50 < t ≤ u: **within-resolution accompaniment**;
+- t > u: **follows** the capability.
+
+Signal groups (h onsets use `h_onset_matched`):
+
+- stochasticity: log_std, entropy;
+- actor update: kl, clip_frac;
+- credit: explained_variance T / A / O, value loss, and p credit divergence
+  (at a checkpoint ≤ u − 50 = precursor, at u = accompaniment).
+
+KL and clip fraction are actor-update dynamics, not exploration.
 
 | condition | label |
 |---|---|
 | no locomotion at C in any checkpoint | unresolved |
-| u = 50 (locomotion at C already at the first checkpoint) | unresolved: before available resolution |
-| exploration h-onset (log_std, entropy, kl, clip_frac) ≤ u − 50, and a credit precursor | mixed |
-| exploration h-onset ≤ u − 50 only | exploration precursor |
-| credit precursor only: EV or value-loss h-onset ≤ u − 50, or p credit divergence at a checkpoint < u | credit precursor |
-| neither, and locomotion at C persistent from u | basin-entry-like |
-| neither, and not persistent | unresolved: no precursor observed, locomotion not persistent |
+| u = 50 | unresolved: before available resolution |
+| actor-side (stochasticity or actor-update) and credit precursors | mixed |
+| actor-side precursor only | actor-side precursor (subtype listed) |
+| credit precursor only | credit precursor |
+| no precursor, at least one accompaniment | unresolved: change accompanies acquisition within replay resolution |
+| no precursor, no accompaniment, locomotion at C persistent from u | basin-entry-like |
+| no precursor, no accompaniment, not persistent | unresolved: no precursor observed, locomotion not persistent |
 
 Wording rule: "no precursor observed at available resolution", never "no
-precursor existed".
+precursor existed". Cross-fold robustness (`h_onset_samecode`) is reported
+for every signal and does not change the label.
 
 ## Deliverables
 
