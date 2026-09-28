@@ -27,6 +27,7 @@ Includes MDP/deployment descriptions, consolidated failure analysis, compatibili
 - consolidated-locomotion-failure-analysis.md
 - deployment.md
 - mdp.md
+- objective-selection.md
 - v2b-fixed-stream-multiupdate-invalidated.md
 
 ## Maintenance
