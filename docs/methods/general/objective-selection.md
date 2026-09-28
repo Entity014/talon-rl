@@ -54,6 +54,46 @@ Cross-objective improvement is **synergy, not redundancy**. Two relevant
 objectives may help each other. What matters is that their response profiles
 differ (see [MORL semantic criteria](../../contracts/teacher_v4/teacher-v4-c3-evaluation-contract.md)).
 
+## Stability of the relation across policies and regimes (Layer 4, PLANNED)
+
+A relevance–redundancy measurement is a property of the pair **and** of the
+policy and regime it was measured under: Redundancy(r_i, r_j) =
+f(regime, policy). A policy trained on an objective set can itself make two
+objectives co-vary, so redundancy measured on one MORL policy may be an
+artifact of that policy. The method therefore has four layers:
+
+| layer | question | measures |
+|---|---|---|
+| 1 local association | do the outcomes co-vary? | Spearman ρ, off-diagonal quadrant mass |
+| 2 outcome geometry | is the outcome cloud lower-dimensional? | PC1 share, intrinsic dimensionality |
+| 3 controllability | does preference i produce behavior distinct from j? | incremental controllability (above) |
+| 4 stability | does the relation hold when the policy or regime changes? | layers 1–3 repeated per policy / regime |
+
+Layer 4 varies: policy seeds, policy checkpoints (early/late), policy type
+(MORL, single-objective experts, perturbed policies), plant bins, terrain
+regimes, simulator/domain.
+
+- **Screening order.** Layers 1–2 are cheap and run on every pair in every
+  regime. Layer 3 needs training and runs only on pairs that layers 1–2 flag.
+- **Pre-registered stability rule.** Before any Layer 4 measurement, a
+  contract fixes the regimes, the minimum support per regime, and the rule.
+  Default: a pair is *robustly redundant* only if every regime with enough
+  support passes the redundancy decision rule above. Any allowed fraction of
+  failing regimes must be fixed in advance, never after seeing results.
+- **Selection stays offline.** Groupings are never merged or split online. A
+  changed grouping needs a new selection round, a new frozen objective set and
+  new training.
+
+**Evidence status.** Current evidence covers policy seeds and checkpoints only
+(10 V4-C checkpoints and 6 V4-C2S-R1 checkpoints, one substrate). No
+cross-plant, terrain or simulator claim is made. The first planned step costs
+no training: split existing rollouts into plant bins by the privileged e_t
+(mass, friction under stock DR) and recompute layers 1–2 for A–S per bin.
+
+Method statement: objective selection retains semantic factors that provide
+incremental controllability and whose relevance–redundancy structure remains
+stable across policies and operating regimes.
+
 ## Separation of selection and evaluation (no leakage)
 
     selection data (policy bank)           frozen objective set          independent test
