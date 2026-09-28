@@ -21,11 +21,47 @@ The teacher receives three inputs:
 
 1. the canonical 48-D observation (state, command, previous action);
 2. the 12-D privileged plant context e_t, normalized outside the model;
-3. a set of objective–weight pairs {(o_i, w_i)}.
+3. a set of objective–weight pairs {(o_i, w_i)} over a frozen set of
+   semantic objectives (section 0).
 
 The objective set is permutation-invariant. It reaches the actor only
 through a low-dimensional family of residual weights on the last two policy
 layers; it never enters the state trunk or the plant encoder.
+
+## 0. Raw rewards to semantic objectives
+
+The model never sees raw reward terms. The objectives it is conditioned on
+are behavioral axes built offline from normalized raw terms, with fixed
+internal weights α. Which terms form which objective is decided by the
+relevance–redundancy selection in
+[objective selection](../general/objective-selection.md), then frozen before
+training.
+
+```text
+raw reward terms (each normalized by a fixed divisor)
+track_lin_vel_xy_exp, track_ang_vel_z_exp, ang_vel_xy_l2,
+flat_orientation_l2, action_rate / action_jerk, ...
+        │
+        ▼
+objective selection / grouping (offline, relevance + redundancy)
+        │
+        ▼
+R_i = Σ_k α_ik r̃_ik,   Σ_k α_ik = 1,   α fixed
+        │
+        ▼
+semantic objective set (V4-C3, K = 3)
+  T  Command Tracking      = linear XY + yaw-rate Z tracking
+  D  Dynamic Stability     = 1.0 · r̃_ang_vel_xy + 0.0 · r̃_S
+  O  Upright Orientation   = flat_orientation_l2
+        │
+        ▼
+user preference {(T, w_T), (D, w_D), (O, w_O)}
+```
+
+V4-C trained on K = 4 raw-level objectives (T, A, O, S). Selection found A
+and S redundant, with no incremental controllability for S, so V4-C3 uses
+K = 3. Code and artifacts keep the label A for D. The model is K-general
+(`TeacherV4(num_objectives=K)`); only the embedding table size depends on K.
 
 ## 1. State trunk
 
@@ -71,8 +107,8 @@ z_t  (8-D)
 The preference is a set of objective IDs with weights on the simplex:
 
 ```text
-{ (o_1, w_1), …, (o_m, w_m) },   Σ w_i = 1,   m = 1…4
-e.g. (T, 0.5), (A, 0.2), (O, 0.2), (S, 0.1)
+{ (o_1, w_1), …, (o_m, w_m) },   Σ w_i = 1,   m = 1…K
+e.g. (T, 0.5), (D, 0.3), (O, 0.2)
 ```
 
 Weighted DeepSets encoder:
@@ -206,6 +242,8 @@ optimizers with the shared adaptive-KL LR. 4096 envs × 24 steps, 5 epochs ×
 ## Full teacher pipeline
 
 ```text
+raw reward terms ─► selection / grouping (offline) ─► R_i = Σ_k α_ik r̃_ik ─► objectives T / D / O
+
 x_t (48-D) ──► State Trunk ──► h_t (16) ──┐
                                           ├─► 24 → 256 (shared) ─► family residual 256 → 128 → 12 ─► tanh ─► a_t
 raw e_t ─► normalizer ─► Env Encoder ─► z_t (8) ─┘                        ▲
