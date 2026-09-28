@@ -119,3 +119,23 @@ provenance. See [objective selection](../../methods/general/objective-selection.
   a post-hoc sensitivity analysis and never changes the verdict.
 
 
+
+## δ₃ (frozen 2026-09-28, before any semantics result)
+
+K = 3 switch-matched null, `switch_semantics.py --mode null`, results in
+`runs/teacher_v4_c3_switch_null-2026-09-28/`. G1-1 s73101 (5 of 512
+snapshots excluded) and G1-2 s73101 (0 excluded). Steady-window mean null
+(pos2 − pos1, pos3 − pos2):
+
+| checkpoint | T | A | O |
+|---|---|---|---|
+| G1-1 s73101 | −.00003, −.00001 | +.00023, −.00003 | +.00163, +.00062 |
+| G1-2 s73101 | +.00046, +.00016 | −.00069, +.00035 | **+.00216**, +.00048 |
+
+Largest |mean| = 0.0021584 (O, G1-2 s73101, pos2 − pos1). δ₃ = max(0.002,
+1.2 × 0.0021584) = 0.00259, **frozen as δ₃ = 0.00260** (rounded up).
+
+Provenance note: the G1-1 null first ran inside a command that was
+interrupted and rejected. Its output was kept, and a fresh approved rerun
+into `g1_1_seed73101_rerun/` reproduced it bit for bit (steady and
+transient). δ₃ uses those identical values.

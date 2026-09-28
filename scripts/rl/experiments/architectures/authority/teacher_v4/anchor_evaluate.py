@@ -31,7 +31,7 @@ class AnchorEvaluate(G1Evaluate):
     report = "anchor_evaluation.json"
 
     def run_pref(self, env, w_np, seed):
-        ids_t = torch.tensor(IDS, device="cuda").repeat(NENV, 1)
+        ids_t = torch.tensor(self.ids, device="cuda").repeat(NENV, 1)
         w = torch.tensor(w_np, device="cuda").repeat(NENV, 1)
         obs, _ = env.reset(seed=seed)
         mgr, robot = env.unwrapped.reward_manager, env.unwrapped.scene["robot"]
@@ -64,7 +64,9 @@ class AnchorEvaluate(G1Evaluate):
         from talon_rl.rewards.objectives import normalized_objective_vector
         self.nov = normalized_objective_vector
         ck = torch.load(self.ck, map_location="cuda", weights_only=False)
-        self.model = TeacherV4().cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
+        objectives = ck.get("objectives", "TAOS")  # V4-C checkpoints predate the field
+        K = len(objectives); self.ids = tuple(range(K)); self.labels = tuple(objectives)
+        self.model = TeacherV4(num_objectives=K).cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
         self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
         robot = env.unwrapped.scene["robot"]
         e_raw = obs["privileged"][0].clone()
@@ -73,12 +75,13 @@ class AnchorEvaluate(G1Evaluate):
         self.probe_e = torch.as_tensor(self.norm.transform(e_raw.cpu().numpy()[None]), dtype=torch.float32, device="cuda").repeat(len(self.probe), 1)
         self.g0 = ObjectiveSetAuthorityIsolatedWideCritic(48, 12).cuda()
         self.g0.load_state_dict(torch.load(G0, map_location="cuda", weights_only=False)["model"]); self.g0.eval()
-        prefs = {"C": center_w(4), **{ORDER[h]: heavy_w(4, h) for h in range(4)}}
+        prefs = {"C": center_w(K), **{self.labels[h]: heavy_w(K, h) for h in range(K)}}
         res = {k: [self.run_pref(env, wv, 860001 + M4_SET_INDEX * 100 + s) for s in range(SUITES)] for k, wv in prefs.items()}
 
         endpoint = {}
-        for h, lab in enumerate(ORDER):
-            do = [res[lab][s]["J"][h] - res["C"][s]["J"][h] for s in range(SUITES)]
+        for h, lab in enumerate(self.labels):
+            col = "TAOS".index(lab)
+            do = [res[lab][s]["J"][col] - res["C"][s]["J"][col] for s in range(SUITES)]
             dp = [res[lab][s]["phys"][PHYS[lab]] - res["C"][s]["phys"][PHYS[lab]] for s in range(SUITES)]
             oo, pp = np.mean(np.asarray(do) > 0), np.mean(np.asarray(dp) < 0)
             ms = min(r["survival"] for r in res[lab])
@@ -86,20 +89,21 @@ class AnchorEvaluate(G1Evaluate):
                              "mean_objective_delta": float(np.mean(do)), "mean_physical_delta": float(np.mean(dp)),
                              "min_survival": float(ms), "pass": bool(oo >= .75 and pp >= .75 and ms >= .95)}
         critic = {}
-        for h, lab in enumerate(ORDER):
-            evs = [ev(r["G"][sl, :, h], r["V"][sl, :, h]) for k in res for r in res[k] for sl in (slice(0, 32), slice(32, 64))]
+        for h, lab in enumerate(self.labels):
+            col = "TAOS".index(lab)  # V is per model objective h; G is over the 4-column objective vector
+            evs = [ev(r["G"][sl, :, col], r["V"][sl, :, h]) for k in res for r in res[k] for sl in (slice(0, 32), slice(32, 64))]
             critic[lab] = {"ev_mean": float(np.mean(evs)), "negative_fraction": float(np.mean(np.asarray(evs) < 0)),
                            "valid": bool(np.mean(evs) > 0 and np.mean(np.asarray(evs) < 0) <= .25)}
-        auth = self.authority(IDS)
+        auth = self.authority(self.ids)
         omega = {k: float(np.mean([r["phys"]["ang_vel_xy"] for r in res[k]])) for k in res}
         out = {"schema": "teacher_v4_c_anchor_evaluation_v1", "fold": self.fold, "seed": self.train_seed, "checkpoint": str(self.ck),
                "checkpoint_sha256": self.sha(self.ck), "endpoint": endpoint, "critic_mc256": critic,
                "authority": {k: auth[k] for k in ("pairwise_retention", "tangent_retention")},
-               "omega_xy": omega, "dJ_A": endpoint["A"]["mean_objective_delta"],
+               "objectives": "".join(self.labels), "omega_xy": omega, "dJ_A": endpoint["A"]["mean_objective_delta"],
                "min_endpoint_survival": float(min(e["min_survival"] for e in endpoint.values()))}
         if self.check_stored:
             st = next(s for s in json.load(open(self.run_dir / "g1_evaluation.json"))["sets"] if s["cardinality"] == 4)["endpoint"]
-            bad = [(lab, k) for lab in ORDER for k in ("objective_correct_fraction", "physical_correct_fraction", "mean_objective_delta", "mean_physical_delta", "min_survival")
+            bad = [(lab, k) for lab in self.labels for k in ("objective_correct_fraction", "physical_correct_fraction", "mean_objective_delta", "mean_physical_delta", "min_survival")
                    if abs(st[lab][k] - endpoint[lab][k]) > 1e-6 * max(1.0, abs(st[lab][k]))]
             out["stored_check_mismatches"] = bad
             if bad:
@@ -111,9 +115,10 @@ class AnchorEvaluate(G1Evaluate):
 
 
 if __name__ == "__main__":
-    a = AnchorEvaluate.parse_args((("--fold",), {"choices": ("G1-2", "G1-3"), "required": True}),
+    a = AnchorEvaluate.parse_args((("--fold",), {"choices": ("G1-1", "G1-2", "G1-3"), "required": True}),
                                   (("--seed",), {"type": int, "required": True}),
-                                  (("--check-stored",), {"action": "store_true"}))
-    ev_ = AnchorEvaluate(a.fold, a.seed, 300, a.out)
+                                  (("--check-stored",), {"action": "store_true"}),
+                                  (("--checkpoint",), {"help": "checkpoint outside the V4-C run dirs (e.g. V4-C3); use with --out"}))
+    ev_ = AnchorEvaluate(a.fold, a.seed, 300, a.out, a.checkpoint)
     ev_.check_stored = a.check_stored
     ev_.execute()
