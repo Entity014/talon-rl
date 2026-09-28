@@ -51,5 +51,22 @@ Within an objective, the relative weight of its terms comes from the stock
 weights (T = 1.5 · lin + 0.75 · yaw), and one divisor normalizes the sum. The
 terms are not normalized one by one.
 
+## Objectives
+
+R_k = (Σ weighted terms of k) / divisor_k, higher is better. Divisors are
+T3-B abs-means (`NORMALIZATION_DIVISORS`, `S1_DIVISOR`).
+
+| label | name | R_k | divisor | used in |
+|---|---|---|---|---|
+| T | Command Tracking | (1.5 · lin_xy + 0.75 · yaw_z) / d | 1.71946 | V4-C, V4-C2S-R1, V4-C3 |
+| A (= D) | Dynamic Stability | −0.05 · ang_vel_xy_l2 / d | 0.15591 | V4-C, V4-C2S-R1, V4-C3 |
+| O | Upright Orientation | −2.5 · flat_orientation_l2 / d | 0.01563 | V4-C, V4-C2S-R1, V4-C3 |
+| S | Control Smoothness | −0.01 · action_rate_l2 / d | 0.08311 | V4-C only |
+| S1 | Smoothness (jerk) | −0.01 · action_jerk_l2 / d | 0.21491 | V4-C2S-R1 only |
+
+V4-C3 trains on K = 3 (`--objectives TAO`). D is the objective-level name.
+Its current realization is R_D = 1.0 · R_A + 0.0 · R_S; code and artifacts
+keep the label A.
+
 How terms are grouped into objectives:
 [objective selection](../../docs/methods/general/objective-selection.md).
