@@ -83,3 +83,35 @@ they are read changes: "raising w_D does not improve D" is, at least in V4-C3,
   dominates, and that the problem is the objective balance at most weights.
   It could equally be missing gait shaping. Separating the two needs its
   own contract.
+
+## Addendum 1 — V4-C lineage (frozen criterion, contract addendum `acdccd6`)
+
+16 V4-C G1 runs (`runs/teacher_v4_c_substrate-2026-09-28/`), K = 4. The
+K-general script reproduced V4-C3 G1-1 s73101 bit for bit (JSON and traces)
+first.
+
+**C stands in 15/16 runs (≥ 13/16), so V4-C also stands.** V4-C, C2 and C3
+share one standing regime. V4-C3 did not create it.
+
+| condition | stands (touchdown < 2 % and track_lin < 0.40) |
+|---|---|
+| C | 15/16 |
+| T⁺ | 8/16 |
+| A⁺ | 16/16 |
+| O⁺ | 15/16 |
+| S⁺ | 16/16 |
+| M0 | 0/16 |
+
+- The one exception is G1-2 s73102. Its C steps (touchdown 13.8 %) with
+  partial tracking (0.57); its T⁺ reaches 0.63, and its A⁺ and S⁺ stand.
+- T⁺ fails the standing criterion in 8/16 runs, mostly through touchdowns
+  alone. Only 2 of those 8 track above 0.40 (0.42 and 0.63). The other six
+  step in place, with tracking at the standing value (0.30–0.33).
+- S1 0/16, S2 0/16. Substrate terms are better than M0 because of standing,
+  as in V4-C3.
+
+Reading: the V4 line's semantic and authority results (preferences have
+authority, are identifiable, and produce measurable responses) were
+measured on a policy family that does not solve locomotion. They are not
+wrong. They show that preference controllability can exist without task
+viability.
