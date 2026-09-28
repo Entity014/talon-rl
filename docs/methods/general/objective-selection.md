@@ -15,6 +15,9 @@ behavioral meaning) and not redundant with the objectives already kept
 
 ## Objectives are behavioral axes, not reward terms
 
+The measured raw terms, their weights and current roles are listed in the
+[raw reward library](../../../talon_rl/rewards/README.md#raw-reward-library-v4-teacher).
+
     USER LEVEL        w_i            which behavior to trade toward (preference, per episode)
     OBJECTIVE LEVEL   R_i = Σ_k α_ik r̃_ik,  Σ_k α_ik = 1     fixed internal composition
     RAW LEVEL         r̃_ik           individual measured signals, each normalized (divisor)
