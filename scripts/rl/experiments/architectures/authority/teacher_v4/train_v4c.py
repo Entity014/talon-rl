@@ -91,6 +91,12 @@ class TrainV4C(IsaacAudit):
             for t in terms:
                 S[k, names.index(t)] = 1.0
         S /= torch.as_tensor(divisors, dtype=torch.float32, device=dev).unsqueeze(-1)
+        # F3: preference-invariant substrate, same coefficient in every objective row
+        from talon_rl.rewards.objectives import shared_vector
+        sv = torch.as_tensor(shared_vector(names, a.shared), dtype=torch.float32, device=dev)
+        if a.shared != "none":
+            S = S + sv.unsqueeze(0)
+        shared_steps = []
 
         model = TeacherV4(num_objectives=K).to(dev)
         aopt = torch.optim.Adam(model.actor_parameters(), lr=cfg.lr)
@@ -124,6 +130,7 @@ class TrainV4C(IsaacAudit):
                     v = model.query_values(x, e, ids, w, ids)
                     obs, _, term, trunc, _ = env.step(torch.tanh(uu) * model.ACTION_CLIP)
                     r = (mgr._step_reward @ S.T) * u_env.step_dt
+                    shared_steps.append(float((mgr._step_reward @ sv).mean()) * u_env.step_dt)
                     ep_ret += r; ep_len += 1
                     r = r + cfg.gamma * v * trunc.unsqueeze(-1).float()  # rsl_rl time-out bootstrap
                     d = term | trunc
@@ -168,6 +175,7 @@ class TrainV4C(IsaacAudit):
             rec = {"iteration": it, "env_samples": it * N * H, "lr": lr, **st,
                    "log_std": {"min": float(ls.min()), "mean": float(ls.mean()), "max": float(ls.max())},
                    "reward_per_step": T["r"].mean((0, 1)).tolist(), "explained_variance": ev,
+                   "shared_reward_per_step": float(np.mean(shared_steps[-H:])),
                    "preference_authority": pref_auth, "plant_authority": plant_auth, "critic_feature_std_max": c_std,
                    "termination_fraction": float(T["d"].float().mean()),
                    "episodes_finished": int(sum(len(x) for x in done_len)),
@@ -189,7 +197,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -198,7 +206,7 @@ class TrainV4C(IsaacAudit):
     def _save(self, model, aopt, copt, lr, norm, it, name):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
-                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "seed": self.seed}, self.out / f"{name}.pt")
+                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -210,5 +218,7 @@ if __name__ == "__main__":
         (("--save-every",), {"type": int, "default": 50}),
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
+        (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
+                         "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
     )
     TrainV4C(args.out, args).execute()

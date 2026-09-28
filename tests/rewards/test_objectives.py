@@ -39,3 +39,24 @@ def test_higher_is_better_penalty_convention():
     r=np.array([[1.,-.2,-.02,-.1],[1.,-.1,-.01,-.05]],np.float32)
     n=normalize_objectives(r)
     assert np.all(n[1,1:]>n[0,1:])
+
+
+def test_shared_substrate_is_preference_invariant_and_never_an_objective():
+    """F3: R_shared must add the same amount to w^T R for every preference on
+    the simplex, must not touch objective terms, and 'none' must be exactly
+    zero so B0 is the unchanged V4-C3 trainer."""
+    from talon_rl.rewards.objectives import OBJECTIVE_TERMS, SHARED_ARMS, SHARED_SCALE, shared_vector
+    names = ["track_lin_vel_xy_exp", "track_ang_vel_z_exp", "lin_vel_z_l2", "ang_vel_xy_l2", "dof_torques_l2",
+             "dof_acc_l2", "action_rate_l2", "feet_air_time", "flat_orientation_l2", "dof_pos_limits"]
+    objective_terms = {t for ts in OBJECTIVE_TERMS.values() for t in ts}
+    assert not np.any(shared_vector(names, "none"))
+    for arm, terms in SHARED_ARMS.items():
+        v = shared_vector(names, arm)
+        assert not objective_terms & set(terms)
+        assert {names[i] for i in np.flatnonzero(v)} == set(terms)
+        assert np.allclose(v[v != 0], SHARED_SCALE)
+    raw = np.random.default_rng(0).normal(size=len(names))
+    v = shared_vector(names, "all")
+    for w in ([1, 0, 0], [1 / 3] * 3, [.15, .7, .15], [0, .3, .7]):
+        # each objective row gets +v; weights sum to one, so the gain is v.raw for every w
+        assert np.isclose(sum(wi * (raw @ v) for wi in w), raw @ v)

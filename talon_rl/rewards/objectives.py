@@ -80,3 +80,25 @@ def scalarize(normalized:np.ndarray,w:np.ndarray)->np.ndarray:
 # four divisors above bit for bit. Used only when a trainer selects S1.
 S1_TERM = "action_jerk_l2"
 S1_DIVISOR = 0.21491182006774562
+
+# F3 preference-invariant locomotion substrate (R_shared). Non-objective stock
+# terms added with the same weight to every objective's reward stream; since
+# active weights sum to one, w^T R gains exactly SHARED_SCALE * sum(terms). The
+# terms keep their stock weights and are scaled by 1 / (T divisor), so their
+# ratio to tracking is the one M0 trained with. Never an objective, never in w.
+SHARED_ARMS = {
+    "none": (),
+    "linz": ("lin_vel_z_l2",),
+    "torque_acc": ("dof_torques_l2", "dof_acc_l2"),
+    "air": ("feet_air_time",),
+    "all": ("lin_vel_z_l2", "dof_torques_l2", "dof_acc_l2", "feet_air_time"),
+}
+SHARED_SCALE = 1.0 / float(NORMALIZATION_DIVISORS[0])
+
+
+def shared_vector(term_names, arm: str) -> np.ndarray:
+    """[n_terms] coefficients applied to the reward manager's weighted step terms."""
+    v = np.zeros(len(term_names), dtype=np.float64)
+    for t in SHARED_ARMS[arm]:
+        v[list(term_names).index(t)] = SHARED_SCALE
+    return v
