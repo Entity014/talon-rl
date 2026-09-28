@@ -174,11 +174,12 @@ def replay_main(a):
                 self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
                 ids = torch.arange(K, device="cuda").repeat(N, 1)
                 ws = {"C": center_w(K), **({f"{lab}+": heavy_w(K, i) for i, lab in enumerate(self.labels)} if a.conds in ("all", "f8") else {"T+": heavy_w(K, 0)})}
-                if a.conds == "f8":  # T-anchored trio: w_T fixed at 0.55, the rest leans to R or to V
+                if a.conds == "f8":  # T-anchored trio
                     if self.labels != ("T", "A", "O", "V"):
                         raise SystemExit("--conds f8 needs a TAOV checkpoint")
-                    ws.update({"T55": np.array([.55, .15, .15, .15], np.float32), "T55R": np.array([.55, .35, .05, .05], np.float32),
-                               "T55V": np.array([.55, .05, .05, .35], np.float32)})
+                    # TAOV order; w_T .55 and w_O .15 fixed, only R <-> V moves
+                    ws.update({"T55": np.array([.55, .15, .15, .15], np.float32), "T55R": np.array([.55, .25, .15, .05], np.float32),
+                               "T55V": np.array([.55, .05, .15, .25], np.float32)})
                 res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in ws}
                 print("REPLAY", self.fold, self.train_seed, it, {c: (v["class"], round(v["tl"], 3), [round(x, 3) for x in v["R"]]) for c, v in res[it].items()}, flush=True)
             out = {"schema": "teacher_v4_f2a_replay_v1", "source_type": "checkpoint_replay", "historical_claim_allowed": False,

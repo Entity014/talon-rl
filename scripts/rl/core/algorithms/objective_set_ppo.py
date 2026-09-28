@@ -51,16 +51,21 @@ class PPOConfig:
 
 # ----- objective sets -----
 
-def sample_objective_sets(n: int, cardinalities: tuple[int, ...], gen: torch.Generator, device=None, num_objectives: int = NUM_OBJECTIVES):
+def sample_objective_sets(n: int, cardinalities: tuple[int, ...], gen: torch.Generator, device=None, num_objectives: int = NUM_OBJECTIVES,
+                          required: int | None = None):
     """Per env: cardinality uniform over `cardinalities`, subset uniform over
     subsets of that size, weights by V3's modes (20% center, 40% one objective
     at 0.70, 40% Dirichlet(1)). Returns (w [n,4], mask [n,4] bool); inactive
     objectives have weight exactly 0, so ids can stay arange(K) (TeacherV4
-    treats zero weights as padding)."""
+    treats zero weights as padding). `required` (F8 task-anchored support)
+    restricts subsets to those containing that objective; None leaves the
+    draws exactly as before."""
     w = torch.zeros(n, num_objectives)
     for b in range(n):
         m = cardinalities[int(torch.randint(len(cardinalities), (1,), generator=gen))]
         combos = list(itertools.combinations(range(num_objectives), m))
+        if required is not None:
+            combos = [c for c in combos if required in c]
         sub = list(combos[int(torch.randint(len(combos), (1,), generator=gen))])
         q = float(torch.rand((), generator=gen))
         if m == 1 or q < 0.2:

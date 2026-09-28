@@ -53,14 +53,13 @@ def main():
                          "runs": {str(s): r for s, r in runs.items()}}
         passing = [x for x in ARMS if arms[x]["arm_pass"]]
         if len(passing) == 1:
-            reading = f"V* = {passing[0]}"
+            reading = f"carry {passing[0]} to F9"
         elif len(passing) == 2:
-            d = arms["V3"]["median_V_rel_improvement"] - arms["V1"]["median_V_rel_improvement"]
-            reading = "both pass; unresolved, carry both" if abs(d) < 0.05 else f"V* = {'V3' if d > 0 else 'V1'} (both pass; larger vertical improvement)"
+            reading = "both pass: carry both to F9; F8 cannot resolve the realization"
         else:
             nv = {x: arms[x]["viable_count"] for x in ARMS}
-            reading = ("case 3 not supported at this stage: task not viable at the base condition" if all(v < 2 for v in nv.values())
-                       else "case 3 not supported at this stage: V not controllable / not distinct from R")
+            reading = ("task viability unresolved: base mostly non-locomoting; case 3 not rejected" if all(v < 2 for v in nv.values())
+                       else "no evidence of a distinct controllable V under this formulation (case 3 not supported at this stage)")
         out["sets"][sname] = {"base_R_V": [base, rc, vc], "arms": arms, "reading": reading}
     json.dump(out, open(root / "f8_screen.json", "w"), indent=1)
     print(json.dumps({s: {"reading": v["reading"], **{arm: (v["arms"][arm]["pass_count"], v["arms"][arm]["viable_count"]) for arm in ARMS}} for s, v in out["sets"].items()}, indent=1))

@@ -195,3 +195,17 @@ def test_three_objective_set_runs_end_to_end():
     cfg = PPOConfig()
     lr, st = update(m, torch.optim.Adam(m.actor_parameters()), torch.optim.Adam(m.critic_parameters()), b, cfg, cfg.lr, torch.Generator().manual_seed(0))
     assert ov.shape == (B, 3) and all(np.isfinite(v) for v in st.values())
+
+
+def test_required_objective_anchors_every_set_and_default_draws_are_unchanged():
+    """F8 task-anchored support: with required=T every active set contains T
+    (no T-free pairs or triples). Without it the draws must be bit-identical
+    to before, so earlier runs stay reproducible."""
+    w, mask = sample_objective_sets(3000, (2, 3, 4), torch.Generator().manual_seed(9), num_objectives=4, required=0)
+    assert mask[:, 0].all() and set(mask.sum(-1).tolist()) == {2, 3, 4}
+    assert torch.allclose(w.sum(-1), torch.ones(3000), atol=1e-6)
+    a, _ = sample_objective_sets(500, (2, 3), torch.Generator().manual_seed(9), num_objectives=4)
+    b, _ = sample_objective_sets(500, (2, 3), torch.Generator().manual_seed(9), num_objectives=4, required=None)
+    assert torch.equal(a, b)
+    free = sample_objective_sets(3000, (2, 3), torch.Generator().manual_seed(9), num_objectives=4)[1]
+    assert (~free[:, 0]).any()  # the unrestricted sampler does draw T-free sets

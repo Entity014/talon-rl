@@ -45,6 +45,8 @@ class TrainV4C(IsaacAudit):
         self.seed = a.seed
         # a controlled restart, not an exact continuation: env, sampler and RNG state are not in the checkpoint
         self.run_seed = a.seed + RESTART_SEED_OFFSET if a.resume else a.seed
+        # F8 task-anchored support: every sampled set contains this objective (not a rule of the final architecture)
+        self.required = a.objectives.index(a.require_objective) if a.require_objective else None
         self.cardinalities = tuple(int(x) for x in a.cardinalities.split(","))
         self.objectives = a.objectives
         if not self.objectives or any(x not in "TAOSV" for x in self.objectives) or len(set(self.objectives)) != len(self.objectives):
@@ -131,7 +133,7 @@ class TrainV4C(IsaacAudit):
                 for g_ in o.param_groups:
                     g_["lr"] = lr
         ids = torch.arange(K, device=dev).expand(N, -1).contiguous()
-        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=K)
+        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=K, required=self.required)
         ep_ret = torch.zeros(N, K, device=dev)
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
@@ -167,7 +169,7 @@ class TrainV4C(IsaacAudit):
                         di = d.nonzero().squeeze(-1)
                         done_ret.append(ep_ret[di].clone()); done_len.append(ep_len[di].clone())
                         ep_ret[di] = 0; ep_len[di] = 0
-                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=K)
+                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=K, required=self.required)
                         w = w.clone(); mask = mask.clone()
                         w[di], mask[di] = nw, nm
                 last_v = model.query_values(obs["policy"], norm_e(obs), ids, w, ids)
@@ -190,7 +192,7 @@ class TrainV4C(IsaacAudit):
                 pick = torch.randperm(flat["obs"].shape[0], generator=gen)[:1024].to(dev)
                 xo, eo, io, wo = flat["obs"][pick], flat["env"][pick], flat["ids"][pick], flat["w"][pick]
                 a0 = model.act_inference(xo, eo, io, wo)
-                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev, num_objectives=K)
+                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev, num_objectives=K, required=self.required)
                 pref_auth = float((model.act_inference(xo, eo, io, w2) - a0).norm(dim=-1).median())
                 plant_auth = float((model.act_inference(xo, eo.roll(1, 0), io, wo) - a0).norm(dim=-1).median())
                 # Integrity: a dead critic body (every last-layer ELU unit saturated, so c_t is
@@ -223,7 +225,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -245,6 +247,7 @@ if __name__ == "__main__":
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
         (("--desired-kl",), {"type": float, "default": 0.01, "help": "adaptive-KL target; 0.01 is the M0 value (F5 A2 uses 0.02)"}),
+        (("--require-objective",), {"default": None, "help": "F8: every sampled objective set contains this letter, e.g. T"}),
         (("--v-objective",), {"choices": ("none", "V1", "V3"), "default": "none", "help": "F8 Vertical Stability realization (objectives.V_REALIZATIONS)"}),
         (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
