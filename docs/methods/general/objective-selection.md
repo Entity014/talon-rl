@@ -97,6 +97,40 @@ Method statement: objective selection retains semantic factors that provide
 incremental controllability and whose relevance–redundancy structure remains
 stable across policies and operating regimes.
 
+## Selection pipeline, revised after the standing finding (PLANNED)
+
+The V4-C selection round kept A and O as distinct features. The frozen set
+{T, D, O} still made standing the objective's own optimum over most of the
+simplex ([substrate attribution](../../verdicts/teacher_v4/teacher-v4-c3-substrate-attribution-verdict.md)).
+Feature quality therefore does not imply set viability. The pipeline gains a
+role screen, a task-conditional layer and a joint-viability layer:
+
+    raw reward library
+      1. task-role screen       objective candidate | constraint | regularizer | feasibility / gait prior
+      2. feature selection      relevance, redundancy, incremental controllability (layers 1-3 above)
+      3. conditional selection  layers 1-3 repeated inside the task-valid (locomoting) regime
+      4. grouping               raw terms -> behavioral objectives, fixed α
+      5. joint viability        does wᵀR keep locomotion optimal over the intended preference support? (F1)
+      6. freeze                 objective set, then MORL training and evaluation
+
+- **Roles decide where a term enters.** Objective candidates get a
+  preference weight. Constraints, regularizers and feasibility priors are
+  candidates for a preference-invariant term R_shared, never inside an
+  objective. Today non-objective terms have zero training weight
+  ([raw reward library](../../../talon_rl/rewards/README.md#raw-reward-library-v4-teacher)).
+- **Raw vs task-conditional relevance.** A signal can be easy to control
+  through a trivial mechanism. `ang_vel_xy_l2` is best when the robot
+  stands. Layer 3 asks whether the signal still varies and is controllable
+  while the task stays solved: Var(r | locomoting), not Var(r).
+- **Layer 5 is a set property.** Two features can each be relevant and
+  mutually non-redundant, yet together make a trivial behavior optimal.
+- **Data requirement.** Layer 3 needs a policy bank that locomotes in
+  diverse ways. The current bank has M0 (one policy) and three partial
+  walkers, not enough for policy-independent conditional statistics.
+- **Leakage.** The V4-C/C2/C3 checkpoints and evaluation outputs are
+  selection data for the next round. They are never evaluation data for
+  the objective set that round produces.
+
 ## Separation of selection and evaluation (no leakage)
 
     selection data (policy bank)           frozen objective set          independent test
