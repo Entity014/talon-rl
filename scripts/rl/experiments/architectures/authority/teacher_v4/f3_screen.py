@@ -22,8 +22,10 @@ def first(flags, its):
     return next((u for u, f in zip(its, flags) if f), None)
 
 
-def persistent(flags, its):
-    return next((u for j, u in enumerate(its) if all(flags[j:])), None)
+def persistent(flags, its, min_len=2):
+    """First checkpoint from which the property holds through the last one, over at least `min_len` checkpoints.
+    A property seen only at the final checkpoint cannot be called persistent."""
+    return next((u for j, u in enumerate(its) if all(flags[j:]) and len(its) - j >= min_len), None)
 
 
 def run_summary(replay, metrics):
@@ -35,8 +37,9 @@ def run_summary(replay, metrics):
                   "t_step": first([p["class"] in STEPPING for p in P], its),
                   "t_translate": first([p["class"] in LOCO for p in P], its),
                   "t_translate_persistent": persistent([p["class"] in LOCO for p in P], its),
+                  "late_locomotion_unresolved": P[-1]["class"] in LOCO and persistent([p["class"] in LOCO for p in P], its) is None,
                   "final": {k: P[-1][k] for k in ("class", "tl", "td", "R", "ev_T", "ev_A", "ev_O")}}
-    rows = [json.loads(l) for l in open(metrics)]
+    rows = [json.loads(l) for l in open(metrics)]  # critic EV here is descriptive: with R_shared each head predicts R_i + R_shared
     out["h_last10"] = {"preference_authority": float(np.mean([r["preference_authority"] for r in rows[-10:]])),
                        "shared_reward_per_step": float(np.mean([r.get("shared_reward_per_step", 0.0) for r in rows[-10:]])),
                        "explained_variance": np.mean([r["explained_variance"] for r in rows[-10:]], 0).tolist()}
