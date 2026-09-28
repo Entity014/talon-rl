@@ -1,6 +1,6 @@
 # Teacher V4 — F7 Stage 2: Vertical-Axis Realization (selection, read-only)
 
-Status: **DRAFT 2026-09-28. Not frozen. No stage-2 trace has been generated.**
+Status: **FROZEN 2026-09-28 (r2) in the commit that sets this line, before the stage-2 traces and before any target computation.**
 Branch: `v4-c2-semantic-preservation`
 Follows: [F7 stage 1 map](../../verdicts/teacher_v4/teacher-v4-f7-phenotype-map.md)
 
@@ -59,19 +59,30 @@ body_height_osc_l2 3.1e-4 / 4.1e-4 / 0.8e-4. The F4 behaviors and the target
 
 ## Pre-declared selection rule
 
-Per candidate, on window means:
+Candidates are read as non-negative costs. Translating behaviors: s73102 C,
+s73102 T⁺, F4 s74102 T⁺, F4 s74103 T⁺, M0. Policies: s73102, s74102,
+s74103, M0 (s73102's two behaviors are one policy).
 
-1. **Relevance:** Kendall τ between the candidate's behavior-level means and
-   the target's behavior-level means over the 5 translating behaviors, plus
-   pooled Spearman over translating windows (descriptive).
-2. **Redundancy with R:** per policy (s73102 = max over C and T⁺),
-   |Spearman(candidate, ang_vel_xy_l2)| within each translating behavior.
-3. **Redundancy with O:** the same with tilt² (flat_orientation).
-4. **Admissible** if every per-policy |ρ_R| < 0.7 and |ρ_O| < 0.7.
-5. **Choice:** the admissible candidate with the highest τ. Ties go to the
-   higher pooled Spearman, then to the stock term. If none is admissible,
-   F7 reports no admissible V realization and the case-1 / case-2
-   fallbacks are reconsidered.
+1. **Admissibility:** per policy (s73102 = max over its two behaviors),
+   per-step |Spearman(candidate, ang_vel_xy cost)| < 0.7 **and**
+   |Spearman(candidate, flat_orientation cost)| < 0.7.
+2. **Primary: behavior-level Kendall τ** between candidate and target
+   behavior medians over the 5 translating behaviors. Its question is
+   cross-gait / cross-policy ordering. With 5 points, τ is coarse and ties
+   are expected. That reflects thin cross-policy evidence and is **not**
+   repaired with window pseudo-samples.
+3. Tie on τ → **policy-blocked within-behavior Spearman.** Per behavior,
+   Spearman(candidate window mean, target window) is computed. Each policy is
+   the median of its behaviors, and the median over the 4 policies decides.
+   A difference < 0.02 counts as a tie.
+4. Still tied → pooled-window Spearman (a descriptive tie-break only).
+5. Still tied → the stock term V1.
+
+If the choice is made only at step 4 or 5, or the chosen τ ≤ 0, the verdict
+is **"vertical realization unresolved on current selection bank"**, with V1
+named only as the default. If no candidate is admissible, the verdict is
+"no admissible V realization", and the case-1 / case-2 fallbacks are
+reconsidered.
 
 Also reported: per-step density (share of non-negligible values) and
 kurtosis (dense-reward conditioning).
