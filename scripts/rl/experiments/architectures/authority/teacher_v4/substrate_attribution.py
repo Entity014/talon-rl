@@ -82,7 +82,7 @@ class SubstrateAttribution(C3Semantics):
         w0 = torch.tensor(center_w(K), device="cuda").repeat(N, 1)
         Wc = torch.tensor(np.stack([center_w(K), *[heavy_w(K, k) for k in range(K)], center_w(K)]), dtype=torch.float32, device="cuda")
         env_idx = torch.arange(N, device="cuda"); P = len(CONDS)
-        per = {c: [] for c in CONDS}; traces = {c: [] for c in CONDS}; excluded = 0
+        per = {c: [] for c in CONDS}; traces = {c: [] for c in CONDS}; trace_ok = []; excluded = 0
         for es in ENV_SEEDS:
             obs, _ = env.reset(seed=es)
             with torch.no_grad():
@@ -94,6 +94,7 @@ class SubstrateAttribution(C3Semantics):
             slot = (torch.arange(P, device="cuda").unsqueeze(0) + ((env_idx + es) % P).unsqueeze(1)) % P
             br = [self.branch(env, snap, ids, Wc[slot[:, p]], slot[:, p] == K + 1) for p in range(P)]
             ok = np.all([b[1] for b in br], 0); excluded += int((~ok).sum())
+            trace_ok.append(ok[:TRACE_ENVS])  # F6: which traced envs survived every branch
             sl = slot.cpu().numpy(); rows = np.arange(N)
             X = np.stack([b[0] for b in br])  # [P, STEPS, N, F]
             for ci, c in enumerate(CONDS):
@@ -138,7 +139,7 @@ class SubstrateAttribution(C3Semantics):
                "seed": self.train_seed, "m0_checkpoint": str(M0_CKPT), "excluded_terminated": excluded,
                "n_snapshots_used": int(M["C"].shape[0]), "gated": gated, "S1_off_manifold": bool(s1),
                "S2_D_degrades_substrate": bool(s2), "level_steady": level, "delta_vs_C_steady": delta, "gait": gait}
-        np.savez_compressed(self.out / "substrate_traces.npz", cols=np.asarray(cols),
+        np.savez_compressed(self.out / "substrate_traces.npz", cols=np.asarray(cols), ok=np.concatenate(trace_ok),
                             **{c.replace("+", "p"): np.concatenate(v, 1).astype(np.float32) for c, v in traces.items()})
         self.write(out)
         print("SUB", self.fold, self.train_seed, "S1", s1, "S2", s2,

@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""F6 conditional raw-feature screen: gentle (L) vs D-costly (H) locomotion (docs/contracts/teacher_v4/teacher-v4-f6-conditional-feature-contract.md).
+
+Offline. Reads substrate_attribution traces (first 64 envs, 128 steps, per-env
+survival mask), keeps the steady window 33-128 of surviving envs, and per raw
+reward term reports: variance within locomotion, L-vs-H separation on 32-step
+windows, behavior-level ordering, Spearman with A per behavior and pooled,
+A-conditioned residual separation, motion-vs-standing separation, and the
+pre-declared class. Never selects a D_v2.
+"""
+import json
+from pathlib import Path
+
+import numpy as np
+
+REPO = Path(__file__).resolve().parents[6]
+ROOT = REPO / "runs/teacher_v4_f6-2026-09-28"
+DIV = np.array([1.7194554805755615, 0.15590913593769073, 0.01563369482755661])
+TERMS = ("track_lin_vel_xy_exp", "track_ang_vel_z_exp", "lin_vel_z_l2", "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2",
+         "action_rate_l2", "feet_air_time", "flat_orientation_l2")
+A = "ang_vel_xy_l2"
+# behavior -> (trace dir, npz key, required phenotype)
+BEHAVIORS = {
+    "L_C": ("v4c_g1_2_s73102", "C", "L"), "L_T+": ("v4c_g1_2_s73102", "Tp", "L"),
+    "H_74102": ("f4_s74102", "Tp", "H"), "H_74103": ("f4_s74103", "Tp", "H"),
+    "ref_M0": ("v4c_g1_2_s73102", "M0", "any"), "ref_standing": ("v4c_g1_2_s73101", "C", "standing"),
+    "ref_step_74102": ("f4_s74102", "C", "step"), "ref_step_74103": ("f4_s74103", "C", "step"),
+}
+KEY2COND = {"C": "C", "Tp": "T+", "M0": "M0"}
+STRONG, WEAK, RHO_HIGH, NBINS, MIN_WIN = 0.8, 0.5, 0.7, 4, 10
+
+
+def phenotype(level, gait):
+    tl = level["track_lin_vel_xy_exp"]; td = gait["touchdown_step_fraction"]
+    R = np.array([level["track_lin_vel_xy_exp"] + level["track_ang_vel_z_exp"], level["ang_vel_xy_l2"], level["flat_orientation_l2"]]) / DIV
+    if tl >= 0.40:
+        return ("L" if R[1] >= -0.23 and R[2] >= -0.48 else "H"), R
+    return ("standing" if td < 0.02 else "step"), R
+
+
+def spearman(x, y):
+    rx = np.argsort(np.argsort(x)); ry = np.argsort(np.argsort(y))
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def smd(a, b):
+    sd = np.sqrt((a.var(ddof=1) + b.var(ddof=1)) / 2) + 1e-12
+    return float((a.mean() - b.mean()) / sd)
+
+
+def load():
+    data, incl = {}, {}
+    for name, (d, key, want) in BEHAVIORS.items():
+        z = np.load(ROOT / "traces" / d / "substrate_traces.npz")
+        j = json.load(open(ROOT / "traces" / d / "substrate_attribution.json"))
+        cond = KEY2COND[key]
+        ph, R = phenotype(j["level_steady"][cond], j["gait"][cond])
+        ok = want == "any" or ph == want
+        incl[name] = {"phenotype": ph, "R": R.tolist(), "tl": j["level_steady"][cond]["track_lin_vel_xy_exp"], "included": bool(ok)}
+        if ok:
+            cols = list(z["cols"]); X = z[key][32:128][:, z["ok"]]  # [96, envs, F]
+            data[name] = {t: X[..., cols.index(t)] for t in TERMS}
+    return data, incl
+
+
+def main():
+    data, incl = load()
+    Lb = [b for b in ("L_C", "L_T+") if b in data]; Hb = [b for b in ("H_74102", "H_74103") if b in data]
+    out = {"schema": "teacher_v4_f6_features_v1", "inclusion": incl, "L_behaviors": Lb, "H_behaviors": Hb}
+    if not Lb or not Hb:
+        out["reading"] = "unresolved: an L or H behavior failed its phenotype inclusion"
+        json.dump(out, open(ROOT / "f6_features.json", "w"), indent=1); print(json.dumps(out, indent=1)); return
+
+    def windows(b, t):  # [3 windows x envs] means of 32-step non-overlapping windows
+        x = data[b][t]; return x.reshape(3, 32, -1).mean(1).ravel()
+
+    std_b = [b for b in data if b == "ref_standing"]
+    feats = {}
+    for t in (A, *[x for x in TERMS if x != A]):  # A first: candidates compare against its separation
+        wl = np.concatenate([windows(b, t) for b in Lb]); wh = np.concatenate([windows(b, t) for b in Hb])
+        s_lh = smd(wl, wh)
+        means = {b: float(data[b][t].mean()) for b in data}
+        order = (min(means[b] for b in Lb) > max(means[b] for b in Hb)) or (max(means[b] for b in Lb) < min(means[b] for b in Hb))
+        rho = {b: spearman(data[b][t].ravel(), data[b][A].ravel()) if t != A else 1.0 for b in Lb + Hb}
+        rho_pooled = spearman(np.concatenate([data[b][t].ravel() for b in Lb + Hb]), np.concatenate([data[b][A].ravel() for b in Lb + Hb])) if t != A else 1.0
+        # A-conditioned residual separation on window means within the common A support
+        al = np.concatenate([windows(b, A) for b in Lb]); ah = np.concatenate([windows(b, A) for b in Hb])
+        lo, hi = max(al.min(), ah.min()), min(al.max(), ah.max())
+        bins = []
+        if lo < hi and t != A:
+            pooled = np.concatenate([al[(al >= lo) & (al <= hi)], ah[(ah >= lo) & (ah <= hi)]])
+            edges = np.quantile(pooled, np.linspace(0, 1, NBINS + 1))
+            for k in range(NBINS):
+                ml = (al >= edges[k]) & (al <= edges[k + 1]); mh = (ah >= edges[k]) & (ah <= edges[k + 1])
+                if ml.sum() >= MIN_WIN and mh.sum() >= MIN_WIN:
+                    bins.append(float(wl[ml].mean() - wh[mh].mean()))
+        overall = np.sign(wl.mean() - wh.mean())
+        residual = None if len(bins) < 2 else sum(np.sign(d) == overall for d in bins) >= max(2, int(np.ceil(0.75 * len(bins))))
+        # motion vs standing
+        s_motion = smd(np.concatenate([windows(b, t) for b in Lb + Hb]), windows("ref_standing", t)) if std_b else None
+        med_rho = float(np.median([abs(v) for v in rho.values()]))
+        if t == A:
+            cls = "baseline (A)"
+        elif abs(s_lh) < WEAK:
+            cls = "nonspecific / motion feature" if s_motion is not None and abs(s_motion) >= STRONG else "nonspecific"
+        elif abs(s_lh) < STRONG or not order:
+            cls = "unresolved (weak or conflicting across behaviors)"
+        elif residual is None:
+            cls = "unresolved (insufficient common A support)"
+        elif not residual:
+            cls = "redundant with A"
+        elif abs(s_lh) >= abs(feats[A]["S_LH_window"]) and med_rho < RHO_HIGH:
+            cls = "candidate alternative"
+        else:
+            cls = "candidate complement to A"
+        feats[t] = {"var_within_locomotion": {b: float(data[b][t].var()) for b in Lb + Hb},
+                    "S_LH_window": s_lh, "behavior_means": means, "behavior_ordering_consistent": bool(order),
+                    "spearman_with_A": rho, "spearman_with_A_pooled": rho_pooled, "median_within_behavior_abs_rho": med_rho,
+                    "A_support": [float(lo), float(hi)], "A_bin_deltas": bins, "residual_survives": None if residual is None else bool(residual),
+                    "S_motion_vs_standing": s_motion, "class": cls}
+    out["features"] = feats
+    out["note"] = "Gentle side is one policy (s73102). Output proposes candidates only; no D_v2 is selected."
+    json.dump(out, open(ROOT / "f6_features.json", "w"), indent=1)
+    print(json.dumps({"inclusion": incl, "classes": {t: (round(v["S_LH_window"], 2), v["behavior_ordering_consistent"], v["residual_survives"], v["class"]) for t, v in feats.items()}}, indent=1))
+
+
+if __name__ == "__main__":
+    main()
