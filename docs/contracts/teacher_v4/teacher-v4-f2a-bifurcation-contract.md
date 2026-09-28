@@ -1,6 +1,6 @@
 # Teacher V4 — F2-A Matched-Seed Bifurcation Contract (rare gentle gait)
 
-Status: **DRAFT r2 2026-09-28. Not frozen. No F2 metric has been computed.** Smoke tests used only excluded-lineage runs (V4-C3 G1-1 s73101, s73103), including a synthetic end-to-end analyze.
+Status: **FROZEN 2026-09-28 (r3) in the commit that sets this line, before any F2 replay or analysis. No F2 metric had been computed.** Smoke tests used only excluded-lineage runs (V4-C3 G1-1 s73101, s73103), including a synthetic end-to-end analyze.
 Branch: `v4-c2-semantic-preservation`
 Provenance: [F2-0 inventory](teacher-v4-f2-0-provenance-inventory.md)
 
@@ -54,10 +54,30 @@ for 10 consecutive iterations. The series are raw, with no smoothing.
   only*.
 
 **Specificity null.** A two-run envelope is narrow, so any run can leave it.
-Each of the five same-code controls is tested against every pair of the
-other four (5 × 6 = 30 null pairs). A target onset is **specific** only if
-fewer than 50 % of the null pairs give an onset at or before it. Only
-specific signals enter the F2-A5 label. Non-specific ones are listed.
+The same detector runs on pseudo-targets: each of the five same-code
+controls against every pair of the other four (5 × 6 = 30 configurations).
+
+q_null = (1 + #{null onsets ≤ target onset}) / 31. A null `None` counts as
+later than any finite onset, and ties count against the target.
+
+| q_null | class | use |
+|---|---|---|
+| ≤ 0.20 (at most 5 of 30 at least as early) | specific | may drive the F2-A5 label |
+| 0.20 < q < 0.50 | ambiguous | reported only |
+| ≥ 0.50 | nonspecific | reported only |
+
+**q_null is not a p-value.** The 30 configurations reuse the same control
+runs and are not independent. It is an empirical rarity calibration of the
+onset detector: how often an ordinary same-code run gives an onset this
+early. The null bank deliberately includes cross-fold pairs, because it
+calibrates the detector, not the G1-2 distribution. Inference on the target
+still uses the G1-2 s73101 / s73103 envelope.
+
+Specificity and cross-fold robustness are separate. A signal is
+*cross-fold robust* if `h_onset_samecode` exists (the target also leaves the
+five-control envelope). A specific but matched-fold-only signal may drive
+the label, and the label then carries the qualifier "matched-fold only"
+(or "partly cross-fold robust" / "cross-fold robust").
 
 ## F2-A2 — fixed-probe checkpoint replay (p_*)
 
@@ -104,8 +124,10 @@ Properties per checkpoint:
 - locomotion: class ∈ {partial, established};
 - credit divergence: at least one primary-window credit metric (EV T / A /
   O, advantage std T / A / O, corr TA / TO) outside [min, max] of the two
-  primary controls at that checkpoint. The same specificity null applies,
-  per checkpoint.
+  primary controls at that checkpoint. The same q_null rule applies to its
+  first checkpoint (30 pseudo-target configurations, specific if q ≤ 0.20).
+  Cross-fold robust if the target also diverges from the five-control
+  envelope at some checkpoint.
 
 The intended reading of the ordering: joint/action activity rises, then a
 touchdown pattern appears, then translation.

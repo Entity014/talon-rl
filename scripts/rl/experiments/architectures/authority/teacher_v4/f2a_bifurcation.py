@@ -39,7 +39,19 @@ CREDIT_P = ("ev_T", "ev_A", "ev_O", "adv_std_T", "adv_std_A", "adv_std_O", "adv_
 ACTIVITY_P = ("qd_norm", "action_rate", "qdd_norm")
 CREDIT_WIN = {"": slice(32, 64), "_t0_32": slice(0, 32)}
 RUNLEN = 10
-NULL_MAX = 0.5  # a signal is specific if < half of the control null pairs show it at least as early
+Q_SPECIFIC, Q_AMBIGUOUS = 0.20, 0.50
+
+
+def q_null(t_target, nulls):
+    """Empirical rank of a target onset among pseudo-null onsets (None = later than any finite onset; ties count
+    against the target). Not a p-value: the 30 configurations reuse the same control runs."""
+    if t_target is None:
+        return None
+    return (1 + sum(n is not None and n <= t_target for n in nulls)) / (1 + len(nulls))
+
+
+def rarity(q):
+    return None if q is None else "specific" if q <= Q_SPECIFIC else "ambiguous" if q < Q_AMBIGUOUS else "nonspecific"
 
 
 def run_dir(fold, seed):
@@ -213,8 +225,9 @@ def analyze_main(a):
         t_on = h1[key]["h_onset_matched"]
         nulls = [onset(H[c][key], *env_of(key, pr)) for c, pr in null_pairs]
         h1[key]["null_onsets"] = nulls
-        h1[key]["null_rate_at_or_before_target"] = None if t_on is None else float(np.mean([n is not None and n <= t_on for n in nulls]))
-        h1[key]["specific"] = t_on is not None and h1[key]["null_rate_at_or_before_target"] < NULL_MAX
+        h1[key]["q_null"] = q_null(t_on, nulls); h1[key]["rarity"] = rarity(h1[key]["q_null"])
+        h1[key]["specific"] = h1[key]["rarity"] == "specific"
+        h1[key]["cross_fold_robust"] = h1[key]["h_onset_samecode"] is not None
     # F2-A2/A3 replay trajectories
     keep = ("class", "td", "tl", "R", "qdd_norm", "qd_norm", "action_rate", "w_xy", "tilt_deg", *CREDIT_P, *[m + "_t0_32" for m in CREDIT_P])
     traj = {f"{f} s{s}": {c: [{"it": u, **{k: rep[(f, s)][str(u)][c][k] for k in keep},
@@ -233,8 +246,9 @@ def analyze_main(a):
         ts[c] = {k: dict(zip(("t_probe_first", "t_probe_persistent"), first_persistent(v, its))) for k, v in props.items()}
         first_null = [first_persistent([div(rep[cc][str(u)][c], [rep[q][str(u)][c] for q in pr]) for u in its], its)[0] for cc, pr in null_pairs]
         tf = ts[c]["credit_divergence"]["t_probe_first"]
-        ts[c]["credit_divergence"]["null_first"] = first_null
-        ts[c]["credit_divergence"]["specific"] = tf is not None and float(np.mean([n is not None and n <= tf for n in first_null])) < NULL_MAX
+        q = q_null(tf, first_null)
+        ts[c]["credit_divergence"].update({"null_first": first_null, "q_null": q, "rarity": rarity(q), "specific": rarity(q) == "specific",
+                                           "cross_fold_robust": first_persistent([div(p, [rep[k][str(u)][c] for k in PRIMARY + SECONDARY]) for p, u in zip(P, its)], its)[0] is not None})
     # F2-A5 characterization (primary: C); timing relative to u = first locomotion checkpoint at C
     loco = ts["C"]["locomotion"]["t_probe_first"]
 
@@ -250,11 +264,14 @@ def analyze_main(a):
         for grp, keys in (("stochasticity", STOCHASTICITY), ("actor_update", ACTOR_UPDATE), ("credit", CREDIT_H)):
             for k in keys:
                 sig[f"{grp}:{k}"] = {"timing": timing(h1[k]["h_onset_matched"], loco), "h_onset_matched": h1[k]["h_onset_matched"],
-                                     "specific": h1[k]["specific"], "null_rate": h1[k]["null_rate_at_or_before_target"],
+                                     "specific": h1[k]["specific"], "q_null": h1[k]["q_null"], "rarity": h1[k]["rarity"],
+                                     "cross_fold_robust": h1[k]["cross_fold_robust"],
                                      "h_onset_samecode": h1[k]["h_onset_samecode"],
                                      "timing_samecode": timing(h1[k]["h_onset_samecode"], loco)}
         cp = ts["C"]["credit_divergence"]["t_probe_first"]
-        sig["credit:p_credit_divergence"] = {"timing": timing(cp, loco), "t_probe_first": cp, "specific": ts["C"]["credit_divergence"]["specific"]}
+        cd = ts["C"]["credit_divergence"]
+        sig["credit:p_credit_divergence"] = {"timing": timing(cp, loco), "t_probe_first": cp, "specific": cd["specific"], "q_null": cd["q_null"],
+                                             "rarity": cd["rarity"], "cross_fold_robust": cd["cross_fold_robust"]}
         pre = {g for g, v in sig.items() if v["timing"] == "precursor" and v["specific"]}
         within = {g for g, v in sig.items() if v["timing"] == "accompaniment" and v["specific"]}
         nonspecific = sorted(g for g, v in sig.items() if v["timing"] in ("precursor", "accompaniment") and not v["specific"])
@@ -264,6 +281,10 @@ def analyze_main(a):
         label = ("mixed" if actor_pre and credit_pre else "actor-side precursor" if actor_pre else "credit precursor" if credit_pre
                  else "unresolved: change accompanies acquisition within replay resolution" if within
                  else "basin-entry-like" if persistent else "unresolved: no precursor observed, locomotion not persistent")
+        driving = pre if pre else within
+        if driving and label not in ("basin-entry-like",):
+            rob = [sig[g]["cross_fold_robust"] for g in driving]
+            label += ", cross-fold robust" if all(rob) else ", partly cross-fold robust" if any(rob) else ", matched-fold only"
         char = {"label": label, "locomotion_first_C": loco, "window": [loco - 50, loco], "signals": sig,
                 "precursors": sorted(pre), "accompaniments": sorted(within), "nonspecific_signals": nonspecific, "locomotion_persistent_from_first": persistent}
     order = {"C_locomotion_first": ts["C"]["locomotion"]["t_probe_first"], "Tplus_locomotion_first": ts["T+"]["locomotion"]["t_probe_first"]}
