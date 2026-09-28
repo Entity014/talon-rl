@@ -28,6 +28,7 @@ from rl.core.normalization.running import RunningNormalizer
 
 LOG_STD_GATE = (-5.0, 2.0)
 DEAD_CRITIC_STREAK = 5  # consecutive iterations with a constant critic feature c_t
+RESTART_SEED_OFFSET = 1_000_000  # budget audit: a resumed run draws env/sampler randomness from seed + offset
 
 
 class TrainV4C(IsaacAudit):
@@ -42,6 +43,8 @@ class TrainV4C(IsaacAudit):
         self.a = a
         self.num_envs = a.num_envs
         self.seed = a.seed
+        # a controlled restart, not an exact continuation: env, sampler and RNG state are not in the checkpoint
+        self.run_seed = a.seed + RESTART_SEED_OFFSET if a.resume else a.seed
         self.cardinalities = tuple(int(x) for x in a.cardinalities.split(","))
         self.objectives = a.objectives
         if not self.objectives or any(x not in "TAOS" for x in self.objectives) or len(set(self.objectives)) != len(self.objectives):
@@ -58,10 +61,10 @@ class TrainV4C(IsaacAudit):
         else:
             cfg = TalonV4CEnvCfg()
         cfg.scene.num_envs = self.num_envs
-        cfg.seed = self.seed  # before gym.make, or identical launches diverge
+        cfg.seed = self.run_seed  # before gym.make, or identical launches diverge
         self.cfg = cfg
         env = gym.make(self.task, cfg=cfg)
-        obs, _ = env.reset(seed=self.seed)
+        obs, _ = env.reset(seed=self.run_seed)
         return env, obs
 
     def rollout(self, env, obs) -> dict:
@@ -71,8 +74,8 @@ class TrainV4C(IsaacAudit):
         cfg, a, dev = PPOConfig(), self.a, "cuda"
         u_env = env.unwrapped
         N, H = self.num_envs, cfg.num_steps
-        torch.manual_seed(self.seed)
-        gen = torch.Generator().manual_seed(self.seed)
+        torch.manual_seed(self.run_seed)
+        gen = torch.Generator().manual_seed(self.run_seed)
 
         mgr = u_env.reward_manager
         names = list(mgr.active_terms)
@@ -104,6 +107,18 @@ class TrainV4C(IsaacAudit):
         lr = cfg.lr
         norm = RunningNormalizer(12, center=True)
         norm.update(obs["privileged"].cpu().numpy())
+        it0 = 0
+        if a.resume:
+            ck = torch.load(a.resume, map_location=dev, weights_only=False)
+            want = {"objectives": self.objectives, "shared": a.shared, "cardinalities": list(self.cardinalities), "seed": a.seed}
+            got = {k: ck.get(k, "none" if k == "shared" else None) for k in want}
+            if got != want:
+                raise SystemExit(f"--resume checkpoint does not match this run: {got} != {want}")
+            model.load_state_dict(ck["model"]); aopt.load_state_dict(ck["actor_opt"]); copt.load_state_dict(ck["critic_opt"])
+            lr = ck["lr"]; norm.load_state_dict(ck["extrinsics_normalizer"]); it0 = ck["iteration"]
+            for o in (aopt, copt):
+                for g_ in o.param_groups:
+                    g_["lr"] = lr
         ids = torch.arange(K, device=dev).expand(N, -1).contiguous()
         w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=K)
         ep_ret = torch.zeros(N, K, device=dev)
@@ -115,7 +130,7 @@ class TrainV4C(IsaacAudit):
             return torch.as_tensor(norm.transform(o["privileged"].cpu().numpy()), dtype=torch.float32, device=dev)
 
         dead_streak = 0
-        for it in range(1, a.iterations + 1):
+        for it in range(it0 + 1, a.iterations + 1):
             buf = {k: [] for k in ("obs", "env", "w", "mask", "u", "old_logp", "old_mu", "old_sigma", "old_values", "r", "d")}
             raw_e, done_ret, done_len = [], [], []
             model.eval()
@@ -197,7 +212,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "num_envs": N, "seed": self.seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -218,6 +233,7 @@ if __name__ == "__main__":
         (("--save-every",), {"type": int, "default": 50}),
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
+        (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
     )
