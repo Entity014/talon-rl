@@ -71,7 +71,9 @@ class TrainV4C(IsaacAudit):
         from talon_rl.models.authority.teacher_v4 import TeacherV4
         from talon_rl.rewards.objectives import NORMALIZATION_DIVISORS, OBJECTIVE_TERMS
 
-        cfg, a, dev = PPOConfig(), self.a, "cuda"
+        import dataclasses
+        a, dev = self.a, "cuda"
+        cfg = dataclasses.replace(PPOConfig(), desired_kl=a.desired_kl)  # F5 A2: relaxes the adaptive-KL LR controller (thresholds d/2, 2d)
         u_env = env.unwrapped
         N, H = self.num_envs, cfg.num_steps
         torch.manual_seed(self.run_seed)
@@ -233,6 +235,7 @@ if __name__ == "__main__":
         (("--save-every",), {"type": int, "default": 50}),
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
+        (("--desired-kl",), {"type": float, "default": 0.01, "help": "adaptive-KL target; 0.01 is the M0 value (F5 A2 uses 0.02)"}),
         (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
