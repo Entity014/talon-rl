@@ -1,6 +1,6 @@
-# Teacher V4 — V4-C3 Evaluation Contract (DRAFT)
+# Teacher V4 — V4-C3 Evaluation Contract
 
-Status: **DRAFT — freeze before any V4-C3 evaluation (training runs in progress; no evaluation run)**
+Status: **PREDECLARED — FROZEN 2026-09-28 before any V4-C3 evaluation (training complete; only the training-integrity logs have been read). δ₃ is filled in from the K = 3 null before any semantics result.**
 Branch: `v4-c2-semantic-preservation`
 Training: [teacher-v4-c3-training-contract.md](teacher-v4-c3-training-contract.md)
 
@@ -81,6 +81,33 @@ The objective layer is valid if its gates pass in ≥ 2/3 runs in both folds.
 Held-out generalization is claimed only if D passes in ≥ 2/3 runs in both
 folds.
 
+## Gate hierarchy (final, supersedes the lettering above where it differs)
+
+    A  Training integrity             prerequisite (frozen gate; all 6 PASS)
+    B  Full-set (m = 3) validity      required
+         B1 self-direction   S_i(i⁺) − S_i(C) > δ₃ for T, A(=D), O
+         B2 identifiability  every pair's response vectors differ (≥ 1 component beyond ±δ₃)
+         B3 critic           MC256 validity for each objective at the anchor
+    C  Seen-support validity          required: B1 + B2 logic on the seen
+                                      non-anchor cardinality (G1-1: m = 2 sets;
+                                      G1-2: singleton sets {i})
+    E  Cross-seed reproducibility     required: B and C pass in ≥ 2/3 runs in
+                                      BOTH folds
+    D  Held-out cardinality           separate generalization claim; not
+                                      required for objective-layer validity
+
+    Objective-layer validity   = A ∧ B ∧ C, reproduced per E
+    Cardinality generalization = D in ≥ 2/3 runs in both folds
+
+If B + C + E pass and D fails, the conclusion is: the objective system is
+valid and reproducible on the trained support, and unseen-cardinality
+generalization is not established.
+
+Objective naming: A is the current operational realization of the
+higher-level Dynamic Stability objective D, with R_D = 1.0 r̃_A + 0.0 r̃_S
+(the raw constituent is `ang_vel_xy_l2`). Artifacts keep the label A for
+provenance. See [objective selection](../../methods/general/objective-selection.md).
+
 ## Decisions recorded (2026-09-28)
 
 - Anchor B = B1 (self-direction) + B2 (identifiability). Synergy allowed.
@@ -91,7 +118,4 @@ folds.
   It is included in all primary analyses. Its exclusion is reported only as
   a post-hoc sensitivity analysis and never changes the verdict.
 
-## Open before freezing
 
-- Which gates make up "objective layer valid": B + C (critic MC256 at the
-  anchor), with E (seen non-anchor) reported, or B + C + E.

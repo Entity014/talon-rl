@@ -13,6 +13,21 @@ behavioral meaning) and not redundant with the objectives already kept
 (it adds a controllable behavior dimension they do not). Objectives are
 **not** kept or dropped by how well a policy scores on them.
 
+## Objectives are behavioral axes, not reward terms
+
+    USER LEVEL        w_i            which behavior to trade toward (preference, per episode)
+    OBJECTIVE LEVEL   R_i = Σ_k α_ik r̃_ik,  Σ_k α_ik = 1     fixed internal composition
+    RAW LEVEL         r̃_ik           individual measured signals, each normalized (divisor)
+
+An objective is one controllable behavioral axis. Several normalized raw
+terms may define it; tracking is already one objective from two terms, for
+example. The weights α are a fixed part of the formulation, set before
+training and never tuned on results. The user preference w acts only at the
+objective level. Selection (below) decides which axes deserve their own w.
+If a raw signal turns out redundant with an axis, it becomes a candidate
+constituent of that axis. That is the case for smoothness under Dynamic
+Stability, not a discarded concept.
+
 ## Relevance and redundancy, operationalized
 
 | feature-selection idea | objective analogue | measure (per pair i, j) |
@@ -75,4 +90,16 @@ Other smoothness forms were measured too
 
 Clusters: **T independent; O independent; {A, S} one behavioral cluster, in
 which A has incremental controllability and S does not.**
-Selected set: **{T, A, O}**, with S dropped.
+
+Selected objective set: **{T, O, D}**, where D is Dynamic Stability. Current
+instantiation:
+
+    T  = track_lin_vel_xy_exp + track_ang_vel_z_exp   (stock weights)
+    O  = flat_orientation_l2
+    D  = 1.0 · r̃_A (ang_vel_xy_l2) + 0.0 · r̃_S
+
+Smoothness is a candidate constituent of D. The audit found it adds no
+incremental controllability on this substrate, so its coefficient is zero in
+the current formulation. A non-zero α_S needs its own contract, with α fixed
+before training and a paired comparison against α_S = 0. Code and artifacts
+keep the label A for D.
