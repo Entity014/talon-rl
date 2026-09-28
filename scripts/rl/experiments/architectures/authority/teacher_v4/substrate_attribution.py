@@ -22,6 +22,7 @@ from c3_semantics import ENV_SEEDS, N, STEPS, W, C3Semantics
 from g1_evaluate import center_w, heavy_w, tilt_deg
 from rl.core.normalization.running import RunningNormalizer
 from twins import restore, semantic_scores, snapshot
+from talon_rl.rewards.measurements import NAMES as MEAS_NAMES, MeasurementLibrary
 
 M0_CKPT = Path(__file__).resolve().parents[6] / "runs/m0_1_seed0_2026-09-22/model_299.pt"
 SUBSTRATE = ("lin_vel_z_l2", "dof_torques_l2", "dof_acc_l2", "feet_air_time")
@@ -47,6 +48,7 @@ class SubstrateAttribution(C3Semantics):
         u = env.unwrapped; robot = u.scene["robot"]; mgr = u.reward_manager
         sensor = u.scene["contact_forces"]; feet = sensor.find_bodies(".*_foot")[0]
         obs = restore(env, snap, settle=0)
+        self.meas.reset()
         prev = snap["action"].clone(); F, D = [], []
         with torch.no_grad():
             for _ in range(STEPS):
@@ -59,7 +61,7 @@ class SubstrateAttribution(C3Semantics):
                 F.append(torch.cat([mgr._step_reward, semantic_scores(u, a, prev)[:, self.cols],
                                     torch.stack([torch.linalg.vector_norm(d.root_ang_vel_b[:, :2], dim=-1), tilt_deg(d.root_quat_w),
                                                  d.root_lin_vel_b[:, 2], torch.linalg.vector_norm(d.joint_acc, dim=-1),
-                                                 torch.linalg.vector_norm(d.applied_torque, dim=-1)], -1), contact], -1))
+                                                 torch.linalg.vector_norm(d.applied_torque, dim=-1)], -1), contact, self.meas(a)], -1))
                 prev = a; D.append(te | tr)
         return torch.stack(F).cpu().numpy(), ~torch.stack(D).cpu().numpy().any(0)
 
@@ -77,7 +79,8 @@ class SubstrateAttribution(C3Semantics):
         initialize_from_rsl_m01(self.m0, M0_CKPT, device="cpu"); self.m0.cuda().eval()
         self.w_m0 = torch.tensor([1., 0., 0.], device="cuda").repeat(N, 1)
         names = list(u.reward_manager.active_terms)
-        cols = names + [f"S_{x}" for x in labels] + ["w_xy", "tilt_deg", "v_z", "qdd_norm", "tau_norm", "c_FL", "c_FR", "c_RL", "c_RR"]
+        cols = names + [f"S_{x}" for x in labels] + ["w_xy", "tilt_deg", "v_z", "qdd_norm", "tau_norm", "c_FL", "c_FR", "c_RL", "c_RR"] + list(MEAS_NAMES)
+        self.meas = MeasurementLibrary(env)
         ids = torch.arange(K, device="cuda").repeat(N, 1)
         w0 = torch.tensor(center_w(K), device="cuda").repeat(N, 1)
         Wc = torch.tensor(np.stack([center_w(K), *[heavy_w(K, k) for k in range(K)], center_w(K)]), dtype=torch.float32, device="cuda")

@@ -31,8 +31,13 @@ target that no candidate defines?
 | id | per-step signal | note |
 |---|---|---|
 | V1 | lin_vel_z_l2 = v_z² (body frame, stock term) | stock; the simplest |
-| V2 | vertical acceleration a_z² (world, finite difference of v_z over one policy step) | not a stock term |
-| V3 | base_height_l2 = (z − z₀)², z₀ = nominal standing height | also penalizes a steady crouch or raise (posture). Flagged as a likely O / posture overlap |
+| V2 | base_lin_acc_z_l2 = (Δv_z world / dt)² | measurement library |
+| V3 | body_height_osc_l2 = (z − EMA₀.₅ₛ(z))² | measurement library; oscillation, not posture. It replaces base_height_l2, which penalizes a steady offset (O-like) and whose default target is the spawn height |
+
+The traces also log the whole measurement library
+(`talon_rl/rewards/measurements.py`: slip, impact, joint velocity, action
+magnitude, joint power) for the later feature/role screen. Stage 2 uses
+only V1–V3.
 
 ## Target and data
 
@@ -42,9 +47,9 @@ V1 and the target are physically linked (height is the integral of v_z).
 That is physics, not label circularity: no candidate is used to assign
 labels.
 
-Traces: the substrate-attribution protocol with three added channels (root
-z world, v_z world, a_z). Existing columns must reproduce the F6 traces bit
-for bit. Behaviors: the same 8 as F7 stage 1 (selection data).
+Traces: the substrate-attribution protocol plus the measurement-library
+columns (root z world, v_z world, and the candidates). Checked: the existing
+columns reproduce the F6 s73102 traces bit for bit. Behaviors: the same 8 as F7 stage 1 (selection data).
 
 ## Pre-declared selection rule
 

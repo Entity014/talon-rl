@@ -68,5 +68,27 @@ V4-C3 trains on K = 3 (`--objectives TAO`). D is the objective-level name.
 Its current realization is R_D = 1.0 · R_A + 0.0 · R_S; code and artifacts
 keep the label A.
 
+## Measurement library (not rewards)
+
+[measurements.py](measurements.py) logs physical measurements that the
+stock reward library does not cover. They exist for feature selection only:
+no weight, no objective, not in any training reward. They cannot be
+weight-0 reward terms, because IsaacLab's RewardManager does not compute a
+term with weight 0. Values are unweighted, non-negative costs.
+
+| measurement | tier | initial role | meaning |
+|---|---|---|---|
+| `base_lin_acc_z_l2` | 1 | objective / constraint candidate | (Δv_z world / dt)², vertical acceleration |
+| `body_height_osc_l2` | 1 | constraint / V candidate | (z − EMA₀.₅ₛ(z))², oscillation about a moving mean, not posture |
+| `foot_slip` | 1 | constraint candidate | Σ over feet in contact of ‖v_xy‖ |
+| `foot_impact_l2` | 1 | constraint candidate | Σ over feet of ‖ΔF_contact‖² between policy steps |
+| `dof_vel_l2` | 2 | regularizer candidate | Σ q̇² |
+| `action_magnitude_l2` | 2 | regularizer candidate | Σ a² (effort, not rate) |
+| `joint_power_abs` | 2 | regularizer candidate | Σ \|τ q̇\| |
+| `root_z`, `v_z_world` | 0 | raw channels | targets (vertical excursion) |
+
+Deferred as gait/style diagnostics, not objective candidates: foot
+clearance, GRF balance / tracking, bound, foot gather.
+
 How terms are grouped into objectives:
 [objective selection](../../docs/methods/general/objective-selection.md).
