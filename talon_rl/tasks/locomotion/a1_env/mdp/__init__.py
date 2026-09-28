@@ -24,5 +24,5 @@ from .observations import (  # noqa: F401
     roll_pitch,
     v_command,
 )
-from .rewards import action_jerk_l2, track_ang_vel_z_exp, track_lin_vel_xy_exp  # noqa: F401  (shadow the CommandManager versions)
+from .rewards import action_jerk_l2, body_height_osc_l2, track_ang_vel_z_exp, track_lin_vel_xy_exp  # noqa: F401  (shadow the CommandManager versions)
 from .terminations import obstacle_reached  # noqa: F401

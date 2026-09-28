@@ -49,6 +49,10 @@ class DivisorCalibration(IsaacAudit):
             import talon_rl.tasks.locomotion.a1_env  # noqa: F401
             from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg
             cfg, task = TalonV4CEnvCfg(), "Isaac-Talon-A1-V4C-v0"
+        elif self.env_name == "v4c_v3":  # F8: adds body_height_osc_l2; its abs-mean is the V3 divisor
+            import talon_rl.tasks.locomotion.a1_env  # noqa: F401
+            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CV3EnvCfg
+            cfg, task = TalonV4CV3EnvCfg(), "Isaac-Talon-A1-V4C-V3-v0"
         else:  # v4c_s1: adds the action-jerk term; its abs-mean is the S1 divisor
             import talon_rl.tasks.locomotion.a1_env  # noqa: F401
             from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CS1EnvCfg
@@ -72,6 +76,7 @@ class DivisorCalibration(IsaacAudit):
         w = torch.tensor([1., 0., 0.], device="cuda").repeat(self.num_envs, 1)
         mgr = env.unwrapped.reward_manager
         rows, seed_rows, jerk_rows = [], [], []
+        extra = {t: [] for t in ("lin_vel_z_l2", "body_height_osc_l2")}  # F8 V1 / V3 divisors (T3-B abs-mean)
         for seed in RESET_SEEDS:
             cur, _ = env.reset(seed=seed)
             cur = obs_tensor(cur).cuda()
@@ -83,6 +88,9 @@ class DivisorCalibration(IsaacAudit):
                 raw = mgr._step_reward.detach().cpu().numpy().astype(np.float64)
                 terms = {n: raw[:, i] for i, n in enumerate(mgr.active_terms)}
                 R.append(raw_objective_vector(terms, shape=(self.num_envs,)))
+                for t in extra:
+                    if t in terms:
+                        extra[t].append(terms[t])
                 if "action_jerk_l2" in terms:
                     J.append(terms["action_jerk_l2"])
                 cur = obs_tensor(nxt).cuda()
@@ -104,6 +112,7 @@ class DivisorCalibration(IsaacAudit):
             "seed_rows": seed_rows,
             "frozen_t3b_divisors": frozen.tolist(), "relative_diff_vs_frozen": rel.tolist(),
         }
+        out["extra_abs_mean"] = {t: float(np.abs(np.concatenate(v)).mean()) for t, v in extra.items() if v}
         if jerk_rows:
             out["s1_action_jerk_abs_mean"] = float(np.abs(np.concatenate(jerk_rows)).mean())
         if self.env_name == "stock":
@@ -117,5 +126,5 @@ class DivisorCalibration(IsaacAudit):
 
 
 if __name__ == "__main__":
-    a = DivisorCalibration.parse_args((("--env",), {"choices": ("stock", "v4c", "v4c_s1"), "required": True}))
+    a = DivisorCalibration.parse_args((("--env",), {"choices": ("stock", "v4c", "v4c_s1", "v4c_v3"), "required": True}))
     DivisorCalibration(a.out, a.env).execute()

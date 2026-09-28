@@ -51,3 +51,10 @@ gym.register(
     disable_env_checker=True,
     kwargs={"env_cfg_entry_point": f"{__name__}.v4c_env_cfg:TalonV4CS1EnvCfg"},
 )
+
+gym.register(
+    id="Isaac-Talon-A1-V4C-V3-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={"env_cfg_entry_point": f"{__name__}.v4c_env_cfg:TalonV4CV3EnvCfg"},
+)

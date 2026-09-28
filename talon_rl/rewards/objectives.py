@@ -102,3 +102,13 @@ def shared_vector(term_names, arm: str) -> np.ndarray:
     for t in SHARED_ARMS[arm]:
         v[list(term_names).index(t)] = SHARED_SCALE
     return v
+
+# F8 Vertical Stability (V) candidate realizations, one per arm. Divisors by
+# the T3-B protocol (abs-mean of the weighted term under M0 model_299, 16 envs
+# x 192 steps x 3 seeds) on Isaac-Talon-A1-V4C-V3-v0, the same run that
+# reproduced NORMALIZATION_DIVISORS exactly. V1 is the stock lin_vel_z_l2
+# (weight -2.0); V3 is body_height_osc_l2 (weight -1.0).
+V_REALIZATIONS = {
+    "V1": ("lin_vel_z_l2", 0.11904645053168333),
+    "V3": ("body_height_osc_l2", 0.0024434582017791437),
+}

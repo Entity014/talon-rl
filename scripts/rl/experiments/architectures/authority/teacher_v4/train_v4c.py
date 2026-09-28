@@ -47,15 +47,20 @@ class TrainV4C(IsaacAudit):
         self.run_seed = a.seed + RESTART_SEED_OFFSET if a.resume else a.seed
         self.cardinalities = tuple(int(x) for x in a.cardinalities.split(","))
         self.objectives = a.objectives
-        if not self.objectives or any(x not in "TAOS" for x in self.objectives) or len(set(self.objectives)) != len(self.objectives):
-            raise SystemExit("--objectives must be distinct letters from TAOS, e.g. TAO")
+        if not self.objectives or any(x not in "TAOSV" for x in self.objectives) or len(set(self.objectives)) != len(self.objectives):
+            raise SystemExit("--objectives must be distinct letters from TAOSV, e.g. TAO")
+        if ("V" in self.objectives) != (a.v_objective != "none"):
+            raise SystemExit("objective V needs --v-objective V1|V3, and --v-objective needs V in --objectives")
 
     def build_env(self):
         import gymnasium as gym
         import talon_rl.tasks.locomotion.a1_env  # noqa: F401
         from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg
 
-        if self.a.s_objective == "action_jerk":
+        if self.a.v_objective == "V3":  # F8: body_height_osc_l2 lives in its own env variant
+            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CV3EnvCfg
+            cfg, self.task = TalonV4CV3EnvCfg(), "Isaac-Talon-A1-V4C-V3-v0"
+        elif self.a.s_objective == "action_jerk":
             from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CS1EnvCfg
             cfg, self.task = TalonV4CS1EnvCfg(), "Isaac-Talon-A1-V4C-S1-v0"
         else:
@@ -87,8 +92,12 @@ class TrainV4C(IsaacAudit):
         if a.s_objective == "action_jerk":  # V4-C2S-R1: S1 replaces action_rate_l2 as the S objective
             from talon_rl.rewards.objectives import S1_DIVISOR, S1_TERM
             groups[3] = [S1_TERM]; divisors[3] = S1_DIVISOR
-        # objective subset, in T/A/O/S order (V4-C3 drops S: "T,A,O")
-        keep = ["TAOS".index(x) for x in self.objectives]
+        # objective subset in the order given (V4-C3 drops S: "TAO"; F8 adds V: "TAOV")
+        if a.v_objective != "none":
+            from talon_rl.rewards.objectives import V_REALIZATIONS
+            vt, vd = V_REALIZATIONS[a.v_objective]
+            groups = groups + [[vt]]; divisors = np.append(divisors, vd)
+        keep = ["TAOSV".index(x) for x in self.objectives]
         groups = [groups[k] for k in keep]; divisors = divisors[keep]
         K = len(keep)
         S = torch.zeros(K, len(names), device=dev)
@@ -214,7 +223,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -223,7 +232,7 @@ class TrainV4C(IsaacAudit):
     def _save(self, model, aopt, copt, lr, norm, it, name):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
-                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "seed": self.seed}, self.out / f"{name}.pt")
+                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -236,6 +245,7 @@ if __name__ == "__main__":
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
         (("--desired-kl",), {"type": float, "default": 0.01, "help": "adaptive-KL target; 0.01 is the M0 value (F5 A2 uses 0.02)"}),
+        (("--v-objective",), {"choices": ("none", "V1", "V3"), "default": "none", "help": "F8 Vertical Stability realization (objectives.V_REALIZATIONS)"}),
         (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),

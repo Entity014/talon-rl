@@ -53,3 +53,30 @@ class action_jerk_l2(ManagerTermBase):
         out = torch.sum(torch.square(a - 2.0 * a1 + self._a2), dim=1)
         self._a2 = a1.clone()
         return out
+
+
+class body_height_osc_l2(ManagerTermBase):
+    """Squared vertical oscillation of the base about its own moving mean,
+    (z - EMA(z))^2, EMA time constant HEIGHT_EMA_TAU (0.5 s).
+
+    F8 V3 candidate for Vertical Stability. Same definition as the
+    measurement library (talon_rl.rewards.measurements): a steady height
+    offset (posture) costs nothing, bouncing does. The mean restarts at the
+    current height after an env reset.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._mean = torch.zeros(env.num_envs, device=env.device)
+        self._fresh = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def reset(self, env_ids=None) -> None:
+        self._fresh[slice(None) if env_ids is None else env_ids] = True
+
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        from talon_rl.rewards.measurements import ema_update
+        z = env.scene["robot"].data.root_pos_w[:, 2]
+        self._mean = torch.where(self._fresh, z, self._mean)
+        self._fresh[:] = False
+        self._mean = ema_update(self._mean, z, env.step_dt)
+        return torch.square(z - self._mean)

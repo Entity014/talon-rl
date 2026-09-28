@@ -68,3 +68,15 @@ class TalonV4CS1EnvCfg(TalonV4CEnvCfg):
         super().__post_init__()
         from isaaclab.managers import RewardTermCfg as RewTerm
         self.rewards.action_jerk_l2 = RewTerm(func=mdp.action_jerk_l2, weight=-0.01)
+
+
+@configclass
+class TalonV4CV3EnvCfg(TalonV4CEnvCfg):
+    """F8 V3 arm: identical to V4-C plus body_height_osc_l2, the V3 candidate
+    for Vertical Stability. Weight −1.0; the objective divisor is measured
+    with the T3-B protocol, so the weight's scale cancels."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from isaaclab.managers import RewardTermCfg as RewTerm
+        self.rewards.body_height_osc_l2 = RewTerm(func=mdp.body_height_osc_l2, weight=-1.0)

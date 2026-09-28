@@ -58,6 +58,14 @@ def run_dir(fold, seed):
     return REPO / f"runs/teacher_v4_c_{fold.lower().replace('-', '_')}_seed{seed}-2026-09-27"
 
 
+def excursion(z):
+    """z [96 steady steps, envs] -> per 32-step window peak-to-peak of the linearly detrended height."""
+    W = z.reshape(3, 32, -1); t = np.arange(32)[None, :, None]
+    slope = ((t - t.mean()) * (W - W.mean(1, keepdims=True))).sum(1, keepdims=True) / ((t - t.mean()) ** 2).sum()
+    d = W - W.mean(1, keepdims=True) - slope * (t - t.mean())
+    return (d.max(1) - d.min(1)).ravel()
+
+
 def klass(td, tl):
     if tl >= 1.00: return "established"
     if tl >= 0.40: return "partial"
@@ -78,8 +86,10 @@ def replay_main(a):
         def build_env(self):
             import gymnasium as gym
             import talon_rl.tasks.locomotion.a1_env  # noqa: F401
-            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg
-            cfg = TalonV4CEnvCfg(); cfg.scene.num_envs = N; cfg.seed = 0
+            from talon_rl.tasks.locomotion.a1_env.v4c_env_cfg import TalonV4CEnvCfg, TalonV4CV3EnvCfg
+            cfg = TalonV4CV3EnvCfg() if a.v_objective == "V3" else TalonV4CEnvCfg(); cfg.scene.num_envs = N; cfg.seed = 0
+            if a.v_objective == "V3":
+                self.task = "Isaac-Talon-A1-V4C-V3-v0"
             cfg.observations.policy.enable_corruption = False
             env = gym.make(self.task, cfg=cfg)
             obs, _ = env.reset(seed=0)
@@ -89,7 +99,10 @@ def replay_main(a):
             from talon_rl.rewards.objectives import normalized_objective_vector
             u = env.unwrapped; robot = u.scene["robot"]; mgr = u.reward_manager
             sensor = u.scene["contact_forces"]; feet = sensor.find_bodies(".*_foot")[0]
-            names = list(mgr.active_terms); cols = ["TAOS".index(x) for x in self.labels]
+            names = list(mgr.active_terms); cols = ["TAOS".index(x) for x in self.labels if x != "V"]
+            if "V" in self.labels:  # F8: V column from its own realization and divisor
+                from talon_rl.rewards.objectives import V_REALIZATIONS
+                vt, vd = V_REALIZATIONS[self.v_objective]; vpos = self.labels.index("V")
             F, V, R, D = [], [], [], []
             self.fp = {}
             for es in RESET_SEEDS:
@@ -108,7 +121,10 @@ def replay_main(a):
                         act = self.model.act_inference(x, e, ids, w)
                         obs, _, te, tr, _ = env.step(act)
                         raw = mgr._step_reward.detach().cpu().numpy()
-                        r_.append(normalized_objective_vector({n: raw[:, i] for i, n in enumerate(names)}, shape=(N,))[:, cols] * u.step_dt)
+                        rr = normalized_objective_vector({n: raw[:, i] for i, n in enumerate(names)}, shape=(N,))[:, cols]
+                        if "V" in self.labels:
+                            rr = np.insert(rr, vpos, raw[:, names.index(vt)] / vd, axis=1)
+                        r_.append(rr * u.step_dt)
                         d_.append((te | tr).cpu().numpy())
                         if t < 128:
                             dd = robot.data
@@ -118,7 +134,8 @@ def replay_main(a):
                                                          torch.linalg.vector_norm(dd.joint_acc, dim=-1).cpu().numpy(),
                                                          torch.linalg.vector_norm(dd.joint_vel, dim=-1).cpu().numpy(),
                                                          torch.linalg.vector_norm(act - prev, dim=-1).cpu().numpy(),
-                                                         (sensor.data.current_contact_time[:, feet] > 0).float().cpu().numpy()]))
+                                                         (sensor.data.current_contact_time[:, feet] > 0).float().cpu().numpy(),
+                                                         dd.root_lin_vel_w[:, 2].cpu().numpy(), dd.root_pos_w[:, 2].cpu().numpy()]))
                             prev = act
                 F.append(np.asarray(f_)); V.append(np.asarray(v_)); R.append(np.asarray(r_)); D.append(np.asarray(d_))
             F = np.concatenate(F, 1); V = np.concatenate(V, 1); R = np.concatenate(R, 1); D = np.concatenate(D, 1)
@@ -132,10 +149,11 @@ def replay_main(a):
             k = {lab: i for i, lab in enumerate(self.labels)}
             out = {"excluded_terminated": int((~ok).sum()), "td": td, "tl": tl, "class": klass(td, tl), "R": obj.tolist(),
                    "w_xy": float(X[..., 4].mean()), "tilt_deg": float(X[..., 5].mean()), "qdd_norm": float(X[..., 6].mean()),
-                   "qd_norm": float(X[..., 7].mean()), "action_rate": float(X[..., 8].mean())}
+                   "qd_norm": float(X[..., 7].mean()), "action_rate": float(X[..., 8].mean()),
+                   "vert_rms_vz": float(np.sqrt((X[..., 13] ** 2).mean())), "vert_excursion_m": float(np.median(excursion(X[..., 14])))}
             for suf, win in CREDIT_WIN.items():
                 Gw, Vw, Aw = G[win], V[win], A[win]
-                for lab in ("T", "A", "O"):
+                for lab in [x for x in ("T", "A", "O", "V") if x in k]:
                     out[f"ev_{lab}{suf}"] = ev(Gw[..., k[lab]], Vw[..., k[lab]]); out[f"adv_std_{lab}{suf}"] = float(Aw[..., k[lab]].std())
                 out[f"adv_corr_TA{suf}"] = float(np.corrcoef(Aw[..., k["T"]].ravel(), Aw[..., k["A"]].ravel())[0, 1])
                 out[f"adv_corr_TO{suf}"] = float(np.corrcoef(Aw[..., k["T"]].ravel(), Aw[..., k["O"]].ravel())[0, 1])
@@ -151,12 +169,17 @@ def replay_main(a):
                 if it == 0:
                     continue
                 ck = torch.load(ck_path, map_location="cuda", weights_only=False)
-                self.labels = tuple(ck.get("objectives", "TAOS")); K = len(self.labels)
+                self.labels = tuple(ck.get("objectives", "TAOS")); K = len(self.labels); self.v_objective = ck.get("v_objective", "none")
                 self.model = TeacherV4(num_objectives=K).cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
                 self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
                 ids = torch.arange(K, device="cuda").repeat(N, 1)
-                ws = {"C": center_w(K), "T+": heavy_w(K, 0)}
-                res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in CONDS}
+                ws = {"C": center_w(K), **({f"{lab}+": heavy_w(K, i) for i, lab in enumerate(self.labels)} if a.conds in ("all", "f8") else {"T+": heavy_w(K, 0)})}
+                if a.conds == "f8":  # T-anchored trio: w_T fixed at 0.55, the rest leans to R or to V
+                    if self.labels != ("T", "A", "O", "V"):
+                        raise SystemExit("--conds f8 needs a TAOV checkpoint")
+                    ws.update({"T55": np.array([.55, .15, .15, .15], np.float32), "T55R": np.array([.55, .35, .05, .05], np.float32),
+                               "T55V": np.array([.55, .05, .05, .35], np.float32)})
+                res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in ws}
                 print("REPLAY", self.fold, self.train_seed, it, {c: (v["class"], round(v["tl"], 3), [round(x, 3) for x in v["R"]]) for c, v in res[it].items()}, flush=True)
             out = {"schema": "teacher_v4_f2a_replay_v1", "source_type": "checkpoint_replay", "historical_claim_allowed": False,
                    "run_dir": str(self.src), "fold": self.fold, "seed": self.train_seed, "reset_seeds": list(RESET_SEEDS),
@@ -304,6 +327,8 @@ if __name__ == "__main__":
     p.add_argument("--mode", choices=("replay", "analyze"), required=True)
     p.add_argument("--fold"); p.add_argument("--seed", type=int); p.add_argument("--run-dir")
     p.add_argument("--replay-root"); p.add_argument("--out", required=True)
+    p.add_argument("--conds", choices=("ct", "all", "f8"), default="ct", help="C and T+ (F2-A); C and every heavy preference; f8 adds the T-anchored trio")
+    p.add_argument("--v-objective", choices=("none", "V1", "V3"), default="none", help="F8: V3 checkpoints replay in the V3 env")
     a, rest = p.parse_known_args()
     if a.mode == "analyze":
         analyze_main(a)
