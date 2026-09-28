@@ -41,6 +41,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-f2a-bifurcation-verdict.md
 - teacher-v4-f3-substrate-screen-verdict.md
 - teacher-v4-f4-budget-audit-verdict.md
+- teacher-v4-f5-0-actor-dose-audit.md
 
 ## Maintenance
 
