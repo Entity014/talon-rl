@@ -1,6 +1,6 @@
 # Teacher V4 — F5 Actor-Update Geometry Screen (A0 vs A2)
 
-Status: **FROZEN 2026-09-28 in the commit that adds this file, before any F5 training.**
+Status: **FROZEN 2026-09-28, then PAUSED by user decision before any result.** One partial run (A0 s75101, stopped at iteration 69, model_50 only) exists and is not used. The objective-layer feature-selection round comes first; F5 resumes, if at all, from a fresh launch.
 Branch: `v4-c2-semantic-preservation`
 Follows: [F4 verdict](../../verdicts/teacher_v4/teacher-v4-f4-budget-audit-verdict.md), [F5-0 dose audit](../../verdicts/teacher_v4/teacher-v4-f5-0-actor-dose-audit.md)
 
