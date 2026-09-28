@@ -51,6 +51,12 @@ Traces: the substrate-attribution protocol plus the measurement-library
 columns (root z world, v_z world, and the candidates). Checked: the existing
 columns reproduce the F6 s73102 traces bit for bit. Behaviors: the same 8 as F7 stage 1 (selection data).
 
+**Disclosure.** The reproduction check (s73102 run) printed steady means of
+the new columns for s73102 C, s73102 T⁺ and M0, so 3 of the 5 translating
+behaviors' candidate levels have been seen: base_lin_acc_z_l2 51 / 62 / 8.7,
+body_height_osc_l2 3.1e-4 / 4.1e-4 / 0.8e-4. The F4 behaviors and the target
+(root-z excursion) have not been computed for any candidate.
+
 ## Pre-declared selection rule
 
 Per candidate, on window means:
