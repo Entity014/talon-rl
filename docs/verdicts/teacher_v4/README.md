@@ -38,6 +38,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-c3-verdict.md
 - teacher-v4-c3-substrate-attribution-verdict.md
 - teacher-v4-f1-locomotion-viability-verdict.md
+- teacher-v4-f2a-bifurcation-verdict.md
 
 ## Maintenance
 
