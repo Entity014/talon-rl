@@ -85,3 +85,29 @@ The next step is a screened intervention, not a D redefinition. Substrate
 terms enter as a preference-invariant reward
 r = Σ_i w_i R_i + R_shared, never inside D. Order: lin_vel_z → torque/acc →
 feet_air_time → full stock. That needs its own contract.
+
+## Addendum 1 — V4-C lineage confirmation (frozen 2026-09-28, before any V4-C measurement)
+
+After the V4-C3 result ([verdict](../../verdicts/teacher_v4/teacher-v4-c3-substrate-attribution-verdict.md)),
+the same protocol runs on the 16 V4-C G1 runs
+(`runs/teacher_v4_c_g1_{2,3}_seed7310{1..8}-2026-09-27/model_300.pt`, K = 4,
+labels TAOS). `substrate_attribution.py` takes K from the checkpoint:
+branches C, T⁺, A⁺, O⁺, S⁺, M0, heavy = `heavy_w(K, i)` (0.70 / 0.10 each for
+K = 4; identical to the V4-C3 0.70 / 0.15 for K = 3). The K-general script
+must reproduce one V4-C3 run bit for bit before the V4-C runs start.
+
+**Standing criterion (per condition, steady window):** a condition *stands*
+if its touchdown-step fraction < 0.02 **and** its weighted
+`track_lin_vel_xy_exp` < 0.40. Reference values: standing still 0.292
+analytically, M0 1.31–1.34.
+
+**Reading (on C):**
+
+| V4-C runs whose C stands | reading |
+|---|---|
+| ≥ 13/16 | V4-C also stands. V4-C, C2 and C3 share one standing regime. |
+| ≤ 3/16 | V4-C walks. The standing collapse is specific to C3. Investigate V4-C → C3 first. |
+| otherwise | Mixed, reported as is. |
+
+The per-heavy standing counts (T⁺, A⁺, O⁺, S⁺) and the S1 / S2 reading are
+reported descriptively.
