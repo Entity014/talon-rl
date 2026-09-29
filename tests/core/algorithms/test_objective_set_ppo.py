@@ -243,3 +243,16 @@ def test_update_uses_loss_weights_and_query_ids_when_given():
     cfg = PPOConfig()
     lr, st = update(m, torch.optim.Adam(m.actor_parameters()), torch.optim.Adam(m.critic_parameters()), b, cfg, cfg.lr, torch.Generator().manual_seed(0))
     assert ov.shape == (B, 3) and all(np.isfinite(v) for v in st.values())
+
+
+def test_lagrange_regions_follow_the_frozen_edges():
+    """FB-2 dual variables are indexed by w_R region: O-vertex [0,.15), O+ [.15,.40),
+    C [.40,.60), R+ [.60,.85), R-vertex [.85,1]. Edges belong to the region above."""
+    import pathlib
+    p = pathlib.Path(__file__).resolve().parents[3] / "scripts/rl/experiments/architectures/authority/teacher_v4/train_v4c.py"
+    src = p.read_text()
+    ns = {"torch": torch}
+    exec(src[src.index("LAGR_EDGES ="):src.index("RESTART_SEED_OFFSET =")], ns)
+    got = ns["region_of"](torch.tensor([0.0, 0.1499, 0.15, 0.39, 0.40, 0.5, 0.6, 0.849, 0.85, 1.0])).tolist()
+    assert got == [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+    assert ns["LAGR_REGIONS"][ns["region_of"](torch.tensor([1.0])).item()] == "R-vertex"

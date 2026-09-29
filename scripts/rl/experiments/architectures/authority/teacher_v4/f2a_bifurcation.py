@@ -173,7 +173,7 @@ def replay_main(a):
                 self.model = TeacherV4(num_objectives=K).cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
                 self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
                 ids = torch.arange(K, device="cuda").repeat(N, 1); self.qids = ids
-                if ck.get("task_alpha") is not None:  # FB: task stream 0 is queried, never conditioned on
+                if ck.get("task_alpha") is not None or ck.get("lagrange_tmin") is not None:  # FB: task stream 0 is queried, never conditioned on
                     ids = ids[:, 1:].contiguous(); Kp = K - 1
                     ws = {"C": center_w(Kp), **{f"{lab}+": heavy_w(Kp, i) for i, lab in enumerate(self.labels[1:])},
                           **{f"{lab}-vertex": np.eye(Kp, dtype=np.float32)[i] for i, lab in enumerate(self.labels[1:])}}

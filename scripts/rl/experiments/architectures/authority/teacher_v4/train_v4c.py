@@ -28,6 +28,15 @@ from rl.core.normalization.running import RunningNormalizer
 
 LOG_STD_GATE = (-5.0, 2.0)
 DEAD_CRITIC_STREAK = 5  # consecutive iterations with a constant critic feature c_t
+# FB-2 preference regions over w_R (R, O preference): O-vertex [0, .15), O+ [.15, .40), C [.40, .60), R+ [.60, .85), R-vertex [.85, 1]
+LAGR_EDGES = (0.15, 0.40, 0.60, 0.85)
+LAGR_REGIONS = ("O-vertex", "O+", "C", "R+", "R-vertex")
+
+
+def region_of(w_r):
+    return torch.bucketize(w_r, torch.tensor(LAGR_EDGES, device=w_r.device), right=True)
+
+
 RESTART_SEED_OFFSET = 1_000_000  # budget audit: a resumed run draws env/sampler randomness from seed + offset
 
 
@@ -134,7 +143,14 @@ class TrainV4C(IsaacAudit):
                     g_["lr"] = lr
         # FB fixed-task formulation: the first objective is the task (T), never in the conditioning set; its loss
         # weight is alpha_T and the preference streams share 1 - alpha_T by w.
-        task = a.task_alpha is not None
+        task = a.task_alpha is not None or a.lagrange_tmin is not None
+        # FB-2: per-preference-region dual variables for the constraint  track_lin >= tmin  (regions by w_R, frozen)
+        lagr = a.lagrange_tmin is not None
+        if lagr:
+            if K != 3:
+                raise SystemExit("--lagrange-tmin expects --objectives TAO (task T, preferences R, O)")
+            lam = torch.full((len(LAGR_EDGES) + 1,), a.lagrange_lambda0, device=dev)
+            tl_col = names.index("track_lin_vel_xy_exp")
         Kp = K - 1 if task else K
         qids = torch.arange(K, device=dev).expand(N, -1).contiguous()
         ids = qids[:, 1:].contiguous() if task else qids
@@ -150,6 +166,8 @@ class TrainV4C(IsaacAudit):
         dead_streak = 0
         for it in range(it0 + 1, a.iterations + 1):
             buf = {k: [] for k in ("obs", "env", "w", "mask", "u", "old_logp", "old_mu", "old_sigma", "old_values", "r", "d")}
+            if lagr:
+                tl_sum = torch.zeros(len(lam), device=dev); tl_cnt = torch.zeros(len(lam), device=dev)
             raw_e, done_ret, done_len = [], [], []
             model.eval()
             with torch.no_grad():  # not inference_mode: buffers feed the autograd update
@@ -164,6 +182,9 @@ class TrainV4C(IsaacAudit):
                     obs, _, term, trunc, _ = env.step(torch.tanh(uu) * model.ACTION_CLIP)
                     r = (mgr._step_reward @ S.T) * u_env.step_dt
                     shared_steps.append(float((mgr._step_reward @ sv).mean()) * u_env.step_dt)
+                    if lagr:  # online linear tracking per region, weighted step value (same units as replay tl)
+                        reg = region_of(w[:, 0])
+                        tl_sum.index_add_(0, reg, mgr._step_reward[:, tl_col]); tl_cnt.index_add_(0, reg, torch.ones_like(reg, dtype=torch.float32))
                     ep_ret += r; ep_len += 1
                     r = r + cfg.gamma * v * trunc.unsqueeze(-1).float()  # rsl_rl time-out bootstrap
                     d = term | trunc
@@ -185,11 +206,19 @@ class TrainV4C(IsaacAudit):
             flat["returns"] = returns.flatten(0, 1)
             if task:
                 flat["query_ids"] = qids.repeat(H, 1)
-                flat["loss_w"] = torch.cat([torch.full_like(flat["w"][:, :1], a.task_alpha), (1 - a.task_alpha) * flat["w"]], -1)
+                if lagr:  # L = w_R R + w_O O + lambda_region(w) T ; the dual step follows the update
+                    flat["loss_w"] = torch.cat([lam[region_of(flat["w"][:, 0])].unsqueeze(-1), flat["w"]], -1)
+                else:
+                    flat["loss_w"] = torch.cat([torch.full_like(flat["w"][:, :1], a.task_alpha), (1 - a.task_alpha) * flat["w"]], -1)
                 flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
             flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
             lr, st = update(model, aopt, copt, flat, cfg, lr, gen)
+            if lagr:  # projected dual ascent on the violation, regions without samples unchanged
+                seen = tl_cnt > 0
+                tl_reg = torch.where(seen, tl_sum / tl_cnt.clamp_min(1), torch.full_like(tl_sum, float("nan")))
+                lam = torch.where(seen, (lam + a.lagrange_eta * (a.lagrange_tmin - tl_reg)).clamp(0.0, a.lagrange_cap), lam)
+                self.lam_state = lam.tolist()
             norm.update(np.concatenate(raw_e))
 
             with torch.no_grad():
@@ -210,6 +239,7 @@ class TrainV4C(IsaacAudit):
             dead_streak = dead_streak + 1 if c_std < 1e-5 else 0
             ls = model.log_std.detach()
             rec = {"iteration": it, "env_samples": it * N * H, "lr": lr, **st,
+                   **({"lagrange_lambda": lam.tolist(), "lagrange_tl_online": tl_reg.tolist()} if lagr else {}),
                    "log_std": {"min": float(ls.min()), "mean": float(ls.mean()), "max": float(ls.max())},
                    "reward_per_step": T["r"].mean((0, 1)).tolist(), "explained_variance": ev,
                    "shared_reward_per_step": float(np.mean(shared_steps[-H:])),
@@ -234,7 +264,8 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "lagrange": None if a.lagrange_tmin is None else
+               {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -243,7 +274,8 @@ class TrainV4C(IsaacAudit):
     def _save(self, model, aopt, copt, lr, norm, it, name):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
-                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "task_alpha": self.a.task_alpha, "seed": self.seed}, self.out / f"{name}.pt")
+                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "task_alpha": self.a.task_alpha, "lagrange_tmin": self.a.lagrange_tmin,
+                    "lagrange_lambda": getattr(self, "lam_state", None), "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -256,6 +288,10 @@ if __name__ == "__main__":
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
         (("--desired-kl",), {"type": float, "default": 0.01, "help": "adaptive-KL target; 0.01 is the M0 value (F5 A2 uses 0.02)"}),
+        (("--lagrange-tmin",), {"type": float, "default": None, "help": "FB-2: constraint track_lin >= tmin with per-region duals (task T, preferences R, O)"}),
+        (("--lagrange-lambda0",), {"type": float, "default": 0.786}),
+        (("--lagrange-eta",), {"type": float, "default": 0.15}),
+        (("--lagrange-cap",), {"type": float, "default": 20.0}),
         (("--task-alpha",), {"type": float, "default": None, "help": "FB: first objective is a fixed-weight task term with this alpha_T; the rest are preferences"}),
         (("--require-objective",), {"default": None, "help": "F8: every sampled objective set contains this letter, e.g. T"}),
         (("--v-objective",), {"choices": ("none", "V1", "V3"), "default": "none", "help": "F8 Vertical Stability realization (objectives.V_REALIZATIONS)"}),
