@@ -50,6 +50,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-fb1-fixed-task-verdict.md
 - teacher-v4-fb2-lagrangian-task-verdict.md
 - teacher-v4-fb2a-surrogate-calibration-verdict.md
+- teacher-v4-fc0-rotational-realization-audit-verdict.md
 
 ## Maintenance
 
