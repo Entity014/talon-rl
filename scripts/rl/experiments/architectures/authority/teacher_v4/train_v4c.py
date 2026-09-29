@@ -154,11 +154,23 @@ class TrainV4C(IsaacAudit):
             if K != 3:
                 raise SystemExit("--lagrange-tmin expects --objectives TAO (task T, preferences R, O)")
             lam = torch.full((len(LAGR_EDGES) + 1,), a.lagrange_lambda0, device=dev)
+            if a.resume and ck.get("lagrange_lambda") is not None:  # FC-C: a continuation keeps the checkpoint's duals
+                lam = torch.tensor(ck["lagrange_lambda"], device=dev)
             tl_col = names.index("track_lin_vel_xy_exp")
         Kp = K - 1 if task else K
+        if (a.fixed_w or a.loss_arm != "full") and not lagr:
+            raise SystemExit("--fixed-w / --loss-arm are FC-C probes of the FB-2 formulation (need --lagrange-tmin)")
+        fixed_w = torch.tensor([float(x) for x in a.fixed_w.split(",")], device=dev) if a.fixed_w else None
+        if fixed_w is not None and fixed_w.numel() != Kp:
+            raise SystemExit(f"--fixed-w needs {Kp} weights")
+
+        def draw(n):  # FC-C fixed-preference arms: every episode gets the same w, both preferences active
+            if fixed_w is None:
+                return sample_objective_sets(n, self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
+            return fixed_w.expand(n, -1).clone(), torch.ones(n, Kp, dtype=torch.bool, device=dev)
         qids = torch.arange(K, device=dev).expand(N, -1).contiguous()
         ids = qids[:, 1:].contiguous() if task else qids
-        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
+        w, mask = draw(N)
         ep_ret = torch.zeros(N, K, device=dev)
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
@@ -199,7 +211,7 @@ class TrainV4C(IsaacAudit):
                         di = d.nonzero().squeeze(-1)
                         done_ret.append(ep_ret[di].clone()); done_len.append(ep_len[di].clone())
                         ep_ret[di] = 0; ep_len[di] = 0
-                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
+                        nw, nm = draw(len(di))
                         w = w.clone(); mask = mask.clone()
                         w[di], mask[di] = nw, nm
                 last_v = model.query_values(obs["policy"], norm_e(obs), ids, w, qids)
@@ -212,6 +224,10 @@ class TrainV4C(IsaacAudit):
                 flat["query_ids"] = qids.repeat(H, 1)
                 if lagr:  # L = w_R R + w_O O + lambda_region(w) T ; the dual step follows the update
                     flat["loss_w"] = torch.cat([lam[region_of(flat["w"][:, 0])].unsqueeze(-1), flat["w"]], -1)
+                    if a.loss_arm == "pref":  # FC-C: drop the task stream from the actor loss (critic still fits it)
+                        flat["loss_w"][:, 0] = 0.0
+                    elif a.loss_arm == "r":  # FC-C: R stream only; the advantage scale is invariant to its weight
+                        flat["loss_w"] = torch.zeros_like(flat["loss_w"]); flat["loss_w"][:, 1] = 1.0
                 else:
                     flat["loss_w"] = torch.cat([torch.full_like(flat["w"][:, :1], a.task_alpha), (1 - a.task_alpha) * flat["w"]], -1)
                 flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
@@ -268,7 +284,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "lagrange": None if a.lagrange_tmin is None else
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
@@ -300,6 +316,9 @@ if __name__ == "__main__":
         (("--require-objective",), {"default": None, "help": "F8: every sampled objective set contains this letter, e.g. T"}),
         (("--v-objective",), {"choices": ("none", "V1", "V3"), "default": "none", "help": "F8 Vertical Stability realization (objectives.V_REALIZATIONS)"}),
         (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),
+        (("--fixed-w",), {"default": None, "help": "FC-C: fixed preference w (R,O), e.g. 0.7,0.3, for every episode"}),
+        (("--loss-arm",), {"choices": ("full", "pref", "r"), "default": "full",
+                           "help": "FC-C actor loss: full [lambda, w_R, w_O], pref [0, w_R, w_O], r [0, 1, 0]"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
     )
