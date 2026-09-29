@@ -45,6 +45,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-f6-conditional-feature-verdict.md
 - teacher-v4-f7-phenotype-map.md
 - teacher-v4-f7-stage2-vertical-realization-verdict.md
+- teacher-v4-f8-vertical-controllability-verdict.md
 
 ## Maintenance
 
