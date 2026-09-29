@@ -39,6 +39,7 @@ CREDIT_P = ("ev_T", "ev_A", "ev_O", "adv_std_T", "adv_std_A", "adv_std_O", "adv_
 ACTIVITY_P = ("qd_norm", "action_rate", "qdd_norm")
 CREDIT_WIN = {"": slice(32, 64), "_t0_32": slice(0, 32)}
 RUNLEN = 10
+TRACE_N = 64
 Q_SPECIFIC, Q_AMBIGUOUS = 0.20, 0.50
 
 
@@ -104,6 +105,7 @@ def replay_main(a):
                 from talon_rl.rewards.objectives import V_REALIZATIONS
                 vt, vd = V_REALIZATIONS[self.v_objective]; vpos = self.labels.index("V")
             F, V, R, D = [], [], [], []
+            TR = []  # FC-0 per-step rotation traces (only with --traces)
             self.fp = {}
             for es in RESET_SEEDS:
                 obs, _ = env.reset(seed=es)
@@ -112,7 +114,7 @@ def replay_main(a):
                 self.fp[str(es)] = hashlib.sha256(b"".join(t.detach().cpu().numpy().tobytes() for t in
                                                   (obs["policy"], obs["privileged"], dd0.root_state_w, dd0.joint_pos, dd0.joint_vel))).hexdigest()
                 prev = torch.zeros((N, u.action_manager.total_action_dim), device="cuda")
-                f_, v_, r_, d_ = [], [], [], []
+                f_, v_, r_, d_ = [], [], [], []; tr_ = []
                 with torch.no_grad():
                     for t in range(ROLL):
                         x, e = obs["policy"], self.e_norm(obs)
@@ -136,7 +138,17 @@ def replay_main(a):
                                                          torch.linalg.vector_norm(act - prev, dim=-1).cpu().numpy(),
                                                          (sensor.data.current_contact_time[:, feet] > 0).float().cpu().numpy(),
                                                          dd.root_lin_vel_w[:, 2].cpu().numpy(), dd.root_pos_w[:, 2].cpu().numpy()]))
+                            if a.traces:
+                                from isaaclab.utils.math import euler_xyz_from_quat
+                                rl, pt, _ = euler_xyz_from_quat(dd.root_quat_w)
+                                wrap = lambda x: torch.atan2(torch.sin(x), torch.cos(x))  # noqa: E731
+                                cmd = u.command_manager.get_command("base_velocity")
+                                tr_.append(torch.stack([wrap(rl), wrap(pt), dd.root_ang_vel_b[:, 0], dd.root_ang_vel_b[:, 1],
+                                                        dd.root_lin_vel_b[:, 0], dd.root_lin_vel_b[:, 1], cmd[:, 0], cmd[:, 1],
+                                                        torch.as_tensor(raw[:, names.index("track_lin_vel_xy_exp")], device=cmd.device)], -1)[:TRACE_N].cpu().numpy())
                             prev = act
+                if a.traces:
+                    TR.append(np.asarray(tr_))
                 F.append(np.asarray(f_)); V.append(np.asarray(v_)); R.append(np.asarray(r_)); D.append(np.asarray(d_))
             F = np.concatenate(F, 1); V = np.concatenate(V, 1); R = np.concatenate(R, 1); D = np.concatenate(D, 1)
             ok = ~D[:128].any(0)
@@ -147,6 +159,10 @@ def replay_main(a):
             G, _, _ = mc_targets(R, D)
             A = G - V
             k = {lab: i for i, lab in enumerate(self.labels)}
+            if a.traces:  # [128 steps, 2 x TRACE_N envs, channels] + contacts + survival mask
+                self._last_trace = {"x": np.concatenate(TR, 1).astype(np.float32),
+                                    "contact": np.concatenate([F_[:, :TRACE_N, 9:13] for F_ in np.split(F, len(RESET_SEEDS), 1)], 1).astype(np.float32),
+                                    "ok": np.concatenate([o[:TRACE_N] for o in np.split(ok, len(RESET_SEEDS))])}
             out = {"excluded_terminated": int((~ok).sum()), "td": td, "tl": tl, "class": klass(td, tl), "R": obj.tolist(),
                    "w_xy": float(X[..., 4].mean()), "tilt_deg": float(X[..., 5].mean()), "qdd_norm": float(X[..., 6].mean()),
                    "qd_norm": float(X[..., 7].mean()), "action_rate": float(X[..., 8].mean()),
@@ -163,10 +179,11 @@ def replay_main(a):
         def rollout(self, env, obs):
             from talon_rl.models.authority.teacher_v4 import TeacherV4
             cks = sorted(self.src.glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+            self.traces = {}
             res = {}
             for ck_path in cks:
                 it = int(ck_path.stem.split("_")[1])
-                if it == 0:
+                if it == 0 or (a.only_checkpoint and it != a.only_checkpoint):
                     continue
                 ck = torch.load(ck_path, map_location="cuda", weights_only=False)
                 self.labels = tuple(ck.get("objectives", "TAOS")); K = len(self.labels); self.v_objective = ck.get("v_objective", "none")
@@ -177,7 +194,11 @@ def replay_main(a):
                     ids = ids[:, 1:].contiguous(); Kp = K - 1
                     ws = {"C": center_w(Kp), **{f"{lab}+": heavy_w(Kp, i) for i, lab in enumerate(self.labels[1:])},
                           **{f"{lab}-vertex": np.eye(Kp, dtype=np.float32)[i] for i, lab in enumerate(self.labels[1:])}}
-                    res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in ws}
+                    res[it] = {}
+                    for c in ws:
+                        res[it][c] = self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1))
+                        if a.traces:
+                            self.traces[f"{it}|{c}"] = self._last_trace
                     print("REPLAY", self.fold, self.train_seed, it, {c: (v["class"], round(v["tl"], 3), [round(x, 3) for x in v["R"]]) for c, v in res[it].items()}, flush=True)
                     continue
                 ws = {"C": center_w(K), **({f"{lab}+": heavy_w(K, i) for i, lab in enumerate(self.labels)} if a.conds in ("all", "f8") else {"T+": heavy_w(K, 0)})}
@@ -187,12 +208,20 @@ def replay_main(a):
                     # TAOV order; w_T .55 and w_O .15 fixed, only R <-> V moves
                     ws.update({"T55": np.array([.55, .15, .15, .15], np.float32), "T55R": np.array([.55, .25, .15, .05], np.float32),
                                "T55V": np.array([.55, .05, .15, .25], np.float32)})
-                res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in ws}
+                res[it] = {}
+                for c in ws:
+                    res[it][c] = self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1))
+                    if a.traces:
+                        self.traces[f"{it}|{c}"] = self._last_trace
                 print("REPLAY", self.fold, self.train_seed, it, {c: (v["class"], round(v["tl"], 3), [round(x, 3) for x in v["R"]]) for c, v in res[it].items()}, flush=True)
             out = {"schema": "teacher_v4_f2a_replay_v1", "source_type": "checkpoint_replay", "historical_claim_allowed": False,
                    "run_dir": str(self.src), "fold": self.fold, "seed": self.train_seed, "reset_seeds": list(RESET_SEEDS),
                    "checkpoints": {str(k): v for k, v in res.items()}}
             self.write(out)
+            if a.traces:
+                np.savez_compressed(self.out / "rotation_traces.npz",
+                                    channels=np.array(["roll", "pitch", "w_x", "w_y", "v_x_b", "v_y_b", "cmd_vx", "cmd_vy", "track_lin"]),
+                                    **{f"{k}|{f}": v[f] for k, v in self.traces.items() for f in v})
             return out
 
     r = Replay(a.fold, a.seed, 300, a.out)
@@ -336,6 +365,8 @@ if __name__ == "__main__":
     p.add_argument("--fold"); p.add_argument("--seed", type=int); p.add_argument("--run-dir")
     p.add_argument("--replay-root"); p.add_argument("--out", required=True)
     p.add_argument("--conds", choices=("ct", "all", "f8"), default="ct", help="C and T+ (F2-A); C and every heavy preference; f8 adds the T-anchored trio")
+    p.add_argument("--traces", action="store_true", help="FC-0: save per-step rotation traces of the first 64 envs per reset seed")
+    p.add_argument("--only-checkpoint", type=int, default=None, help="replay only this checkpoint iteration")
     p.add_argument("--v-objective", choices=("none", "V1", "V3"), default="none", help="F8: V3 checkpoints replay in the V3 env")
     a, rest = p.parse_known_args()
     if a.mode == "analyze":
