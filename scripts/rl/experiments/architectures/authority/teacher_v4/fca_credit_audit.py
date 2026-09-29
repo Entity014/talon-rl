@@ -37,6 +37,7 @@ WARMUP = 50
 AUDIT_SEED = 20260929
 CONDS = {"R-vertex": (1.0, 0.0), "R+": (0.7, 0.3), "C": (0.5, 0.5), "O+": (0.3, 0.7)}
 STEP_CONDS = ("R+", "C")
+MIN_LOCO = 1000  # locomoting samples needed for the primary (loco-slice) virtual step; no fallback to all samples
 KLS = (0.005, 0.01, 0.02)
 RESET_SEEDS = (910001, 910002)
 EDGES = (0.15, 0.40, 0.60, 0.85)  # train_v4c LAGR_EDGES
@@ -122,6 +123,15 @@ class FCACreditAudit(G1Evaluate):
                 "cos_pair": {a + b: cos(g[a], g[b]) for a, b in itertools.combinations(STREAMS, 2)},
                 "cos_with_mixed": {s: cos(v, gm) for s, v in g.items()}}, g
 
+    @staticmethod
+    def logstd_slice(model):
+        o = 0
+        for p in model.actor_parameters():
+            if p is model.log_std:
+                return slice(o, o + p.numel())
+            o += p.numel()
+        raise RuntimeError("log_std not among actor parameters")
+
     def kl_of(self, model, step_vec, f):
         m2 = copy.deepcopy(model); self.apply(m2, step_vec)
         idx = torch.arange(0, len(f["obs"]), 8, device="cuda")
@@ -175,21 +185,35 @@ class FCACreditAudit(G1Evaluate):
         model = TeacherV4(num_objectives=3).cuda(); model.load_state_dict(ck["model"]); model.eval()
         self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
         lam_vec = ck.get("lagrange_lambda") or [0.786] * 5
-        out = {"schema": "teacher_v4_fca_credit_audit_v1", "read_only": True, "checkpoint": str(self.ck), "lagrange_lambda": lam_vec, "conditions": {}}
+        steps_on = self.with_steps
+        out = {"schema": "teacher_v4_fca_credit_audit_v2", "read_only": True, "checkpoint": str(self.ck), "iteration": ck.get("iteration"),
+               "lagrange_lambda": lam_vec, "virtual_steps": steps_on, "conditions": {}}
+        ls = self.logstd_slice(model)
         for c, wv in CONDS.items():
             lam = float(lam_vec[region(wv[0])])
             f = self.batch(env, model, wv, lam)
             allm = torch.ones_like(f["loco"])
             row = {"w": wv, "lambda": lam, "loco_fraction": float(f["loco"].float().mean())}
-            row["all"], g = self.layers(model, f, allm)
-            row["loco"] = self.layers(model, f, f["loco"])[0] if f["loco"].sum() > 100 else None
-            if c in STEP_CONDS:
-                base = self.replay(env, model, wv); steps = {"baseline": base}
-                for name, vec in (("R+", -g["R"]), ("R-", g["R"]), ("mixed+", -sum(g.values()))):
-                    for kl in KLS:
-                        info, m2 = self.step_for_kl(model, vec, f, kl)
-                        r = self.replay(env, m2, wv)
-                        steps[f"{name}@{kl}"] = {**info, **r, "rel": {k: r[k] / max(base[k], 1e-12) - 1 for k in ("F_rate", "F_osc", "F_O", "tl")}}
+            row["all"], g_all = self.layers(model, f, allm)
+            n_loco = int(f["loco"].sum())
+            row["loco"], g_loco = self.layers(model, f, f["loco"]) if n_loco >= MIN_LOCO else (None, None)
+            for name, gg in (("all", g_all), ("loco", g_loco)):
+                if gg is not None:
+                    row[name]["logstd_share_of_gR"] = float(gg["R"][ls].norm() / (gg["R"].norm() + 1e-12))
+            if steps_on and c in STEP_CONDS:
+                base = self.replay(env, model, wv); base2 = self.replay(env, model, wv)
+                null = abs(base2["F_rate"] / max(base["F_rate"], 1e-12) - 1)
+                steps = {"baseline": base, "null_repeat": base2, "null_rel_F_rate": null, "null_ok": null < 0.05}
+                if g_loco is None:
+                    steps["primary"] = "unresolved: fewer than MIN_LOCO locomoting samples"
+                else:
+                    def mean_only(v):  # physical probe: controller mean only; deterministic replay never uses log_std
+                        v = v.clone(); v[ls] = 0.0; return v
+                    for name, vec in (("R+", -g_loco["R"]), ("R-", g_loco["R"]), ("mixed+", -sum(g_loco.values()))):
+                        for kl in KLS:
+                            info, m2 = self.step_for_kl(model, mean_only(vec), f, kl)
+                            r = self.replay(env, m2, wv)
+                            steps[f"{name}@{kl}"] = {**info, **r, "rel": {k: r[k] / max(base[k], 1e-12) - 1 for k in ("F_rate", "F_osc", "F_O", "tl")}}
                 row["virtual_steps"] = steps
             out["conditions"][c] = row
             L = row["loco"] or row["all"]
@@ -200,5 +224,7 @@ class FCACreditAudit(G1Evaluate):
 
 
 if __name__ == "__main__":
-    a = FCACreditAudit.parse_args((("--seed",), {"type": int, "required": True}), (("--checkpoint",), {"required": True}))
-    FCACreditAudit("G1-1", a.seed, 600, a.out, a.checkpoint).execute()
+    a = FCACreditAudit.parse_args((("--seed",), {"type": int, "required": True}), (("--checkpoint",), {"required": True}),
+                                  (("--no-steps",), {"action": "store_true", "help": "layers 1-2 only (checkpoint 300: mechanism secondary)"}))
+    r = FCACreditAudit("G1-1", a.seed, 600, a.out, a.checkpoint); r.with_steps = not a.no_steps
+    r.execute()
