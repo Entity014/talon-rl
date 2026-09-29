@@ -14,7 +14,7 @@ from pathlib import Path
 from f3_screen import persistent
 
 SEEDS = (77101, 77102, 77103)
-VIAB = ("A+", "C", "O+")
+VIAB = ("A-vertex", "A+", "C", "O+", "O-vertex")  # FB-0 calibrated the whole segment, vertices included
 CHECK = ("550", "600")
 REL = 0.10
 
@@ -38,14 +38,17 @@ def main():
     p = argparse.ArgumentParser(); p.add_argument("--root", required=True); a = p.parse_args()
     root = Path(a.root)
     runs = {s: seed_eval(json.load(open(root / f"seed{s}" / "replay" / "f2a_replay.json"))["checkpoints"]) for s in SEEDS}
-    kv = sum(r["viable"] for r in runs.values()); ka = sum(r["authority"] for r in runs.values())
-    viab, auth = kv >= 2, ka >= 2
-    reading = ("PASS: task feasibility and preference authority; abstraction supported, FB-2 adds V" if viab and auth
-               else "FAIL viability: fixed task pressure insufficient; constrained formulation becomes the candidate" if not viab
-               else "PASS viability, FAIL authority: task pressure dominates the preferences; the fixed scalar still has tension")
-    out = {"schema": "teacher_v4_fb1_screen_v1", "viable_seeds": kv, "authority_seeds": ka, "reading": reading, "runs": {str(s): r for s, r in runs.items()}}
+    for r in runs.values():
+        r["joint"] = r["viable"] and r["authority"]  # the same policy must show both
+    kv = sum(r["viable"] for r in runs.values()); ka = sum(r["authority"] for r in runs.values()); kj = sum(r["joint"] for r in runs.values())
+    reading = ("PASS: task feasibility and R/O preference semantics coexist in >= 2/3 policies; FB-2 adds V" if kj >= 2
+               else "FAIL viability: fixed task pressure insufficient; constrained formulation becomes the candidate" if kv < 2
+               else "viability without authority: task pressure dominates the preferences; the fixed scalar still has tension" if ka < 2
+               else "no joint support: viability and authority occur in different policies")
+    out = {"schema": "teacher_v4_fb1_screen_v2", "viable_seeds": kv, "authority_seeds": ka, "joint_seeds": kj, "reading": reading,
+           "runs": {str(s): r for s, r in runs.items()}}
     json.dump(out, open(root / "fb1_screen.json", "w"), indent=1)
-    print(json.dumps({"viable": kv, "authority": ka, "reading": reading}, indent=1))
+    print(json.dumps({"viable": kv, "authority": ka, "joint": kj, "reading": reading}, indent=1))
 
 
 if __name__ == "__main__":
