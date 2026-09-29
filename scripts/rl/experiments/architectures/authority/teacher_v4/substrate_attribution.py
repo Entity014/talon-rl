@@ -70,7 +70,7 @@ class SubstrateAttribution(C3Semantics):
         from talon_rl.models.foundations.three_objective import V1CSharedActorCritic, initialize_from_rsl_m01
         ck = torch.load(self.ck, map_location="cuda", weights_only=False)
         labels = ck.get("objectives", "TAOS")  # V4-C checkpoints predate the field
-        K = len(labels); self.cols = ["TAOS".index(x) for x in labels]
+        K = len(labels); self.cols = ["TAOS".index(x) for x in labels if x != "V"]  # no semantic score for V (F8); its measurements are logged
         CONDS = ("C", *[f"{x}+" for x in labels], "M0")
         self.model = TeacherV4(num_objectives=K).cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
         self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
@@ -79,7 +79,7 @@ class SubstrateAttribution(C3Semantics):
         initialize_from_rsl_m01(self.m0, M0_CKPT, device="cpu"); self.m0.cuda().eval()
         self.w_m0 = torch.tensor([1., 0., 0.], device="cuda").repeat(N, 1)
         names = list(u.reward_manager.active_terms)
-        cols = names + [f"S_{x}" for x in labels] + ["w_xy", "tilt_deg", "v_z", "qdd_norm", "tau_norm", "c_FL", "c_FR", "c_RL", "c_RR"] + list(MEAS_NAMES)
+        cols = names + [f"S_{x}" for x in labels if x != "V"] + ["w_xy", "tilt_deg", "v_z", "qdd_norm", "tau_norm", "c_FL", "c_FR", "c_RL", "c_RR"] + list(MEAS_NAMES)
         self.meas = MeasurementLibrary(env)
         ids = torch.arange(K, device="cuda").repeat(N, 1)
         w0 = torch.tensor(center_w(K), device="cuda").repeat(N, 1)
