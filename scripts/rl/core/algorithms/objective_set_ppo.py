@@ -144,7 +144,11 @@ def adapt_lr(lr: float, kl_mean: float, desired_kl: float) -> float:
 def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float, gen: torch.Generator | None = None) -> tuple[float, dict]:
     """One PPO update over a flattened rollout. batch keys, each [B,...]:
     obs, env, ids, w, mask, u, old_logp, old_mu, old_sigma, old_values,
-    returns, adv (already normalized). Returns (new lr, stats)."""
+    returns, adv (already normalized). Returns (new lr, stats).
+    Optional (FB fixed-task formulation): loss_w / loss_mask weight the
+    per-stream surrogate and value loss, and query_ids chooses the critic
+    streams, separately from the conditioning set (ids, w). Absent, they
+    default to (w, mask, ids), so the original path is unchanged."""
     B = batch["obs"].shape[0]
     mb = B // cfg.minibatches
     perm = torch.randperm(cfg.minibatches * mb, generator=gen, device="cpu").to(batch["obs"].device)
@@ -163,10 +167,11 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
                 for opt in (actor_opt, critic_opt):
                     for pg in opt.param_groups:
                         pg["lr"] = lr
-            surr, ratio = actor_surrogate(logp, g["old_logp"], g["adv"], g["w"], g["mask"], cfg.clip)
+            lw, lm = g.get("loss_w", g["w"]), g.get("loss_mask", g["mask"])
+            surr, ratio = actor_surrogate(logp, g["old_logp"], g["adv"], lw, lm, cfg.clip)
             ent = dist.entropy().sum(-1).mean()
-            v = model.query_values(g["obs"], g["env"], g["ids"], g["w"], g["ids"])
-            vl = value_loss(v, g["old_values"], g["returns"], g["mask"], cfg.clip)
+            v = model.query_values(g["obs"], g["env"], g["ids"], g["w"], g.get("query_ids", g["ids"]))
+            vl = value_loss(v, g["old_values"], g["returns"], lm, cfg.clip)
             loss = surr + cfg.value_coef * vl - cfg.entropy_coef * ent
             actor_opt.zero_grad(set_to_none=True)
             critic_opt.zero_grad(set_to_none=True)

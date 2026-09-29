@@ -132,8 +132,13 @@ class TrainV4C(IsaacAudit):
             for o in (aopt, copt):
                 for g_ in o.param_groups:
                     g_["lr"] = lr
-        ids = torch.arange(K, device=dev).expand(N, -1).contiguous()
-        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=K, required=self.required)
+        # FB fixed-task formulation: the first objective is the task (T), never in the conditioning set; its loss
+        # weight is alpha_T and the preference streams share 1 - alpha_T by w.
+        task = a.task_alpha is not None
+        Kp = K - 1 if task else K
+        qids = torch.arange(K, device=dev).expand(N, -1).contiguous()
+        ids = qids[:, 1:].contiguous() if task else qids
+        w, mask = sample_objective_sets(N, self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
         ep_ret = torch.zeros(N, K, device=dev)
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
@@ -155,7 +160,7 @@ class TrainV4C(IsaacAudit):
                     dist = model._dist(x, e, ids, w)
                     uu = dist.sample()
                     lp = (dist.log_prob(uu) - model._log_det_jacobian(uu)).sum(-1)
-                    v = model.query_values(x, e, ids, w, ids)
+                    v = model.query_values(x, e, ids, w, qids)
                     obs, _, term, trunc, _ = env.step(torch.tanh(uu) * model.ACTION_CLIP)
                     r = (mgr._step_reward @ S.T) * u_env.step_dt
                     shared_steps.append(float((mgr._step_reward @ sv).mean()) * u_env.step_dt)
@@ -169,22 +174,26 @@ class TrainV4C(IsaacAudit):
                         di = d.nonzero().squeeze(-1)
                         done_ret.append(ep_ret[di].clone()); done_len.append(ep_len[di].clone())
                         ep_ret[di] = 0; ep_len[di] = 0
-                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=K, required=self.required)
+                        nw, nm = sample_objective_sets(len(di), self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
                         w = w.clone(); mask = mask.clone()
                         w[di], mask[di] = nw, nm
-                last_v = model.query_values(obs["policy"], norm_e(obs), ids, w, ids)
+                last_v = model.query_values(obs["policy"], norm_e(obs), ids, w, qids)
             T = {k: torch.stack(v) for k, v in buf.items()}
             returns, adv = gae(T["r"], T["old_values"], last_v, T["d"], cfg.gamma, cfg.lam)
             flat = {k: T[k].flatten(0, 1) for k in ("obs", "env", "w", "mask", "u", "old_logp", "old_mu", "old_sigma", "old_values")}
             flat["ids"] = ids.repeat(H, 1)
             flat["returns"] = returns.flatten(0, 1)
-            flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat["w"], flat["mask"])
+            if task:
+                flat["query_ids"] = qids.repeat(H, 1)
+                flat["loss_w"] = torch.cat([torch.full_like(flat["w"][:, :1], a.task_alpha), (1 - a.task_alpha) * flat["w"]], -1)
+                flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
+            flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
             lr, st = update(model, aopt, copt, flat, cfg, lr, gen)
             norm.update(np.concatenate(raw_e))
 
             with torch.no_grad():
-                m = flat["mask"].float()
+                m = flat.get("loss_mask", flat["mask"]).float()
                 res = (flat["returns"] - flat["old_values"]) * m
                 ret_c = (flat["returns"] - (flat["returns"] * m).sum(0) / m.sum(0).clamp_min(1)) * m
                 ev = (1 - res.pow(2).sum(0) / ret_c.pow(2).sum(0).clamp_min(1e-12)).tolist()
@@ -192,7 +201,7 @@ class TrainV4C(IsaacAudit):
                 pick = torch.randperm(flat["obs"].shape[0], generator=gen)[:1024].to(dev)
                 xo, eo, io, wo = flat["obs"][pick], flat["env"][pick], flat["ids"][pick], flat["w"][pick]
                 a0 = model.act_inference(xo, eo, io, wo)
-                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev, num_objectives=K, required=self.required)
+                w2, _ = sample_objective_sets(len(pick), self.cardinalities, gen, dev, num_objectives=Kp, required=self.required)
                 pref_auth = float((model.act_inference(xo, eo, io, w2) - a0).norm(dim=-1).median())
                 plant_auth = float((model.act_inference(xo, eo.roll(1, 0), io, wo) - a0).norm(dim=-1).median())
                 # Integrity: a dead critic body (every last-layer ELU unit saturated, so c_t is
@@ -225,7 +234,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
         self.write(out)
@@ -234,7 +243,7 @@ class TrainV4C(IsaacAudit):
     def _save(self, model, aopt, copt, lr, norm, it, name):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
-                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "seed": self.seed}, self.out / f"{name}.pt")
+                    "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "task_alpha": self.a.task_alpha, "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -247,6 +256,7 @@ if __name__ == "__main__":
         (("--s-objective",), {"choices": ("action_rate", "action_jerk"), "default": "action_rate"}),
         (("--objectives",), {"default": "TAOS", "help": "objective subset in TAOS order, e.g. TAO for V4-C3"}),
         (("--desired-kl",), {"type": float, "default": 0.01, "help": "adaptive-KL target; 0.01 is the M0 value (F5 A2 uses 0.02)"}),
+        (("--task-alpha",), {"type": float, "default": None, "help": "FB: first objective is a fixed-weight task term with this alpha_T; the rest are preferences"}),
         (("--require-objective",), {"default": None, "help": "F8: every sampled objective set contains this letter, e.g. T"}),
         (("--v-objective",), {"choices": ("none", "V1", "V3"), "default": "none", "help": "F8 Vertical Stability realization (objectives.V_REALIZATIONS)"}),
         (("--resume",), {"default": None, "help": "budget audit: controlled restart from this checkpoint (model, optimizers, LR, normalizer)"}),

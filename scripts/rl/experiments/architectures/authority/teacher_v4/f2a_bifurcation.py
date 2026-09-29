@@ -117,7 +117,7 @@ def replay_main(a):
                     for t in range(ROLL):
                         x, e = obs["policy"], self.e_norm(obs)
                         if t < SCORED:
-                            v_.append(self.model.query_values(x, e, ids, w, ids).cpu().numpy())
+                            v_.append(self.model.query_values(x, e, ids, w, self.qids).cpu().numpy())
                         act = self.model.act_inference(x, e, ids, w)
                         obs, _, te, tr, _ = env.step(act)
                         raw = mgr._step_reward.detach().cpu().numpy()
@@ -172,7 +172,14 @@ def replay_main(a):
                 self.labels = tuple(ck.get("objectives", "TAOS")); K = len(self.labels); self.v_objective = ck.get("v_objective", "none")
                 self.model = TeacherV4(num_objectives=K).cuda(); self.model.load_state_dict(ck["model"]); self.model.eval()
                 self.norm = RunningNormalizer(12, center=True); self.norm.load_state_dict(ck["extrinsics_normalizer"])
-                ids = torch.arange(K, device="cuda").repeat(N, 1)
+                ids = torch.arange(K, device="cuda").repeat(N, 1); self.qids = ids
+                if ck.get("task_alpha") is not None:  # FB: task stream 0 is queried, never conditioned on
+                    ids = ids[:, 1:].contiguous(); Kp = K - 1
+                    ws = {"C": center_w(Kp), **{f"{lab}+": heavy_w(Kp, i) for i, lab in enumerate(self.labels[1:])},
+                          **{f"{lab}-vertex": np.eye(Kp, dtype=np.float32)[i] for i, lab in enumerate(self.labels[1:])}}
+                    res[it] = {c: self.rollout_one(env, ids, torch.tensor(ws[c], device="cuda").repeat(N, 1)) for c in ws}
+                    print("REPLAY", self.fold, self.train_seed, it, {c: (v["class"], round(v["tl"], 3), [round(x, 3) for x in v["R"]]) for c, v in res[it].items()}, flush=True)
+                    continue
                 ws = {"C": center_w(K), **({f"{lab}+": heavy_w(K, i) for i, lab in enumerate(self.labels)} if a.conds in ("all", "f8") else {"T+": heavy_w(K, 0)})}
                 if a.conds == "f8":  # T-anchored trio
                     if self.labels != ("T", "A", "O", "V"):

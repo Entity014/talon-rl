@@ -209,3 +209,37 @@ def test_required_objective_anchors_every_set_and_default_draws_are_unchanged():
     assert torch.equal(a, b)
     free = sample_objective_sets(3000, (2, 3), torch.Generator().manual_seed(9), num_objectives=4)[1]
     assert (~free[:, 0]).any()  # the unrestricted sampler does draw T-free sets
+
+
+def test_fixed_task_weight_keeps_task_gradient_independent_of_preference():
+    """FB fixed-task formulation: loss weights [alpha, (1-alpha) w_pref]. With
+    advantage only on the task stream, the actor loss must not change when the
+    user moves the preference between R and O (the old simplex let a stability
+    preference shrink the tracking gradient)."""
+    logp, old, _ = _batch()
+    adv = torch.zeros(64, 3); adv[:, 0] = torch.randn(64, generator=torch.Generator().manual_seed(11))
+    lm = torch.ones(64, 3, dtype=torch.bool)
+    losses = []
+    for wr in (1.0, 0.5, 0.0):
+        lw = torch.tensor([0.44, 0.56 * wr, 0.56 * (1 - wr)]).expand(64, -1)
+        losses.append(actor_surrogate(logp, old, adv, lw, lm, CLIP)[0])
+    assert torch.allclose(losses[0], losses[1]) and torch.allclose(losses[1], losses[2])
+
+
+def test_update_uses_loss_weights_and_query_ids_when_given():
+    """The optional FB keys must reach the loss: a conditioning set over R, O
+    (ids 1, 2) with critic streams T, R, O (query ids 0, 1, 2)."""
+    torch.manual_seed(0); m = TeacherV4(num_objectives=3)
+    B = 128; g = torch.Generator().manual_seed(12)
+    obs, env = torch.randn(B, 48, generator=g), torch.randn(B, 12, generator=g)
+    w, mask = sample_objective_sets(B, (1, 2), g, num_objectives=2)
+    ids = torch.tensor([1, 2]).expand(B, -1).contiguous(); qids = torch.arange(3).expand(B, -1).contiguous()
+    with torch.no_grad():
+        dist = m._dist(obs, env, ids, w); u = dist.sample()
+        lp = (dist.log_prob(u) - m._log_det_jacobian(u)).sum(-1); ov = m.query_values(obs, env, ids, w, qids)
+    lw = torch.cat([torch.full((B, 1), 0.44), 0.56 * w], -1); lm = torch.ones(B, 3, dtype=torch.bool)
+    b = dict(obs=obs, env=env, ids=ids, w=w, mask=mask, u=u, old_logp=lp, old_mu=dist.loc, old_sigma=dist.scale, old_values=ov,
+             returns=ov + 0.1, adv=normalize_advantages(torch.randn(B, 3, generator=g), lw, lm), loss_w=lw, loss_mask=lm, query_ids=qids)
+    cfg = PPOConfig()
+    lr, st = update(m, torch.optim.Adam(m.actor_parameters()), torch.optim.Adam(m.critic_parameters()), b, cfg, cfg.lr, torch.Generator().manual_seed(0))
+    assert ov.shape == (B, 3) and all(np.isfinite(v) for v in st.values())
