@@ -46,13 +46,20 @@ def main():
             cfg = json.load(open(root / f"seed{s}" / "summary.json"))["lagrange"]
             r["lagrange_final_lambda"] = dict(zip(("O-vertex", "O+", "C", "R+", "R-vertex"), rows[-1]["lagrange_lambda"]))
             r["lagrange_at_cap"] = {k: v >= cfg["cap"] - 1e-6 for k, v in r["lagrange_final_lambda"].items()}
+            names = ("O-vertex", "O+", "C", "R+", "R-vertex"); replay = {"O-vertex": "O-vertex", "O+": "O+", "C": "C", "R+": "A+", "R-vertex": "A-vertex"}
+            import numpy as np
+            online = np.nanmean(np.array([x["lagrange_tl_online"] for x in rows[-50:]], dtype=float), 0)
+            ck600 = json.load(open(root / f"seed{s}" / "replay" / "f2a_replay.json"))["checkpoints"]["600"]
+            r["dual_vs_replay"] = {n: {"lambda_final": r["lagrange_final_lambda"][n], "online_tl_last50": float(o), "replay_tl_600": ck600[replay[n]]["tl"]}
+                                   for n, o in zip(names, online)}
     for r in runs.values():
         r["joint"] = r["viable"] and r["authority"]  # the same policy must show both
     kv = sum(r["viable"] for r in runs.values()); ka = sum(r["authority"] for r in runs.values()); kj = sum(r["joint"] for r in runs.values())
     lag = all("lagrange_at_cap" in r for r in runs.values())
     capped = lag and sum(any(r["lagrange_at_cap"][k] for k in ("R+", "R-vertex")) and not r["viable"] for r in runs.values()) >= 2
     reading = ("PASS: task feasibility and R/O preference semantics coexist in >= 2/3 policies; FB-2 adds V" if kj >= 2
-               else ("FAIL viability with R-side duals at cap: R preference may be incompatible with the task under the current realization" if capped
+               else ("FAIL viability with R-side duals at cap: the online constraint was not recovered under this dual mechanism / budget; "
+                     "check replay agreement (dual_vs_replay) and the tracking trend before attributing incompatibility" if capped
                      else "FAIL viability, duals not at cap: dual adaptation / target insufficient") if lag and kv < 2
                else "FAIL viability: fixed task pressure insufficient; constrained formulation becomes the candidate" if kv < 2
                else "viability without authority: task pressure dominates the preferences; the fixed scalar still has tension" if ka < 2

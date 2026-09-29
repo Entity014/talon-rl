@@ -110,6 +110,10 @@ class TrainV4C(IsaacAudit):
             groups = groups + [[vt]]; divisors = np.append(divisors, vd)
         keep = ["TAOSV".index(x) for x in self.objectives]
         groups = [groups[k] for k in keep]; divisors = divisors[keep]
+        if a.lagrange_tmin is not None:
+            # FB-2: the multiplied stream must be the constrained quantity. The task stream is linear tracking only
+            # (same T divisor, so lambda0 keeps its FB-1 meaning); yaw tracking is in no stream in FB-2.
+            groups[0] = ["track_lin_vel_xy_exp"]
         K = len(keep)
         S = torch.zeros(K, len(names), device=dev)
         for k, terms in enumerate(groups):
@@ -214,7 +218,7 @@ class TrainV4C(IsaacAudit):
             flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
             lr, st = update(model, aopt, copt, flat, cfg, lr, gen)
-            if lagr:  # projected dual ascent on the violation, regions without samples unchanged
+            if lagr:  # projected dual update (descent in lambda for max L = J_pref + lambda (J_lin - tmin)); unsampled regions unchanged
                 seen = tl_cnt > 0
                 tl_reg = torch.where(seen, tl_sum / tl_cnt.clamp_min(1), torch.full_like(tl_sum, float("nan")))
                 lam = torch.where(seen, (lam + a.lagrange_eta * (a.lagrange_tmin - tl_reg)).clamp(0.0, a.lagrange_cap), lam)
