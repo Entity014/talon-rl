@@ -44,7 +44,13 @@ Code: `--objectives TAO --task-alpha 0.44 --cardinalities 1,2` in
 
 The F2-A replay protocol (the same reset suite, deterministic) on every
 checkpoint. Conditions over (R, O): C (.5, .5), R⁺ (.7, .3), O⁺ (.3, .7), and
-the R / O vertices (descriptive). Physical metrics: tl, ‖ω_xy‖, tilt, RMS v_z.
+the R / O vertices (1, 0), (0, 1). All five enter the viability gate. Only
+the interior three enter the authority gate. Physical metrics: tl, ‖ω_xy‖,
+tilt, RMS v_z.
+
+*Erratum (before any FB-1 result, training just launched): r2 left the
+earlier phrase "vertices (descriptive)" here. It contradicted criterion 1.
+The criteria and `fb1_screen.py` (frozen at `9343029`) are authoritative.*
 
 ## Per-seed criteria
 
