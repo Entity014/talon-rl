@@ -24,6 +24,7 @@ Includes MDP/deployment descriptions, consolidated failure analysis, compatibili
 ## Documents
 
 - authority-isolated-ai-c2-compatibility-addendum.md
+- behavior-preference-hierarchy.md
 - consolidated-locomotion-failure-analysis.md
 - deployment.md
 - mdp.md

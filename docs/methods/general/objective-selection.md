@@ -131,6 +131,10 @@ role screen, a task-conditional layer and a joint-viability layer:
   selection data for the next round. They are never evaluation data for
   the objective set that round produces.
 
+**Working design (2026-09-29).** Tracking leaves the preference simplex and
+becomes the locomotion task requirement. The preferences are R / V / O inside
+feasible locomotion. See [behavior–preference hierarchy](behavior-preference-hierarchy.md).
+
 ## Separation of selection and evaluation (no leakage)
 
     selection data (policy bank)           frozen objective set          independent test
