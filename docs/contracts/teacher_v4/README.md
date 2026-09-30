@@ -13,6 +13,8 @@ Predeclared protocols for the V4 privileged teacher stages.
 
 ## Documents
 
+- teacher-v4-fce-paired-replication-contract.md
+- teacher-v4-fcf-parameter-path-contract.md
 - teacher-v4-c-g1-contract.md
 - teacher-v4-c-g1r-critic-contract.md
 - teacher-v4-c-seed-sensitivity-contract.md

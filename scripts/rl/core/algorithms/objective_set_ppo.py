@@ -117,6 +117,14 @@ def actor_surrogate(logp: Tensor, old_logp: Tensor, adv: Tensor, w: Tensor, mask
     return -(card * (w * mask.float() * po).sum(-1)).mean(), ratio
 
 
+def actor_stream_surrogates(logp: Tensor, old_logp: Tensor, adv: Tensor, w: Tensor, mask: Tensor, clip: float) -> Tensor:
+    """Per-objective terms of the existing scalarized surrogate, before summing."""
+    ratio = torch.exp(logp - old_logp)
+    r = ratio.unsqueeze(-1)
+    po = torch.minimum(r * adv, r.clamp(1 - clip, 1 + clip) * adv)
+    return -(mask.float().sum(-1).unsqueeze(-1) * w * mask.float() * po).mean(0)
+
+
 def value_loss(values: Tensor, old_values: Tensor, returns: Tensor, mask: Tensor, clip: float) -> Tensor:
     """rsl_rl clipped value loss per objective, averaged over active entries."""
     clipped = old_values + (values - old_values).clamp(-clip, clip)
@@ -141,7 +149,8 @@ def adapt_lr(lr: float, kl_mean: float, desired_kl: float) -> float:
 
 # ----- update -----
 
-def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float, gen: torch.Generator | None = None) -> tuple[float, dict]:
+def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float, gen: torch.Generator | None = None,
+           task_allowed_param_ids: set[int] | None = None) -> tuple[float, dict]:
     """One PPO update over a flattened rollout. batch keys, each [B,...]:
     obs, env, ids, w, mask, u, old_logp, old_mu, old_sigma, old_values,
     returns, adv (already normalized). Returns (new lr, stats).
@@ -154,6 +163,13 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
     perm = torch.randperm(cfg.minibatches * mb, generator=gen, device="cpu").to(batch["obs"].device)
     actor_params, critic_params = model.actor_parameters(), model.critic_parameters()
     stats = {k: 0.0 for k in ("surrogate", "value", "entropy", "kl", "clip_frac")}
+    if task_allowed_param_ids is not None:
+        actor_ids = {id(p) for p in actor_params}
+        if not task_allowed_param_ids <= actor_ids:
+            raise ValueError("task route names a parameter outside the actor")
+        allowed = [p for p in actor_params if id(p) in task_allowed_param_ids]
+        blocked = len(allowed) < len(actor_params)
+        stats.update(actor_grad_norm=0.0, actor_clip_coef=0.0, actor_clip_min=1.0, actor_clip_fraction=0.0)
     n = 0
     for _ in range(cfg.epochs):
         for i in range(cfg.minibatches):
@@ -175,12 +191,30 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
             loss = surr + cfg.value_coef * vl - cfg.entropy_coef * ent
             actor_opt.zero_grad(set_to_none=True)
             critic_opt.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(actor_params, cfg.max_grad_norm)
+            if task_allowed_param_ids is not None and blocked and bool(torch.any(lw[:, 0] * g["adv"][:, 0])):
+                stream_losses = actor_stream_surrogates(logp, g["old_logp"], g["adv"], lw, lm, cfg.clip)
+                task_grads = torch.autograd.grad(stream_losses[0], allowed, retain_graph=True, allow_unused=True)
+                (stream_losses[1:].sum() + cfg.value_coef * vl - cfg.entropy_coef * ent).backward()
+                for p, task_grad in zip(allowed, task_grads):
+                    if task_grad is not None:
+                        if p.grad is None:
+                            p.grad = task_grad
+                        else:
+                            p.grad.add_(task_grad)
+            else:
+                loss.backward()  # FULL route: byte-for-byte legacy backward path
+            actor_norm = torch.nn.utils.clip_grad_norm_(actor_params, cfg.max_grad_norm)
             torch.nn.utils.clip_grad_norm_(critic_params, cfg.max_grad_norm)
+            if task_allowed_param_ids is not None:
+                norm = float(actor_norm)
+                coef = min(1.0, cfg.max_grad_norm / (norm + 1e-6))
+                stats["actor_grad_norm"] += norm
+                stats["actor_clip_coef"] += coef
+                stats["actor_clip_min"] = min(stats["actor_clip_min"], coef)
+                stats["actor_clip_fraction"] += float(coef < 1.0)
             actor_opt.step()
             critic_opt.step()
             stats["surrogate"] += float(surr); stats["value"] += float(vl); stats["entropy"] += float(ent)
             stats["kl"] += float(kl); stats["clip_frac"] += float(((ratio - 1).abs() > cfg.clip).float().mean())
             n += 1
-    return lr, {k: v / n for k, v in stats.items()}
+    return lr, {k: v if k == "actor_clip_min" else v / n for k, v in stats.items()}

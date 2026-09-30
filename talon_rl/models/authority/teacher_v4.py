@@ -164,5 +164,36 @@ class TeacherV4(nn.Module):
     def actor_parameters(self):
         return [p for n,p in self.named_parameters() if not n.startswith(("critic_","query_head"))]
 
+    def actor_parameter_groups(self):
+        """Disjoint FC-F task-gradient routes; critic parameters are excluded."""
+        groups = {f"G{i}": [] for i in range(1, 8)}
+        bases = {"family_w1_base", "family_b1_base", "family_w2_base", "family_b2_base"}
+        residuals = {"family_B_w1", "family_B_b1", "family_B_w2", "family_B_b2"}
+        for name, param in self.named_parameters():
+            if name.startswith(("state_trunk.", "env_encoder.")):
+                group = "G1"
+            elif name.startswith("policy_backbone."):
+                group = "G2"
+            elif name in bases:
+                group = "G3"
+            elif name in residuals:
+                group = "G4"
+            elif name.startswith("actor_set_encoder."):
+                group = "G5"
+            elif name.startswith("family_hyper."):
+                group = "G6"
+            elif name == "log_std":
+                group = "G7"
+            elif name.startswith(("critic_", "query_head")):
+                continue
+            else:
+                raise RuntimeError(f"FC-F actor parameter has no group: {name}")
+            groups[group].append(param)
+        covered = [id(p) for params in groups.values() for p in params]
+        actor = [id(p) for p in self.actor_parameters()]
+        if len(covered) != len(set(covered)) or set(covered) != set(actor) or any(not ps for ps in groups.values()):
+            raise RuntimeError("FC-F actor groups must be disjoint, nonempty and exhaustive")
+        return groups
+
     def critic_parameters(self):
         return [p for n,p in self.named_parameters() if n.startswith(("critic_","query_head"))]

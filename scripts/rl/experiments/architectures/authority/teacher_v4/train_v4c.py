@@ -31,6 +31,13 @@ DEAD_CRITIC_STREAK = 5  # consecutive iterations with a constant critic feature 
 # FB-2 preference regions over w_R (R, O preference): O-vertex [0, .15), O+ [.15, .40), C [.40, .60), R+ [.60, .85), R-vertex [.85, 1]
 LAGR_EDGES = (0.15, 0.40, 0.60, 0.85)
 LAGR_REGIONS = ("O-vertex", "O+", "C", "R+", "R-vertex")
+FCF_ROUTES = {
+    "FULL": ("G1", "G2", "G3", "G4", "G5", "G6", "G7"),
+    "NO-PREF-PATH": ("G1", "G2", "G3", "G7"),
+    "NO-BASES": ("G1", "G2", "G5", "G6", "G7"),
+    "SHARED-FEATURES-ONLY": ("G1", "G2", "G7"),
+    "PREF-ONLY": ("G4", "G5", "G6", "G7"),
+}
 
 
 def region_of(w_r):
@@ -150,6 +157,12 @@ class TrainV4C(IsaacAudit):
         task = a.task_alpha is not None or a.lagrange_tmin is not None
         # FB-2: per-preference-region dual variables for the constraint  track_lin >= tmin  (regions by w_R, frozen)
         lagr = a.lagrange_tmin is not None
+        if a.task_grad_route is not None and (not lagr or a.loss_arm != "full" or self.objectives != "TAO" or a.fixed_w):
+            raise SystemExit("FC-F task gradient routing requires TAO, FB-2 lagrange, full mixed loss, and no fixed preference")
+        task_allowed = None
+        if a.task_grad_route is not None:
+            groups = model.actor_parameter_groups()
+            task_allowed = {id(p) for g in FCF_ROUTES[a.task_grad_route] for p in groups[g]}
         if lagr:
             if K != 3:
                 raise SystemExit("--lagrange-tmin expects --objectives TAO (task T, preferences R, O)")
@@ -180,6 +193,7 @@ class TrainV4C(IsaacAudit):
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
         start = time.time()
+        fcf_clip_trace = []
 
         def norm_e(o):
             return torch.as_tensor(norm.transform(o["privileged"].cpu().numpy()), dtype=torch.float32, device=dev)
@@ -238,7 +252,9 @@ class TrainV4C(IsaacAudit):
                 flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
             flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
-            lr, st = update(model, aopt, copt, flat, cfg, lr, gen)
+            lr, st = update(model, aopt, copt, flat, cfg, lr, gen, task_allowed_param_ids=task_allowed)
+            if task_allowed is not None:
+                fcf_clip_trace.append((st["actor_grad_norm"], st["actor_clip_coef"], st["actor_clip_min"], st["actor_clip_fraction"]))
             if lagr:  # projected dual update (descent in lambda for max L = J_pref + lambda (J_lin - tmin)); unsampled regions unchanged
                 seen = tl_cnt > 0
                 tl_reg = torch.where(seen, tl_sum / tl_cnt.clamp_min(1), torch.full_like(tl_sum, float("nan")))
@@ -289,10 +305,15 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "task_grad_route": a.task_grad_route, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
+        if fcf_clip_trace:
+            out["actor_clip_summary"] = {"preclip_norm_mean": float(np.mean([x[0] for x in fcf_clip_trace])),
+                "coef_mean": float(np.mean([x[1] for x in fcf_clip_trace])),
+                "coef_min": float(min(x[2] for x in fcf_clip_trace)),
+                "fraction_clipped": float(np.mean([x[3] for x in fcf_clip_trace]))}
         self.write(out)
         return out
 
@@ -300,7 +321,8 @@ class TrainV4C(IsaacAudit):
         torch.save({"model": model.state_dict(), "actor_opt": aopt.state_dict(), "critic_opt": copt.state_dict(),
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
                     "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "task_alpha": self.a.task_alpha, "lagrange_tmin": self.a.lagrange_tmin,
-                    "lagrange_lambda": getattr(self, "lam_state", None), "seed": self.seed}, self.out / f"{name}.pt")
+                    "lagrange_lambda": getattr(self, "lam_state", None), "task_grad_route": self.a.task_grad_route,
+                    "seed": self.seed}, self.out / f"{name}.pt")
 
 
 if __name__ == "__main__":
@@ -325,6 +347,8 @@ if __name__ == "__main__":
         (("--loss-arm",), {"choices": ("full", "pref", "r"), "default": "full",
                            "help": "FC-C actor loss: full [lambda, w_R, w_O], pref [0, w_R, w_O], r [0, 1, 0]"}),
         (("--branch-seed",), {"type": int, "default": 0, "help": "FC-E: repeat index r of a resumed branch; run seed = seed + 1e6 + 1000 r (0 = the FC-C/D branches)"}),
+        (("--task-grad-route",), {"choices": tuple(FCF_ROUTES), "default": None,
+                                    "help": "FC-F: route only the task-stream actor gradient; FULL keeps the original update"}),
         (("--lambda-regions",), {"default": None, "help": "FC-D2: comma list of regions whose lambda enters the actor loss (default all)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
