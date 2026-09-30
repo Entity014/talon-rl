@@ -147,10 +147,41 @@ def adapt_lr(lr: float, kl_mean: float, desired_kl: float) -> float:
     return lr
 
 
+def compose_actor_gradients(task_grads, non_task_grads, max_norm: float, mode: str):
+    """FC-G treatment on one minibatch; None denotes an unused parameter."""
+    if mode not in ("GLOBAL", "SPLIT", "SPLIT-NORM-MATCHED"):
+        raise ValueError(f"unknown gradient composition: {mode}")
+    task = [torch.zeros_like(n) if t is None else t for t, n in zip(task_grads, non_task_grads)]
+    non = [torch.zeros_like(t) if n is None else n for t, n in zip(task_grads, non_task_grads)]
+    # The caller supplies dense gradients; the lists must cover the same actor parameters.
+    nt = torch.stack([torch.sum(x.double().square()) for x in task]).sum().sqrt()
+    nn = torch.stack([torch.sum(x.double().square()) for x in non]).sum().sqrt()
+    total = [t + n for t, n in zip(task, non)]
+    n0 = torch.stack([torch.sum(x.double().square()) for x in total]).sum().sqrt()
+    coef = lambda n: min(1.0, max_norm / (float(n) + 1e-6))
+    ct, cn, c0 = coef(nt), coef(nn), coef(n0)
+    g0 = [c0 * x for x in total]
+    g1 = [ct * t + cn * n for t, n in zip(task, non)]
+    n1 = torch.stack([torch.sum(x.double().square()) for x in g1]).sum().sqrt()
+    scale = float(torch.stack([torch.sum(x.double().square()) for x in g0]).sum().sqrt() / n1) if float(n1) > 0 else 0.0
+    g2 = [scale * x for x in g1]
+    dot = sum(torch.sum(a.double() * b.double()) for a, b in zip(g0, g2))
+    n2 = torch.stack([torch.sum(x.double().square()) for x in g2]).sum().sqrt()
+    cos = float(dot / (torch.stack([torch.sum(x.double().square()) for x in g0]).sum().sqrt() * n2)) if float(n0) > 0 and float(n2) > 0 else (1.0 if float(n0) == 0 and float(n2) == 0 else 0.0)
+    selected = {"GLOBAL": g0, "SPLIT": g1, "SPLIT-NORM-MATCHED": g2}[mode]
+    metrics = {"fcg_task_norm": float(nt), "fcg_non_task_norm": float(nn), "fcg_global_norm": float(n0),
+               "fcg_split_norm": float(n1), "fcg_selected_norm": float(torch.stack([torch.sum(x.double().square()) for x in selected]).sum().sqrt()),
+               "fcg_c_task": ct, "fcg_c_non_task": cn, "fcg_c_global": c0,
+               "fcg_c_ratio": ct / cn, "fcg_cos_global_normmatched": max(-1.0, min(1.0, cos)),
+               "fcg_coef_diff_frac": float(abs(ct / cn - 1) > 0.05),
+               "fcg_global_suppresses_non_task_frac": float(c0 < cn - 1e-6)}
+    return selected, metrics
+
+
 # ----- update -----
 
 def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float, gen: torch.Generator | None = None,
-           task_allowed_param_ids: set[int] | None = None) -> tuple[float, dict]:
+           task_allowed_param_ids: set[int] | None = None, gradient_composition: str | None = None) -> tuple[float, dict]:
     """One PPO update over a flattened rollout. batch keys, each [B,...]:
     obs, env, ids, w, mask, u, old_logp, old_mu, old_sigma, old_values,
     returns, adv (already normalized). Returns (new lr, stats).
@@ -162,7 +193,16 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
     mb = B // cfg.minibatches
     perm = torch.randperm(cfg.minibatches * mb, generator=gen, device="cpu").to(batch["obs"].device)
     actor_params, critic_params = model.actor_parameters(), model.critic_parameters()
+    if gradient_composition is not None:
+        if gradient_composition not in ("GLOBAL", "SPLIT", "SPLIT-NORM-MATCHED") or task_allowed_param_ids is not None:
+            raise ValueError("FC-G composition requires a valid arm and no FC-F task route")
     stats = {k: 0.0 for k in ("surrogate", "value", "entropy", "kl", "clip_frac")}
+    if gradient_composition is not None:
+        stats.update({k: 0.0 for k in ("fcg_task_norm", "fcg_non_task_norm", "fcg_global_norm", "fcg_split_norm",
+                                      "fcg_selected_norm", "fcg_c_task", "fcg_c_non_task", "fcg_c_global",
+                                      "fcg_c_ratio", "fcg_cos_global_normmatched", "fcg_coef_diff_frac",
+                                      "fcg_global_suppresses_non_task_frac", "fcg_actor_step_norm",
+                                      "fcg_stream_sum_max_error")})
     if task_allowed_param_ids is not None:
         actor_ids = {id(p) for p in actor_params}
         if not task_allowed_param_ids <= actor_ids:
@@ -191,7 +231,27 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
             loss = surr + cfg.value_coef * vl - cfg.entropy_coef * ent
             actor_opt.zero_grad(set_to_none=True)
             critic_opt.zero_grad(set_to_none=True)
-            if task_allowed_param_ids is not None and blocked and bool(torch.any(lw[:, 0] * g["adv"][:, 0])):
+            if gradient_composition is not None:
+                stream_losses = actor_stream_surrogates(logp, g["old_logp"], g["adv"], lw, lm, cfg.clip)
+                tg = torch.autograd.grad(stream_losses[0], actor_params, retain_graph=True, allow_unused=True)
+                ng = torch.autograd.grad(stream_losses[1:].sum() - cfg.entropy_coef * ent,
+                                         actor_params, retain_graph=True, allow_unused=True)
+                dense_t = [torch.zeros_like(p) if x is None else x for p, x in zip(actor_params, tg)]
+                dense_n = [torch.zeros_like(p) if x is None else x for p, x in zip(actor_params, ng)]
+                selected, audit = compose_actor_gradients(dense_t, dense_n, cfg.max_grad_norm, gradient_composition)
+                for k, v_ in audit.items():
+                    stats[k] += v_
+                if gradient_composition == "GLOBAL":
+                    loss.backward()  # exact legacy path; decomposed gradients are audit only
+                    error = max(float((p.grad.detach() - t - n).abs().max()) for p, t, n in zip(actor_params, dense_t, dense_n))
+                    stats["fcg_stream_sum_max_error"] = max(stats["fcg_stream_sum_max_error"], error)
+                    if error > 1e-5:
+                        raise RuntimeError(f"FC-G stream sum differs from legacy actor gradient: {error}")
+                else:
+                    (cfg.value_coef * vl).backward()
+                    for p, grad in zip(actor_params, selected):
+                        p.grad = grad
+            elif task_allowed_param_ids is not None and blocked and bool(torch.any(lw[:, 0] * g["adv"][:, 0])):
                 stream_losses = actor_stream_surrogates(logp, g["old_logp"], g["adv"], lw, lm, cfg.clip)
                 task_grads = torch.autograd.grad(stream_losses[0], allowed, retain_graph=True, allow_unused=True)
                 (stream_losses[1:].sum() + cfg.value_coef * vl - cfg.entropy_coef * ent).backward()
@@ -203,7 +263,9 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
                             p.grad.add_(task_grad)
             else:
                 loss.backward()  # FULL route: byte-for-byte legacy backward path
-            actor_norm = torch.nn.utils.clip_grad_norm_(actor_params, cfg.max_grad_norm)
+            if gradient_composition is not None:
+                before = [p.detach().clone() for p in actor_params]
+            actor_norm = torch.nn.utils.clip_grad_norm_(actor_params, cfg.max_grad_norm) if gradient_composition in (None, "GLOBAL") else torch.tensor(audit["fcg_selected_norm"])
             torch.nn.utils.clip_grad_norm_(critic_params, cfg.max_grad_norm)
             if task_allowed_param_ids is not None:
                 norm = float(actor_norm)
@@ -213,8 +275,10 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
                 stats["actor_clip_min"] = min(stats["actor_clip_min"], coef)
                 stats["actor_clip_fraction"] += float(coef < 1.0)
             actor_opt.step()
+            if gradient_composition is not None:
+                stats["fcg_actor_step_norm"] += float(torch.stack([torch.sum((p.detach().double() - b.double()).square()) for p, b in zip(actor_params, before)]).sum().sqrt())
             critic_opt.step()
             stats["surrogate"] += float(surr); stats["value"] += float(vl); stats["entropy"] += float(ent)
             stats["kl"] += float(kl); stats["clip_frac"] += float(((ratio - 1).abs() > cfg.clip).float().mean())
             n += 1
-    return lr, {k: v if k == "actor_clip_min" else v / n for k, v in stats.items()}
+    return lr, {k: v if k in ("actor_clip_min", "fcg_stream_sum_max_error") else v / n for k, v in stats.items()}

@@ -159,6 +159,8 @@ class TrainV4C(IsaacAudit):
         lagr = a.lagrange_tmin is not None
         if a.task_grad_route is not None and (not lagr or a.loss_arm != "full" or self.objectives != "TAO" or a.fixed_w):
             raise SystemExit("FC-F task gradient routing requires TAO, FB-2 lagrange, full mixed loss, and no fixed preference")
+        if a.gradient_composition is not None and (not lagr or a.loss_arm != "full" or self.objectives != "TAO" or a.fixed_w or a.task_grad_route is not None):
+            raise SystemExit("FC-G gradient composition requires TAO, FB-2 lagrange, full mixed loss, no fixed preference or FC-F route")
         task_allowed = None
         if a.task_grad_route is not None:
             groups = model.actor_parameter_groups()
@@ -194,6 +196,7 @@ class TrainV4C(IsaacAudit):
         metrics = open(self.out / "metrics.jsonl", "a")
         start = time.time()
         fcf_clip_trace = []
+        fcg_trace = []
 
         def norm_e(o):
             return torch.as_tensor(norm.transform(o["privileged"].cpu().numpy()), dtype=torch.float32, device=dev)
@@ -252,9 +255,12 @@ class TrainV4C(IsaacAudit):
                 flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
             flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
-            lr, st = update(model, aopt, copt, flat, cfg, lr, gen, task_allowed_param_ids=task_allowed)
+            lr, st = update(model, aopt, copt, flat, cfg, lr, gen, task_allowed_param_ids=task_allowed,
+                            gradient_composition=a.gradient_composition)
             if task_allowed is not None:
                 fcf_clip_trace.append((st["actor_grad_norm"], st["actor_clip_coef"], st["actor_clip_min"], st["actor_clip_fraction"]))
+            if a.gradient_composition is not None:
+                fcg_trace.append({k: v for k, v in st.items() if k.startswith("fcg_")})
             if lagr:  # projected dual update (descent in lambda for max L = J_pref + lambda (J_lin - tmin)); unsampled regions unchanged
                 seen = tl_cnt > 0
                 tl_reg = torch.where(seen, tl_sum / tl_cnt.clamp_min(1), torch.full_like(tl_sum, float("nan")))
@@ -305,7 +311,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "task_grad_route": a.task_grad_route, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "task_grad_route": a.task_grad_route, "gradient_composition": a.gradient_composition, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
@@ -314,6 +320,8 @@ class TrainV4C(IsaacAudit):
                 "coef_mean": float(np.mean([x[1] for x in fcf_clip_trace])),
                 "coef_min": float(min(x[2] for x in fcf_clip_trace)),
                 "fraction_clipped": float(np.mean([x[3] for x in fcf_clip_trace]))}
+        if fcg_trace:
+            out["gradient_composition_summary"] = {k: float(np.mean([x[k] for x in fcg_trace])) for k in fcg_trace[0]}
         self.write(out)
         return out
 
@@ -322,6 +330,7 @@ class TrainV4C(IsaacAudit):
                     "lr": lr, "extrinsics_normalizer": norm.state_dict(), "iteration": it,
                     "cardinalities": list(self.cardinalities), "objectives": self.objectives, "shared": self.a.shared, "v_objective": self.a.v_objective, "task_alpha": self.a.task_alpha, "lagrange_tmin": self.a.lagrange_tmin,
                     "lagrange_lambda": getattr(self, "lam_state", None), "task_grad_route": self.a.task_grad_route,
+                    "gradient_composition": self.a.gradient_composition,
                     "seed": self.seed}, self.out / f"{name}.pt")
 
 
@@ -349,6 +358,8 @@ if __name__ == "__main__":
         (("--branch-seed",), {"type": int, "default": 0, "help": "FC-E: repeat index r of a resumed branch; run seed = seed + 1e6 + 1000 r (0 = the FC-C/D branches)"}),
         (("--task-grad-route",), {"choices": tuple(FCF_ROUTES), "default": None,
                                     "help": "FC-F: route only the task-stream actor gradient; FULL keeps the original update"}),
+        (("--gradient-composition",), {"choices": ("GLOBAL", "SPLIT", "SPLIT-NORM-MATCHED"), "default": None,
+                                       "help": "FC-G: clip task and non-task actor gradients globally or separately"}),
         (("--lambda-regions",), {"default": None, "help": "FC-D2: comma list of regions whose lambda enters the actor loss (default all)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
