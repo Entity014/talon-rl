@@ -57,6 +57,7 @@ Conclusions from the V4 privileged teacher stages (V4-A to V4-F).
 - teacher-v4-fcd1-lambda-zero-verdict.md
 - teacher-v4-fcd2-rvertex-sufficiency-verdict.md
 - teacher-v4-fce-paired-replication-verdict.md
+- teacher-v4-fcf-parameter-path-verdict.md
 
 ## Maintenance
 
