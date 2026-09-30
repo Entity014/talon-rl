@@ -194,6 +194,7 @@ class TrainV4C(IsaacAudit):
         ep_ret = torch.zeros(N, K, device=dev)
         ep_len = torch.zeros(N, device=dev)
         metrics = open(self.out / "metrics.jsonl", "a")
+        fcg_minibatches = open(self.out / "gradient_minibatches.jsonl", "a") if a.gradient_composition is not None else None
         start = time.time()
         fcf_clip_trace = []
         fcg_trace = []
@@ -255,8 +256,13 @@ class TrainV4C(IsaacAudit):
                 flat["loss_mask"] = torch.ones_like(flat["loss_w"], dtype=torch.bool)
             flat["adv"] = normalize_advantages(adv.flatten(0, 1), flat.get("loss_w", flat["w"]), flat.get("loss_mask", flat["mask"]))
             model.train()
+            minibatch_audit = [] if fcg_minibatches is not None else None
             lr, st = update(model, aopt, copt, flat, cfg, lr, gen, task_allowed_param_ids=task_allowed,
-                            gradient_composition=a.gradient_composition)
+                            gradient_composition=a.gradient_composition, gradient_audit_sink=minibatch_audit)
+            if fcg_minibatches is not None:
+                for row in minibatch_audit:
+                    fcg_minibatches.write(json.dumps({"iteration": it, **row}) + "\n")
+                fcg_minibatches.flush()
             if task_allowed is not None:
                 fcf_clip_trace.append((st["actor_grad_norm"], st["actor_clip_coef"], st["actor_clip_min"], st["actor_clip_fraction"]))
             if a.gradient_composition is not None:
@@ -311,6 +317,8 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
+        if fcg_minibatches is not None:
+            fcg_minibatches.close()
         out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "task_grad_route": a.task_grad_route, "gradient_composition": a.gradient_composition, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,

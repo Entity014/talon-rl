@@ -63,3 +63,17 @@ def test_split_changes_actor_but_not_critic_on_shared_batch():
     for p, q in zip(base.critic_parameters(), split.critic_parameters()):
         assert torch.equal(p, q)
     close_state(c0.state_dict(), c1.state_dict())
+
+
+def test_norm_match_records_each_minibatch_and_holds_pre_adam_norm():
+    torch.manual_seed(23)
+    model = TeacherV4(num_objectives=3)
+    aopt, copt = optimizers(model)
+    cfg = replace(PPOConfig(), epochs=2, minibatches=2)
+    audit = []
+    update(model, aopt, copt, batch(model), cfg, cfg.lr, torch.Generator().manual_seed(5),
+           gradient_composition="SPLIT-NORM-MATCHED", gradient_audit_sink=audit)
+    assert len(audit) == 4
+    assert {(row["epoch"], row["minibatch"]) for row in audit} == {(0, 0), (0, 1), (1, 0), (1, 1)}
+    assert all(abs(row["fcg_selected_norm"] - min(1.0, row["fcg_global_norm"] * row["fcg_c_global"])) < 1e-5
+               for row in audit)

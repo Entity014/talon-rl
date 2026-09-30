@@ -181,7 +181,8 @@ def compose_actor_gradients(task_grads, non_task_grads, max_norm: float, mode: s
 # ----- update -----
 
 def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float, gen: torch.Generator | None = None,
-           task_allowed_param_ids: set[int] | None = None, gradient_composition: str | None = None) -> tuple[float, dict]:
+           task_allowed_param_ids: set[int] | None = None, gradient_composition: str | None = None,
+           gradient_audit_sink: list[dict] | None = None) -> tuple[float, dict]:
     """One PPO update over a flattened rollout. batch keys, each [B,...]:
     obs, env, ids, w, mask, u, old_logp, old_mu, old_sigma, old_values,
     returns, adv (already normalized). Returns (new lr, stats).
@@ -211,7 +212,7 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
         blocked = len(allowed) < len(actor_params)
         stats.update(actor_grad_norm=0.0, actor_clip_coef=0.0, actor_clip_min=1.0, actor_clip_fraction=0.0)
     n = 0
-    for _ in range(cfg.epochs):
+    for epoch in range(cfg.epochs):
         for i in range(cfg.minibatches):
             idx = perm[i * mb:(i + 1) * mb]
             g = {k: v[idx] for k, v in batch.items()}
@@ -239,6 +240,9 @@ def update(model, actor_opt, critic_opt, batch: dict, cfg: PPOConfig, lr: float,
                 dense_t = [torch.zeros_like(p) if x is None else x for p, x in zip(actor_params, tg)]
                 dense_n = [torch.zeros_like(p) if x is None else x for p, x in zip(actor_params, ng)]
                 selected, audit = compose_actor_gradients(dense_t, dense_n, cfg.max_grad_norm, gradient_composition)
+                if gradient_audit_sink is not None:
+                    gradient_audit_sink.append({"epoch": epoch, "minibatch": i, "arm": gradient_composition,
+                                                **audit, "lr": lr, "kl": float(kl)})
                 for k, v_ in audit.items():
                     stats[k] += v_
                 if gradient_composition == "GLOBAL":

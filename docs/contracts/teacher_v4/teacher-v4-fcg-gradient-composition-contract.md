@@ -35,7 +35,7 @@ On a shared live rollout/minibatch from each primary u0 checkpoint, log `||g_T||
 
 Also measure how often the live FULL update gives `c_global < c_N`, which directly quantifies task-associated suppression of the non-task gradient on that batch. A difference in branch-mean clip coefficients alone does not establish this within-update relation.
 
-For every PPO minibatch in every arm log `c_T/c_N`, `cos(G0,G2)`, the fraction of minibatches with `|c_T/c_N − 1| > 0.05`, and the fraction with `c_global < c_N − 1e-6`. The 5% coefficient difference is a numerical exposure threshold, not a hypothesis-test p value. Report means and the distribution across iterations; if coefficients are nearly equal and `cos(G0,G2)` nearly one, record that the intervention had little directional exposure. If both `G0` and `G2` are zero, define cosine as one; if exactly one is zero, define it as zero. These audit quantities are descriptive and never change the registered sequential decision rule.
+For every PPO minibatch in every arm log `c_T/c_N`, `cos(G0,G2)`, the fraction of minibatches with `|c_T/c_N − 1| > 0.05`, and the fraction with `c_global < c_N − 1e-6`. The trainer writes each row to `gradient_minibatches.jsonl` and iteration means/fractions to `metrics.jsonl`. The 5% coefficient difference is a numerical exposure threshold, not a hypothesis-test p value. Report means and the distribution across iterations; if coefficients are nearly equal and `cos(G0,G2)` nearly one, record that the intervention had little directional exposure. If both `G0` and `G2` are zero, define cosine as one; if exactly one is zero, define it as zero. These audit quantities are descriptive and never change the registered sequential decision rule.
 
 ## Registered outcome design
 
