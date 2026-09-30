@@ -53,7 +53,7 @@ class TrainV4C(IsaacAudit):
         self.num_envs = a.num_envs
         self.seed = a.seed
         # a controlled restart, not an exact continuation: env, sampler and RNG state are not in the checkpoint
-        self.run_seed = a.seed + RESTART_SEED_OFFSET if a.resume else a.seed
+        self.run_seed = a.seed + RESTART_SEED_OFFSET + 1000 * a.branch_seed if a.resume else a.seed
         # F8 task-anchored support: every sampled set contains this objective (not a rule of the final architecture)
         self.required = a.objectives.index(a.require_objective) if a.require_objective else None
         self.cardinalities = tuple(int(x) for x in a.cardinalities.split(","))
@@ -289,7 +289,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lambda_regions": a.lambda_regions, "lagrange": None if a.lagrange_tmin is None else
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lambda_regions": a.lambda_regions, "branch_seed": a.branch_seed, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
@@ -324,6 +324,7 @@ if __name__ == "__main__":
         (("--fixed-w",), {"default": None, "help": "FC-C: fixed preference w (R,O), e.g. 0.7,0.3, for every episode"}),
         (("--loss-arm",), {"choices": ("full", "pref", "r"), "default": "full",
                            "help": "FC-C actor loss: full [lambda, w_R, w_O], pref [0, w_R, w_O], r [0, 1, 0]"}),
+        (("--branch-seed",), {"type": int, "default": 0, "help": "FC-E: repeat index r of a resumed branch; run seed = seed + 1e6 + 1000 r (0 = the FC-C/D branches)"}),
         (("--lambda-regions",), {"default": None, "help": "FC-D2: comma list of regions whose lambda enters the actor loss (default all)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
