@@ -157,6 +157,11 @@ class TrainV4C(IsaacAudit):
             if a.resume and ck.get("lagrange_lambda") is not None:  # FC-C: a continuation keeps the checkpoint's duals
                 lam = torch.tensor(ck["lagrange_lambda"], device=dev)
             tl_col = names.index("track_lin_vel_xy_exp")
+            # FC-D2: only these regions' lambda enters the actor loss; every dual is still updated and logged
+            on = a.lambda_regions.split(",") if a.lambda_regions else list(LAGR_REGIONS)
+            if any(r not in LAGR_REGIONS for r in on):
+                raise SystemExit(f"--lambda-regions must name regions from {LAGR_REGIONS}")
+            lam_on = torch.tensor([float(r in on) for r in LAGR_REGIONS], device=dev)
         Kp = K - 1 if task else K
         if (a.fixed_w or a.loss_arm != "full") and not lagr:
             raise SystemExit("--fixed-w / --loss-arm are FC-C probes of the FB-2 formulation (need --lagrange-tmin)")
@@ -223,7 +228,7 @@ class TrainV4C(IsaacAudit):
             if task:
                 flat["query_ids"] = qids.repeat(H, 1)
                 if lagr:  # L = w_R R + w_O O + lambda_region(w) T ; the dual step follows the update
-                    flat["loss_w"] = torch.cat([lam[region_of(flat["w"][:, 0])].unsqueeze(-1), flat["w"]], -1)
+                    flat["loss_w"] = torch.cat([(lam * lam_on)[region_of(flat["w"][:, 0])].unsqueeze(-1), flat["w"]], -1)
                     if a.loss_arm == "pref":  # FC-C: drop the task stream from the actor loss (critic still fits it)
                         flat["loss_w"][:, 0] = 0.0
                     elif a.loss_arm == "r":  # FC-C: R stream only; the advantage scale is invariant to its weight
@@ -284,7 +289,7 @@ class TrainV4C(IsaacAudit):
             if (a.save_every and it % a.save_every == 0) or it == a.iterations:
                 self._save(model, aopt, copt, lr, norm, it, f"model_{it}")
         metrics.close()
-        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lagrange": None if a.lagrange_tmin is None else
+        out = {"task": self.task, "objectives": self.objectives, "s_objective": a.s_objective, "shared": a.shared, "v_objective": a.v_objective, "require_objective": a.require_objective, "task_alpha": a.task_alpha, "fixed_w": a.fixed_w, "loss_arm": a.loss_arm, "lambda_regions": a.lambda_regions, "lagrange": None if a.lagrange_tmin is None else
                {"tmin": a.lagrange_tmin, "lambda0": a.lagrange_lambda0, "eta": a.lagrange_eta, "cap": a.lagrange_cap, "edges": list(LAGR_EDGES)}, "num_envs": N, "seed": self.seed, "resume": a.resume, "run_seed": self.run_seed, "cardinalities": list(self.cardinalities),
                "iterations": a.iterations, "env_samples": a.iterations * N * H, "ppo_config": cfg.__dict__,
                "final_lr": lr, "wall_s": round(time.time() - start, 1)}
@@ -319,6 +324,7 @@ if __name__ == "__main__":
         (("--fixed-w",), {"default": None, "help": "FC-C: fixed preference w (R,O), e.g. 0.7,0.3, for every episode"}),
         (("--loss-arm",), {"choices": ("full", "pref", "r"), "default": "full",
                            "help": "FC-C actor loss: full [lambda, w_R, w_O], pref [0, w_R, w_O], r [0, 1, 0]"}),
+        (("--lambda-regions",), {"default": None, "help": "FC-D2: comma list of regions whose lambda enters the actor loss (default all)"}),
         (("--shared",), {"choices": ("none", "linz", "torque_acc", "air", "all"), "default": "none",
                          "help": "F3 preference-invariant substrate arm (talon_rl.rewards.objectives.SHARED_ARMS)"}),
     )
