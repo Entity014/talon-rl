@@ -54,8 +54,8 @@ def checkpoint_row(rep, z, u):
             "S_shared": med["C"]["F_rate"], "S_cond": med["A+"]["F_rate"] - med["C"]["F_rate"], "tl": tl}
 
 
-def arm_audit(s, arm):
-    d = ROOT / f"seed{s}" / arm / "replay"
+def arm_audit(s, arm, root=ROOT):
+    d = root / f"seed{s}" / arm / "replay"
     rep = json.load(open(d / "f2a_replay.json"))["checkpoints"]; z = np.load(d / "rotation_traces.npz")
     u0 = U0[s]
     rows = {k: checkpoint_row(rep, z, u0 + k) for k in range(0, 51, 10)}
